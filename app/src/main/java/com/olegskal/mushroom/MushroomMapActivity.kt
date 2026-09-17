@@ -509,7 +509,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         container.addView(btnTracks)
 
         // 3. Download offline maps
-        val btnDownloadMaps = UiUtils.createStyledButton(this, "🗺️ Завантажити офлайн карти", itemParams) {
+        val btnDownloadMaps = UiUtils.createStyledButton(this, "🗺️ Карти", itemParams) {
             dialog.dismiss()
             RegionDownloadDialog.show(this@MushroomMapActivity) {
                 mapView.invalidate()
