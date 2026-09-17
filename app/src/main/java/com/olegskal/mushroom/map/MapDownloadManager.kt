@@ -48,7 +48,7 @@ object MapDownloadManager {
     private const val WORKER_COUNT = 3
 
     const val DEFAULT_MIN_ZOOM = 10
-    const val DEFAULT_MAX_ZOOM = 14
+    const val DEFAULT_MAX_ZOOM = 15
 
     private val dispatcherExecutor = Executors.newSingleThreadExecutor()
     private val workerExecutor = Executors.newFixedThreadPool(WORKER_COUNT)
