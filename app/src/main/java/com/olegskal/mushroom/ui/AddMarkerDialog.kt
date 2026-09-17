@@ -30,10 +30,15 @@ object AddMarkerDialog {
         lat: Double,
         lon: Double,
         altitude: Double = 0.0,
+        initialName: String? = null,
+        initialType: String? = null,
         onMarkerAdded: (MushroomMarker) -> Unit
     ) {
         val dialog = Dialog(activity)
         dialog.setTitle("Нова мітка")
+
+        var currentLat = lat
+        var currentLon = lon
 
         val container = UiUtils.createDarkDialogContainer(activity)
 
@@ -45,13 +50,41 @@ object AddMarkerDialog {
         }
         container.addView(titleTv)
 
-        val coordTv = TextView(activity).apply {
-            text = String.format(Locale.US, "Координати: %.5f, %.5f", lat, lon)
-            setTextColor(Color.LTGRAY)
-            textSize = 12f
+        val coordRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, 16)
         }
-        container.addView(coordTv)
+
+        val coordTv = TextView(activity).apply {
+            text = String.format(Locale.US, "Координати: %.5f, %.5f", currentLat, currentLon)
+            setTextColor(Color.LTGRAY)
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val btnPasteCoord = Button(activity).apply {
+            text = "📋 З буфера"
+            setTextColor(Color.parseColor("#00E5FF"))
+            setBackgroundColor(Color.TRANSPARENT)
+            textSize = 12f
+            setOnClickListener {
+                val clip = com.olegskal.mushroom.util.GeoDataExchange.getClipboardText(activity)
+                val parsed = com.olegskal.mushroom.util.GeoDataExchange.parseCoordinates(clip)
+                if (parsed != null) {
+                    currentLat = parsed.first
+                    currentLon = parsed.second
+                    coordTv.text = String.format(Locale.US, "Координати: %.5f, %.5f", currentLat, currentLon)
+                    Toast.makeText(activity, "Вставлено: ${String.format(Locale.US, "%.5f, %.5f", currentLat, currentLon)}", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(activity, "У буфері не знайдено координат", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        coordRow.addView(coordTv)
+        coordRow.addView(btnPasteCoord)
+        container.addView(coordRow)
 
         val spinnerLabel = TextView(activity).apply {
             text = "Тип мітки:"
@@ -65,6 +98,10 @@ object AddMarkerDialog {
             val adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item, MUSHROOM_TYPES)
             setAdapter(adapter)
             setBackgroundColor(Color.parseColor("#2A2A2A"))
+            if (initialType != null) {
+                val idx = MUSHROOM_TYPES.indexOfFirst { it.contains(initialType) }
+                if (idx >= 0) setSelection(idx)
+            }
         }
         container.addView(spinner)
 
@@ -77,7 +114,7 @@ object AddMarkerDialog {
         container.addView(nameLabel)
 
         val sdf = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
-        val defaultName = "Білий гриб (${sdf.format(Date())})"
+        val defaultName = initialName ?: "Білий гриб (${sdf.format(Date())})"
 
         val nameInput = EditText(activity).apply {
             setText(defaultName)
@@ -87,10 +124,17 @@ object AddMarkerDialog {
         }
         container.addView(nameInput)
 
+        var userEditedName = initialName != null
+        nameInput.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) userEditedName = true
+        }
+
         spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                val chosen = MUSHROOM_TYPES[position].replace("🍄 ", "").replace("🚗 ", "").replace("📍 ", "")
-                nameInput.setText("$chosen (${sdf.format(Date())})")
+                if (!userEditedName) {
+                    val chosen = MUSHROOM_TYPES[position].replace("🍄 ", "").replace("🚗 ", "").replace("📍 ", "")
+                    nameInput.setText("$chosen (${sdf.format(Date())})")
+                }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -130,8 +174,8 @@ object AddMarkerDialog {
                 id = System.currentTimeMillis(),
                 name = name,
                 type = type,
-                lat = lat,
-                lon = lon,
+                lat = currentLat,
+                lon = currentLon,
                 altitude = altitude,
                 timestamp = System.currentTimeMillis(),
                 note = note,

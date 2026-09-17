@@ -52,6 +52,16 @@ object TracksListDialog {
         headerRow.addView(btnClose)
         container.addView(headerRow)
 
+        val btnImportGpx = UiUtils.createStyledButton(activity, "📂 Імпортувати GPX файл") {
+            dialog.dismiss()
+            (activity as? com.olegskal.mushroom.MushroomMapActivity)?.openGpxFilePicker()
+        }
+        val importParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 0, 0, 12)
+        }
+        btnImportGpx.layoutParams = importParams
+        container.addView(btnImportGpx)
+
         val scrollView = ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
@@ -156,8 +166,19 @@ object TracksListDialog {
                     }
                 }
 
+                val btnShare = Button(activity).apply {
+                    text = "📤"
+                    setTextColor(Color.parseColor("#00E5FF"))
+                    setBackgroundColor(Color.TRANSPARENT)
+                    textSize = 16f
+                    setOnClickListener {
+                        com.olegskal.mushroom.util.GeoDataExchange.shareTrackGpx(activity, track)
+                    }
+                }
+
                 itemRow.addView(chkVisible)
                 itemRow.addView(infoCol)
+                itemRow.addView(btnShare)
                 itemRow.addView(btnDelete)
 
                 listContainer.addView(itemRow)

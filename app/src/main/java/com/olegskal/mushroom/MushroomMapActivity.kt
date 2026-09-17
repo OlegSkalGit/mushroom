@@ -7,9 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.*
 import android.location.Location
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import android.view.*
 import android.widget.*
 import com.olegskal.mushroom.db.DatabaseHelper
@@ -24,12 +26,17 @@ import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.ui.*
 import com.olegskal.mushroom.util.AppLogger
 import com.olegskal.mushroom.util.AppPrefs
+import com.olegskal.mushroom.util.GeoDataExchange
 import com.olegskal.mushroom.util.LocationUtils
 import com.olegskal.mushroom.util.ServiceUtils
 import java.util.Locale
 import kotlin.math.*
 
 class MushroomMapActivity : Activity() {
+
+    companion object {
+        private const val REQ_CODE_IMPORT_GPX = 1010
+    }
 
     private lateinit var mapView: MushroomMapView
     private lateinit var dbHelper: DatabaseHelper
@@ -285,6 +292,141 @@ class MushroomMapActivity : Activity() {
         OsmTileEngine.onTileReadyListener = {
             mapView.postInvalidate()
         }
+
+        handleIncomingIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    fun openGpxFilePicker() {
+        try {
+            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = "*/*"
+                addCategory(Intent.CATEGORY_OPENABLE)
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/gpx+xml", "application/octet-stream", "text/xml", "*/*"))
+            }
+            startActivityForResult(Intent.createChooser(intent, "Виберіть GPX файл"), REQ_CODE_IMPORT_GPX)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Помилка вибору файлу: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_CODE_IMPORT_GPX && resultCode == RESULT_OK) {
+            data?.data?.let { uri ->
+                importGpxFromUri(uri)
+            }
+        }
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action ?: return
+
+        when (action) {
+            Intent.ACTION_SEND -> {
+                val streamUri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                }
+                if (streamUri != null) {
+                    importGpxFromUri(streamUri)
+                    intent.action = null
+                    return
+                }
+
+                val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+                if (!text.isNullOrBlank()) {
+                    val coords = GeoDataExchange.parseCoordinates(text)
+                    if (coords != null) {
+                        onReceivedCoordinates(coords.first, coords.second)
+                    } else {
+                        Toast.makeText(this, "У надісланому тексті не знайдено координат", Toast.LENGTH_SHORT).show()
+                    }
+                    intent.action = null
+                }
+            }
+            Intent.ACTION_VIEW -> {
+                val uri = intent.data ?: return
+                if (uri.scheme == "geo") {
+                    val coords = GeoDataExchange.parseCoordinates(uri.toString())
+                    if (coords != null) {
+                        onReceivedCoordinates(coords.first, coords.second)
+                    }
+                } else {
+                    importGpxFromUri(uri)
+                }
+                intent.action = null
+            }
+        }
+    }
+
+    private fun onReceivedCoordinates(lat: Double, lon: Double) {
+        isFollowLocation = false
+        mapView.setCenter(lat, lon)
+        AddMarkerDialog.show(
+            this,
+            dbHelper,
+            lat,
+            lon,
+            initialName = "Отримана мітка",
+            initialType = "📍 Знайдене місце"
+        ) {
+            mapView.reloadMarkers()
+        }
+        Toast.makeText(this, String.format(Locale.US, "Отримано координати: %.5f, %.5f", lat, lon), Toast.LENGTH_LONG).show()
+    }
+
+    private fun importGpxFromUri(uri: Uri) {
+        try {
+            val stream = contentResolver.openInputStream(uri)
+            if (stream == null) {
+                Toast.makeText(this, "Не вдалося відкрити файл", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val fileName = getFileNameFromUri(uri) ?: "Імпортований трек"
+            val cleanTitle = fileName.removeSuffix(".gpx").removeSuffix(".xml")
+            val track = stream.use { GeoDataExchange.parseGpx(it, cleanTitle) }
+            if (track != null && track.points.isNotEmpty()) {
+                dbHelper.insertTrack(track)
+                mapView.reloadTracks()
+                isFollowLocation = false
+                mapView.fitTrackBounds(track)
+                val km = track.distanceMeters / 1000f
+                Toast.makeText(this, "Імпортовано трек \"${track.title}\" (довжина: ${String.format(Locale.US, "%.2f", km)} км)", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "У файлі не знайдено валідного GPX треку", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            AppLogger.log("MushroomMapActivity", "importGpxFromUri", false, "Error importing GPX: ${e.message}")
+            Toast.makeText(this, "Помилка читання GPX: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun getFileNameFromUri(uri: Uri): String? {
+        var name: String? = null
+        if (uri.scheme == "content") {
+            try {
+                contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) name = cursor.getString(idx)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        if (name == null) {
+            name = uri.lastPathSegment
+        }
+        return name
     }
 
     private fun toggleTrackRecording() {

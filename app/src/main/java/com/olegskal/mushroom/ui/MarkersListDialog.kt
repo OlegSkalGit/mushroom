@@ -55,6 +55,31 @@ object MarkersListDialog {
         headerRow.addView(btnClose)
         container.addView(headerRow)
 
+        val btnPasteClip = UiUtils.createStyledButton(activity, "📋 Вставити координати з буфера") {
+            val clipText = com.olegskal.mushroom.util.GeoDataExchange.getClipboardText(activity)
+            val coords = com.olegskal.mushroom.util.GeoDataExchange.parseCoordinates(clipText)
+            if (coords != null) {
+                dialog.dismiss()
+                AddMarkerDialog.show(
+                    activity,
+                    dbHelper,
+                    coords.first,
+                    coords.second,
+                    initialName = "Отримана мітка",
+                    initialType = "📍 Знайдене місце"
+                ) {
+                    onVisibilityChanged()
+                }
+            } else {
+                Toast.makeText(activity, "У буфері не знайдено координат\n(формат: 50.4501, 30.5234 або посилання)", Toast.LENGTH_LONG).show()
+            }
+        }
+        val pasteParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 0, 0, 12)
+        }
+        btnPasteClip.layoutParams = pasteParams
+        container.addView(btnPasteClip)
+
         val scrollView = ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
@@ -156,8 +181,19 @@ object MarkersListDialog {
                     }
                 }
 
+                val btnShare = Button(activity).apply {
+                    text = "📤"
+                    setTextColor(Color.parseColor("#00E5FF"))
+                    setBackgroundColor(Color.TRANSPARENT)
+                    textSize = 16f
+                    setOnClickListener {
+                        com.olegskal.mushroom.util.GeoDataExchange.shareMarker(activity, marker)
+                    }
+                }
+
                 itemRow.addView(chkVisible)
                 itemRow.addView(infoCol)
+                itemRow.addView(btnShare)
                 itemRow.addView(btnDelete)
 
                 listContainer.addView(itemRow)

@@ -52,9 +52,58 @@
 
         <activity
             android:name=".MushroomMapActivity"
-            android:exported="false"
+            android:exported="true"
             android:launchMode="singleTop"
-            android:theme="@style/Theme.Transparent" />
+            android:theme="@style/Theme.Transparent">
+
+            <!-- 1. Text coordinates / Maps links shared to Mushroom -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- 2. GPX files shared to Mushroom -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/gpx+xml" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="text/xml" />
+            </intent-filter>
+
+            <!-- 3. Geo URI opened directly -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geo" />
+            </intent-filter>
+
+            <!-- 4. GPX files opened directly from file managers / messengers -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/gpx+xml" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="text/xml" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:pathPattern=".*\\.gpx" />
+            </intent-filter>
+        </activity>
 
         <service
             android:name=".service.MushroomTrackingService"
