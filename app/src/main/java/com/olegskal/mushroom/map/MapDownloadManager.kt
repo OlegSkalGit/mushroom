@@ -277,7 +277,7 @@ object MapDownloadManager {
             }
             val isBlocked = conn.getHeaderField("x-blocked") != null || conn.getHeaderField("X-Blocked") != null
             if (conn.responseCode == HttpURLConnection.HTTP_OK && !isBlocked && conn.contentLength != 6987) {
-                val tmp = File(destFile.parentFile, "${destFile.name}.tmp")
+                val tmp = File(destFile.parentFile, "${destFile.name}.${Thread.currentThread().id}.tmp")
                 inputStream = conn.inputStream
                 FileOutputStream(tmp).use { output ->
                     inputStream?.copyTo(output)

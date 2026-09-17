@@ -267,13 +267,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         setContentView(rootLayout)
 
         OsmTileEngine.appContext = applicationContext
-        OsmTileEngine.onTileReadyListener = {
-            if (!isTileRedrawPending) {
-                isTileRedrawPending = true
-                uiHandler.postDelayed(tileRedrawRunnable, 35L)
-            }
-        }
-
         handleIncomingIntent(intent)
     }
 
@@ -563,6 +556,13 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
+        OsmTileEngine.onTileReadyListener = {
+            if (!isTileRedrawPending) {
+                isTileRedrawPending = true
+                uiHandler.postDelayed(tileRedrawRunnable, 35L)
+            }
+        }
+
         uiHandler.post(periodicRefreshRunnable)
     }
 
@@ -571,8 +571,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sensorManager.unregisterListener(this)
         uiHandler.removeCallbacks(periodicRefreshRunnable)
+        OsmTileEngine.onTileReadyListener = null
         MushroomTrackingService.metricsListener = null
         MushroomTrackingService.serviceStateListener = null
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        OsmTileEngine.onTileReadyListener = null
     }
 
     override fun onSensorChanged(event: SensorEvent?) {

@@ -172,20 +172,27 @@ object OsmTileEngine {
                             onTileReadyListener?.invoke()
                         } else {
                             destFile.delete()
-                            missingTileKeys.add(key)
+                            markTileMissing(key)
                         }
                     } else {
-                        missingTileKeys.add(key)
+                        markTileMissing(key)
                     }
                 } catch (_: Exception) {
-                    missingTileKeys.add(key)
+                    markTileMissing(key)
                 } finally {
                     activeNetworkDownloads.remove(key)
                 }
             }
         } else {
-            missingTileKeys.add(key)
+            markTileMissing(key)
         }
+    }
+
+    private fun markTileMissing(key: String) {
+        if (missingTileKeys.size > 2000) {
+            missingTileKeys.clear()
+        }
+        missingTileKeys.add(key)
     }
 
     fun clearRamCache() {
