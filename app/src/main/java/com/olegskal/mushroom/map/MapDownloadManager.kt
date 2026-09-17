@@ -4,10 +4,14 @@ import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 data class MapRegion(
     val id: String,
@@ -24,12 +28,29 @@ data class MapCountry(
     val regions: List<MapRegion> = emptyList()
 )
 
+data class TileTask(
+    val z: Int,
+    val x: Int,
+    val y: Int,
+    val regionName: String
+)
+
 object MapDownloadManager {
 
     private const val TAG = "MapDownloadManager"
-    private val downloadExecutor = Executors.newSingleThreadExecutor()
+    private val TILE_SERVERS = arrayOf(
+        "a.tile.openstreetmap.org",
+        "b.tile.openstreetmap.org",
+        "c.tile.openstreetmap.org"
+    )
+    private const val WORKER_COUNT = 3
+
+    private val dispatcherExecutor = Executors.newSingleThreadExecutor()
+    private val workerExecutor = Executors.newFixedThreadPool(WORKER_COUNT)
+
     private val isDownloading = AtomicBoolean(false)
     private val cancelFlag = AtomicBoolean(false)
+    private val taskQueue = ConcurrentLinkedQueue<TileTask>()
 
     val countries: List<MapCountry> = listOf(
         MapCountry(
@@ -83,7 +104,7 @@ object MapDownloadManager {
     )
 
     fun calculateTileCount(regions: List<MapRegion>, minZoom: Int = 10, maxZoom: Int = 13): Int {
-        var total = 0
+        val seen = HashSet<Long>()
         for (region in regions) {
             for (z in minZoom..maxZoom) {
                 val p1 = OsmTileEngine.latLonToTile(region.maxLat, region.minLon, z)
@@ -92,16 +113,22 @@ object MapDownloadManager {
                 val maxX = maxOf(p1.first, p2.first)
                 val minY = minOf(p1.second, p2.second)
                 val maxY = maxOf(p1.second, p2.second)
-                total += (maxX - minX + 1) * (maxY - minY + 1)
+                for (x in minX..maxX) {
+                    for (y in minY..maxY) {
+                        val key = ((z.toLong() and 0x1FL) shl 40) or ((x.toLong() and 0xFFFFFL) shl 20) or (y.toLong() and 0xFFFFFL)
+                        seen.add(key)
+                    }
+                }
             }
         }
-        return total
+        return seen.size
     }
 
     fun isCurrentlyDownloading(): Boolean = isDownloading.get()
 
     fun cancelDownload() {
         cancelFlag.set(true)
+        taskQueue.clear()
     }
 
     fun downloadRegions(
@@ -113,92 +140,133 @@ object MapDownloadManager {
     ) {
         if (!isDownloading.compareAndSet(false, true)) return
         cancelFlag.set(false)
+        taskQueue.clear()
 
-        downloadExecutor.execute {
-            val totalTiles = calculateTileCount(regions, minZoom, maxZoom)
-            var current = 0
-            var success = 0
-            var skipped = 0
-            var failed = 0
-
-            AppLogger.log(TAG, "downloadRegions", true, "Starting download for ${regions.size} regions, total tiles: $totalTiles")
-
-            for (region in regions) {
-                if (cancelFlag.get()) break
-
-                for (z in minZoom..maxZoom) {
+        dispatcherExecutor.execute {
+            try {
+                val seen = HashSet<Long>()
+                for (region in regions) {
                     if (cancelFlag.get()) break
-
-                    val p1 = OsmTileEngine.latLonToTile(region.maxLat, region.minLon, z)
-                    val p2 = OsmTileEngine.latLonToTile(region.minLat, region.maxLon, z)
-                    val minX = minOf(p1.first, p2.first)
-                    val maxX = maxOf(p1.first, p2.first)
-                    val minY = minOf(p1.second, p2.second)
-                    val maxY = maxOf(p1.second, p2.second)
-
-                    for (x in minX..maxX) {
+                    for (z in minZoom..maxZoom) {
                         if (cancelFlag.get()) break
-                        for (y in minY..maxY) {
-                            if (cancelFlag.get()) break
-                            current++
+                        val p1 = OsmTileEngine.latLonToTile(region.maxLat, region.minLon, z)
+                        val p2 = OsmTileEngine.latLonToTile(region.minLat, region.maxLon, z)
+                        val minX = minOf(p1.first, p2.first)
+                        val maxX = maxOf(p1.first, p2.first)
+                        val minY = minOf(p1.second, p2.second)
+                        val maxY = maxOf(p1.second, p2.second)
 
-                            val file = MushroomStorageManager.getTileFile(z, x, y)
-                            if (file.exists() && file.length() > 0) {
-                                skipped++
-                                onProgress(current, totalTiles, region.name)
-                                continue
+                        for (x in minX..maxX) {
+                            for (y in minY..maxY) {
+                                val key = ((z.toLong() and 0x1FL) shl 40) or ((x.toLong() and 0xFFFFFL) shl 20) or (y.toLong() and 0xFFFFFL)
+                                if (seen.add(key)) {
+                                    taskQueue.add(TileTask(z, x, y, region.name))
+                                }
                             }
-
-                            val ok = downloadTile(z, x, y, file)
-                            if (ok) {
-                                success++
-                            } else {
-                                failed++
-                            }
-                            onProgress(current, totalTiles, region.name)
-
-                            // Polite delay between tile downloads (35 ms)
-                            try {
-                                Thread.sleep(35L)
-                            } catch (_: Exception) {}
                         }
                     }
                 }
-            }
 
-            isDownloading.set(false)
-            AppLogger.log(TAG, "downloadRegions", true, "Finished download: success=$success, skipped=$skipped, failed=$failed")
-            onFinished(success, skipped, failed)
+                val totalTiles = taskQueue.size
+                val current = AtomicInteger(0)
+                val success = AtomicInteger(0)
+                val skipped = AtomicInteger(0)
+                val failed = AtomicInteger(0)
+
+                AppLogger.log(TAG, "downloadRegions", true, "Starting download for ${regions.size} regions, deduplicated tiles: $totalTiles using $WORKER_COUNT workers")
+
+                if (totalTiles == 0 || cancelFlag.get()) {
+                    isDownloading.set(false)
+                    onFinished(0, 0, 0)
+                    return@execute
+                }
+
+                val latch = CountDownLatch(WORKER_COUNT)
+
+                for (workerId in 0 until WORKER_COUNT) {
+                    val server = TILE_SERVERS[workerId % TILE_SERVERS.size]
+                    workerExecutor.execute {
+                        try {
+                            while (!cancelFlag.get()) {
+                                val task = taskQueue.poll() ?: break
+                                val cur = current.incrementAndGet()
+
+                                val file = MushroomStorageManager.getTileFile(task.z, task.x, task.y)
+                                if (file.exists() && file.length() > 0) {
+                                    skipped.incrementAndGet()
+                                    onProgress(cur, totalTiles, task.regionName)
+                                    continue
+                                }
+
+                                val ok = downloadTile(server, task.z, task.x, task.y, file)
+                                if (ok) {
+                                    success.incrementAndGet()
+                                } else {
+                                    failed.incrementAndGet()
+                                }
+                                onProgress(cur, totalTiles, task.regionName)
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.log(TAG, "worker_$workerId", false, "Worker error: ${e.message}")
+                        } finally {
+                            latch.countDown()
+                        }
+                    }
+                }
+
+                latch.await()
+
+                val s = success.get()
+                val sk = skipped.get()
+                val f = failed.get()
+
+                AppLogger.log(TAG, "downloadRegions", true, "Finished download: success=$s, skipped=$sk, failed=$f")
+                onFinished(s, sk, f)
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "downloadRegions", false, "Dispatcher error: ${e.message}")
+                onFinished(0, 0, 0)
+            } finally {
+                taskQueue.clear()
+                isDownloading.set(false)
+            }
         }
     }
 
-    private fun downloadTile(z: Int, x: Int, y: Int, destFile: File): Boolean {
+    private fun downloadTile(server: String, z: Int, x: Int, y: Int, destFile: File): Boolean {
         var conn: HttpURLConnection? = null
+        var inputStream: InputStream? = null
         return try {
-            val url = URL("https://tile.openstreetmap.org/$z/$x/$y.png")
+            val url = URL("https://$server/$z/$x/$y.png")
             conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 6000
-                readTimeout = 10000
+                connectTimeout = 5000
+                readTimeout = 8000
                 setRequestProperty("User-Agent", "MushroomApp/1.0 (Android; Offline Forest Navigator)")
+                setRequestProperty("Connection", "keep-alive")
             }
             if (conn.responseCode == HttpURLConnection.HTTP_OK) {
                 val tmp = File(destFile.parentFile, "${destFile.name}.tmp")
-                conn.inputStream.use { input ->
-                    FileOutputStream(tmp).use { output ->
-                        input.copyTo(output)
-                    }
+                inputStream = conn.inputStream
+                FileOutputStream(tmp).use { output ->
+                    inputStream?.copyTo(output)
                 }
                 if (tmp.exists() && tmp.length() > 0) {
                     tmp.renameTo(destFile)
                     true
-                } else false
+                } else {
+                    tmp.delete()
+                    false
+                }
             } else {
+                conn.disconnect()
                 false
             }
         } catch (_: Exception) {
+            conn?.disconnect()
             false
         } finally {
-            conn?.disconnect()
+            try {
+                inputStream?.close()
+            } catch (_: Exception) {}
         }
     }
 }

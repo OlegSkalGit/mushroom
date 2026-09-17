@@ -7,6 +7,7 @@ import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
@@ -18,7 +19,11 @@ object OsmTileEngine {
     private const val TAG = "OsmTileEngine"
     const val TILE_SIZE = 256
 
-    private const val OSM_TILE_URL = "https://tile.openstreetmap.org"
+    private val TILE_SERVERS = arrayOf(
+        "a.tile.openstreetmap.org",
+        "b.tile.openstreetmap.org",
+        "c.tile.openstreetmap.org"
+    )
 
     private val ramCache: LruCache<String, Bitmap>
 
@@ -109,20 +114,22 @@ object OsmTileEngine {
 
     private fun downloadAndCacheTile(zoom: Int, x: Int, y: Int, key: String, destFile: File) {
         var conn: HttpURLConnection? = null
+        var inputStream: InputStream? = null
         try {
-            val urlStr = "$OSM_TILE_URL/$zoom/$x/$y.png"
+            val server = TILE_SERVERS[kotlin.math.abs(x + y) % TILE_SERVERS.size]
+            val urlStr = "https://$server/$zoom/$x/$y.png"
             conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 5000
                 readTimeout = 8000
                 setRequestProperty("User-Agent", "MushroomApp/1.0 (Android; Offline Forest Navigator)")
+                setRequestProperty("Connection", "keep-alive")
             }
 
             if (conn.responseCode == HttpURLConnection.HTTP_OK) {
                 val tempFile = File(destFile.parentFile, "${destFile.name}.tmp")
-                conn.inputStream.use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
-                    }
+                inputStream = conn.inputStream
+                FileOutputStream(tempFile).use { output ->
+                    inputStream?.copyTo(output)
                 }
                 if (tempFile.exists() && tempFile.length() > 0) {
                     tempFile.renameTo(destFile)
@@ -131,11 +138,18 @@ object OsmTileEngine {
                         ramCache.put(key, bmp)
                         onTileReadyListener?.invoke()
                     }
+                } else {
+                    tempFile.delete()
                 }
+            } else {
+                conn.disconnect()
             }
         } catch (_: Exception) {
-        } finally {
             conn?.disconnect()
+        } finally {
+            try {
+                inputStream?.close()
+            } catch (_: Exception) {}
             loadingKeys.remove(key)
         }
     }
