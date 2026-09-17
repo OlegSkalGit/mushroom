@@ -121,15 +121,6 @@ object TracksListDialog {
                     layoutParams = params
                 }
 
-                val chkVisible = CheckBox(activity).apply {
-                    isChecked = track.isVisible
-                    setOnCheckedChangeListener { _, isChecked ->
-                        track.isVisible = isChecked
-                        dbHelper.setTrackVisibility(track.id, isChecked)
-                        onVisibilityChanged()
-                    }
-                }
-
                 val infoCol = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -217,7 +208,6 @@ object TracksListDialog {
                     }
                 }
 
-                itemRow.addView(chkVisible)
                 itemRow.addView(infoCol)
                 itemRow.addView(btnRename)
                 itemRow.addView(btnShare)
