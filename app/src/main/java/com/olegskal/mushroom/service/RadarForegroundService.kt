@@ -27,6 +27,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import com.olegskal.mushroom.R
 import com.olegskal.mushroom.RadarMapActivity
 import com.olegskal.mushroom.db.DatabaseHelper
 import com.olegskal.mushroom.math.ProcessedLocationMetrics
@@ -502,7 +503,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Mushroom - Навігатор грибника")
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setSmallIcon(R.drawable.ic_mushroom_notif)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

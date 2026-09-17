@@ -21,6 +21,7 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.olegskal.mushroom.R
 import com.olegskal.mushroom.receiver.UpdateActionReceiver
 import com.olegskal.mushroom.util.AppLogger
 import com.olegskal.mushroom.util.AppPrefs
@@ -358,7 +359,7 @@ object AppUpdateManager {
             }
 
             val notification = builder
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(R.drawable.ic_mushroom_notif)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setStyle(Notification.BigTextStyle().bigText(message))
