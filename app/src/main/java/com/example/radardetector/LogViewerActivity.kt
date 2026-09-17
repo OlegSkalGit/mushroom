@@ -1,0 +1,386 @@
+package com.example.radardetector
+
+import android.app.Activity
+import android.app.Dialog
+import android.content.Intent
+import android.graphics.Color
+import android.graphics.Typeface
+import android.net.Uri
+import android.os.Bundle
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.style.ForegroundColorSpan
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Spinner
+import android.widget.TextView
+import android.widget.Toast
+import androidx.core.content.FileProvider
+import com.example.radardetector.ui.UiUtils
+import com.example.radardetector.util.AppLogger
+import java.io.File
+
+class LogViewerActivity : Activity() {
+
+    private lateinit var textViewLog: TextView
+    private lateinit var spinnerLogFiles: Spinner
+    private lateinit var scaleGestureDetector: ScaleGestureDetector
+    private var currentTextSizeSp = 12f
+
+    private var availableLogFiles: List<File> = emptyList()
+    private var selectedLogFileName: String? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        AppLogger.initNewSession(this)
+
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#121212"))
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setPadding(24, 24, 24, 24)
+        }
+
+        val headerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 16)
+        }
+
+        val btnBack = UiUtils.createStyledButton(this, "Back") {
+            finish()
+        }
+
+        val topSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+        }
+
+        var isLogging = AppLogger.isLoggingEnabled
+        lateinit var btnLogging: Button
+        btnLogging = UiUtils.createStyledButton(this, if (isLogging) "Disable Logging" else "Enable Logging") {
+            isLogging = !isLogging
+            AppLogger.setLoggingEnabled(this@LogViewerActivity, isLogging)
+            btnLogging.text = if (isLogging) "Disable Logging" else "Enable Logging"
+            if (isLogging) {
+                AppLogger.log("LogViewerActivity", "onClick", true, "ADB file logging enabled by user.")
+                updateSpinnerFiles(selectToday = true)
+            } else {
+                refreshLog()
+            }
+        }
+
+        headerLayout.addView(btnBack)
+        headerLayout.addView(topSpacer)
+        headerLayout.addView(btnLogging)
+        rootLayout.addView(headerLayout)
+
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            ).apply {
+                setMargins(0, 4, 0, 4)
+            }
+        }
+
+        textViewLog = TextView(this).apply {
+            textSize = currentTextSizeSp
+            setTextColor(Color.parseColor("#E0E0E0"))
+            setTypeface(Typeface.MONOSPACE)
+            setPadding(12, 12, 12, 12)
+            setBackgroundColor(Color.parseColor("#1E1E1E"))
+        }
+
+        scaleGestureDetector = UiUtils.setupTextPinchZoom(this, textViewLog, currentTextSizeSp, 8f, 32f) { newSp ->
+            currentTextSizeSp = newSp
+        }
+
+        scrollView.addView(textViewLog)
+        rootLayout.addView(scrollView)
+
+        // Collapsible Bottom Spoiler Container
+        val spoilerContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#1E1E1E"))
+            setPadding(12, 8, 12, 8)
+        }
+
+        val btnSpoilerToggle = Button(this).apply {
+            text = "Log Options ▲"
+            setTextColor(Color.parseColor("#00E5FF"))
+            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            textSize = 13f
+        }
+
+        val spoilerContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, 8, 0, 0)
+        }
+
+        btnSpoilerToggle.setOnClickListener {
+            if (spoilerContent.visibility == View.VISIBLE) {
+                spoilerContent.visibility = View.GONE
+                btnSpoilerToggle.text = "Log Options ▲"
+            } else {
+                spoilerContent.visibility = View.VISIBLE
+                btnSpoilerToggle.text = "Log Options ▼"
+            }
+        }
+
+        val buttonsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 4, 0, 4)
+        }
+
+        val btnParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            1f
+        ).apply {
+            setMargins(4, 0, 4, 0)
+        }
+
+        val btnRefresh = UiUtils.createStyledButton(this, "Refresh", btnParams) {
+            val todayFile = AppLogger.getTodayFileName()
+            if (selectedLogFileName == todayFile) {
+                refreshLog()
+            }
+        }
+
+        val btnShare = UiUtils.createStyledButton(this, "Share", btnParams) {
+            shareLog()
+        }
+
+        val btnClear = UiUtils.createStyledButton(this, "Clear", btnParams) {
+            val fileToDelete = selectedLogFileName
+            if (!fileToDelete.isNullOrEmpty()) {
+                AppLogger.deleteLogFile(fileToDelete)
+                updateSpinnerFiles(selectToday = true)
+            }
+        }
+
+        buttonsRow.addView(btnRefresh)
+        buttonsRow.addView(btnShare)
+        buttonsRow.addView(btnClear)
+
+        spinnerLogFiles = Spinner(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(4, 8, 4, 4)
+            }
+        }
+
+        spoilerContent.addView(buttonsRow)
+        spoilerContent.addView(spinnerLogFiles)
+
+        spoilerContainer.addView(btnSpoilerToggle)
+        spoilerContainer.addView(spoilerContent)
+
+        rootLayout.addView(spoilerContainer)
+
+        setContentView(rootLayout)
+
+        updateSpinnerFiles(selectToday = true)
+    }
+
+    private fun updateSpinnerFiles(selectToday: Boolean = false) {
+        availableLogFiles = AppLogger.getAvailableLogFiles(this)
+        val todayFileName = AppLogger.getTodayFileName()
+
+        val fileNames = availableLogFiles.map { file ->
+            val sizeKb = file.length() / 1024
+            val tag = if (file.name == todayFileName) " [Today]" else ""
+            "${file.name} (${sizeKb} KB)$tag"
+        }
+
+        val adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, fileNames) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = super.getView(position, convertView, parent)
+                (v as? TextView)?.apply {
+                    setTextColor(Color.WHITE)
+                    textSize = 14f
+                    setPadding(12, 12, 12, 12)
+                    setBackgroundColor(Color.parseColor("#2A2A2A"))
+                }
+                return v
+            }
+
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = super.getDropDownView(position, convertView, parent)
+                (v as? TextView)?.apply {
+                    setTextColor(Color.WHITE)
+                    setBackgroundColor(Color.parseColor("#2A2A2A"))
+                    textSize = 14f
+                    setPadding(16, 16, 16, 16)
+                }
+                return v
+            }
+        }
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerLogFiles.adapter = adapter
+
+        if (availableLogFiles.isNotEmpty()) {
+            var targetIndex = 0
+            if (selectToday) {
+                val idx = availableLogFiles.indexOfFirst { it.name == todayFileName }
+                if (idx >= 0) targetIndex = idx
+            } else {
+                val idx = availableLogFiles.indexOfFirst { it.name == selectedLogFileName }
+                if (idx >= 0) targetIndex = idx
+            }
+            spinnerLogFiles.setSelection(targetIndex)
+            selectedLogFileName = availableLogFiles[targetIndex].name
+        } else {
+            selectedLogFileName = null
+        }
+
+        spinnerLogFiles.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (position in availableLogFiles.indices) {
+                    selectedLogFileName = availableLogFiles[position].name
+                    refreshLog()
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        refreshLog()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        scaleGestureDetector.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun getLogLineColor(line: String): Int {
+        return when {
+            line.contains("FAILURE") -> Color.parseColor("#FF3366") // Red for errors
+            line.contains("SPEED THRESHOLD") || line.contains("Radar!") || line.contains("Linear Zone Alert") -> Color.parseColor("#FFD700") // Gold for speed/radar alerts
+            line.contains("Weak GPS") -> Color.parseColor("#FF9100") // Orange for weak GPS
+            line.contains("SUCCESS") -> Color.parseColor("#00FF66") // Green for success
+            else -> Color.parseColor("#00E5FF") // Cyan for general info
+        }
+    }
+
+    private fun formatLogSpannable(logText: String): CharSequence {
+        if (logText.startsWith("Log file") || logText.startsWith("No log file") || logText.startsWith("Error")) {
+            return logText
+        }
+
+        val builder = SpannableStringBuilder()
+        val lines = logText.split('\n')
+
+        for (line in lines) {
+            if (line.isEmpty()) continue
+
+            val lineStart = builder.length
+            builder.append(line).append('\n')
+
+            val color = getLogLineColor(line)
+
+            val endBracket = line.indexOf(']')
+            if (line.startsWith('[') && endBracket > 0) {
+                builder.setSpan(
+                    ForegroundColorSpan(color),
+                    lineStart,
+                    lineStart + endBracket + 1,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                builder.setSpan(
+                    ForegroundColorSpan(Color.parseColor("#E0E0E0")),
+                    lineStart + endBracket + 1,
+                    lineStart + line.length,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            } else {
+                builder.setSpan(
+                    ForegroundColorSpan(color),
+                    lineStart,
+                    lineStart + line.length,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+
+        return builder
+    }
+
+    private fun refreshLog() {
+        Thread {
+            val fileName = selectedLogFileName
+            val rawText = AppLogger.readLogText(fileName)
+            val formattedContent = formatLogSpannable(rawText)
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) {
+                    textViewLog.setText(formattedContent, TextView.BufferType.SPANNABLE)
+                }
+            }
+        }.start()
+    }
+
+    private fun shareLog() {
+        Thread {
+            try {
+                val fileName = selectedLogFileName ?: AppLogger.getTodayFileName()
+                val logFile = File(filesDir, fileName)
+                if (!logFile.exists()) {
+                    runOnUiThread {
+                        Toast.makeText(this, "Log file not found ($fileName)", Toast.LENGTH_SHORT).show()
+                    }
+                    return@Thread
+                }
+
+                val contentUri: Uri = FileProvider.getUriForFile(
+                    this,
+                    "$packageName.fileprovider",
+                    logFile
+                )
+
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, "RadarStop Log ($fileName)")
+                            putExtra(Intent.EXTRA_STREAM, contentUri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(intent, "Share Log File"))
+                        AppLogger.log("LogViewerActivity", "shareLog", true, "Triggered system file share for $fileName.")
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.log("LogViewerActivity", "shareLog", false, "Error sharing file: ${e.message}")
+            }
+        }.start()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!com.example.radardetector.service.RadarForegroundService.isRunning) {
+            finish()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+    }
+}
