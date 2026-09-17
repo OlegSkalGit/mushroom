@@ -4,30 +4,19 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
 import com.olegskal.mushroom.storage.MushroomStorageManager
-import com.olegskal.mushroom.util.AppLogger
-import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlin.math.*
 
 object OsmTileEngine {
 
-    private const val TAG = "OsmTileEngine"
     const val TILE_SIZE = 256
-
-    private const val OSM_TILE_URL = "https://tile.openstreetmap.org"
-    private const val USER_AGENT = "Mushroom/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
-    private const val REFERER = "https://tile.openstreetmap.org/"
 
     private val ramCache: LruCache<String, Bitmap>
 
     init {
         val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
-        val cacheSize = (maxMemory / 8).coerceIn(4096, 16384) // 4MB - 16MB
+        val cacheSize = (maxMemory / 4).coerceIn(32768, 131072) // 32MB - 128MB
         ramCache = object : LruCache<String, Bitmap>(cacheSize) {
             override fun sizeOf(key: String, bitmap: Bitmap): Int {
                 return bitmap.byteCount / 1024
@@ -36,13 +25,17 @@ object OsmTileEngine {
     }
 
     private val loadingKeys = ConcurrentHashMap.newKeySet<String>()
-    private val diskExecutor = Executors.newFixedThreadPool(2)
-    private val netExecutor = Executors.newFixedThreadPool(2)
+    private val missingTileKeys = ConcurrentHashMap.newKeySet<String>()
+    private val diskExecutor = Executors.newFixedThreadPool(4)
 
     var onTileReadyListener: (() -> Unit)? = null
 
+    fun clearMissingTileCache() {
+        missingTileKeys.clear()
+    }
+
     fun purgeBlockedTiles() {
-        diskExecutor.execute {
+        Thread {
             try {
                 val tilesDir = MushroomStorageManager.tilesDir
                 tilesDir.walkTopDown().forEach { f ->
@@ -51,7 +44,7 @@ object OsmTileEngine {
                     }
                 }
             } catch (_: Exception) {}
-        }
+        }.start()
     }
 
     fun latLonToWorldPixel(lat: Double, lon: Double, zoom: Int): Pair<Double, Double> {
@@ -89,95 +82,53 @@ object OsmTileEngine {
 
     fun getTile(zoom: Int, x: Int, y: Int): Bitmap? = getTileBitmap(zoom, x, y)
 
-    fun getTileBitmap(zoom: Int, x: Int, y: Int, allowNetworkDownload: Boolean = true): Bitmap? {
+    fun getTileBitmap(zoom: Int, x: Int, y: Int): Bitmap? {
         val key = "$zoom/$x/$y"
 
         // 1. Check RAM Cache
         ramCache.get(key)?.let { return it }
 
-        if (loadingKeys.contains(key)) {
+        // 2. If already marked as missing or currently reading from disk, skip
+        if (missingTileKeys.contains(key) || loadingKeys.contains(key)) {
             return null
         }
 
-        // Asynchronously load from disk or network
+        // 3. Asynchronously load from disk offline storage
         loadingKeys.add(key)
         diskExecutor.execute {
             try {
                 val file = MushroomStorageManager.getTileFile(zoom, x, y)
-                if (file.exists()) {
-                    if (file.length() == 6987L || file.length() == 0L) {
+                if (file.exists() && file.length() > 0L) {
+                    if (file.length() == 6987L) {
                         file.delete()
+                        missingTileKeys.add(key)
                     } else {
-                        val bmp = BitmapFactory.decodeFile(file.absolutePath)
+                        val opts = BitmapFactory.Options().apply {
+                            inPreferredConfig = Bitmap.Config.RGB_565
+                        }
+                        val bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
                         if (bmp != null) {
                             ramCache.put(key, bmp)
-                            loadingKeys.remove(key)
                             onTileReadyListener?.invoke()
-                            return@execute
                         } else {
                             file.delete()
+                            missingTileKeys.add(key)
                         }
                     }
-                }
-
-                if (allowNetworkDownload) {
-                    netExecutor.execute {
-                        downloadAndCacheTile(zoom, x, y, key, file)
-                    }
                 } else {
-                    loadingKeys.remove(key)
+                    missingTileKeys.add(key)
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
+                missingTileKeys.add(key)
+            } finally {
                 loadingKeys.remove(key)
             }
         }
         return null
     }
 
-    private fun downloadAndCacheTile(zoom: Int, x: Int, y: Int, key: String, destFile: File) {
-        var conn: HttpURLConnection? = null
-        var inputStream: InputStream? = null
-        try {
-            val urlStr = "$OSM_TILE_URL/$zoom/$x/$y.png"
-            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 6000
-                readTimeout = 9000
-                setRequestProperty("User-Agent", USER_AGENT)
-                setRequestProperty("Referer", REFERER)
-                setRequestProperty("Connection", "keep-alive")
-            }
-
-            val isBlocked = conn.getHeaderField("x-blocked") != null || conn.getHeaderField("X-Blocked") != null
-            if (conn.responseCode == HttpURLConnection.HTTP_OK && !isBlocked && conn.contentLength != 6987) {
-                val tempFile = File(destFile.parentFile, "${destFile.name}.tmp")
-                inputStream = conn.inputStream
-                FileOutputStream(tempFile).use { output ->
-                    inputStream?.copyTo(output)
-                }
-                if (tempFile.exists() && tempFile.length() > 0 && tempFile.length() != 6987L) {
-                    tempFile.renameTo(destFile)
-                    val bmp = BitmapFactory.decodeFile(destFile.absolutePath)
-                    if (bmp != null) {
-                        ramCache.put(key, bmp)
-                        onTileReadyListener?.invoke()
-                    }
-                } else {
-                    tempFile.delete()
-                }
-            } else {
-                conn.disconnect()
-            }
-        } catch (_: Exception) {
-            conn?.disconnect()
-        } finally {
-            try {
-                inputStream?.close()
-            } catch (_: Exception) {}
-            loadingKeys.remove(key)
-        }
-    }
-
     fun clearRamCache() {
         ramCache.evictAll()
+        missingTileKeys.clear()
     }
 }

@@ -54,6 +54,11 @@ class MushroomMapActivity : Activity() {
     private var isFollowLocation: Boolean = true
 
     private val uiHandler = Handler(Looper.getMainLooper())
+    private var isTileRedrawPending = false
+    private val tileRedrawRunnable = Runnable {
+        isTileRedrawPending = false
+        mapView.invalidate()
+    }
     private val periodicRefreshRunnable = object : Runnable {
         override fun run() {
             updateLiveStats()
@@ -276,7 +281,10 @@ class MushroomMapActivity : Activity() {
         setContentView(rootLayout)
 
         OsmTileEngine.onTileReadyListener = {
-            mapView.postInvalidate()
+            if (!isTileRedrawPending) {
+                isTileRedrawPending = true
+                uiHandler.postDelayed(tileRedrawRunnable, 35L)
+            }
         }
 
         handleIncomingIntent(intent)
@@ -835,6 +843,11 @@ class MushroomMapActivity : Activity() {
         }
 
         fun updateLocationMetrics(metrics: ProcessedLocationMetrics) {
+            val locChanged = currentLocation?.latitude != metrics.location.latitude ||
+                    currentLocation?.longitude != metrics.location.longitude
+            val headingDiff = kotlin.math.abs(compassHeading - metrics.compassHeading)
+            val trajectoryDiff = kotlin.math.abs(trajectoryBearing - metrics.trajectoryBearing)
+
             currentLocation = metrics.location
             compassHeading = metrics.compassHeading
             trajectoryBearing = metrics.trajectoryBearing
@@ -842,7 +855,9 @@ class MushroomMapActivity : Activity() {
                 mapCenterLat = metrics.location.latitude
                 mapCenterLon = metrics.location.longitude
             }
-            invalidate()
+            if (locChanged || headingDiff >= 1.5f || trajectoryDiff >= 1.5f) {
+                invalidate()
+            }
         }
 
         override fun onDraw(canvas: Canvas) {

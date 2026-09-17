@@ -531,6 +531,15 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
                 )
             }
         }
+        if (list.isEmpty()) {
+            if (countryCode.equals("UA", true)) {
+                insertRegions("UA", com.olegskal.mushroom.network.OverpassSyncManager.BUILTIN_UA_REGIONS)
+                return com.olegskal.mushroom.network.OverpassSyncManager.BUILTIN_UA_REGIONS
+            } else if (countryCode.equals("PL", true)) {
+                insertRegions("PL", com.olegskal.mushroom.network.OverpassSyncManager.BUILTIN_PL_REGIONS)
+                return com.olegskal.mushroom.network.OverpassSyncManager.BUILTIN_PL_REGIONS
+            }
+        }
         return list
     }
 

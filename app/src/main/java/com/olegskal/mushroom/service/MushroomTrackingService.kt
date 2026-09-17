@@ -313,6 +313,23 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         metricsListener?.invoke(metrics)
     }
 
+    private var lastSentAzimuth = -999f
+    private var lastAzimuthTime = 0L
+
+    private fun dispatchAzimuthUpdate(azDeg: Float) {
+        currentAzimuth = azDeg
+        val now = System.currentTimeMillis()
+        var diff = kotlin.math.abs(azDeg - lastSentAzimuth)
+        if (diff > 180f) diff = 360f - diff
+        if (diff >= 2.0f && (now - lastAzimuthTime >= 100L)) {
+            lastSentAzimuth = azDeg
+            lastAzimuthTime = now
+            lastMetrics?.let { m ->
+                metricsListener?.invoke(m.copy(compassHeading = currentAzimuth))
+            }
+        }
+    }
+
     override fun onSensorChanged(event: SensorEvent?) {
         if (event == null) return
         when (event.sensor.type) {
@@ -322,10 +339,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
                 val azRad = orientationAngles[0]
                 var azDeg = Math.toDegrees(azRad.toDouble()).toFloat()
                 if (azDeg < 0f) azDeg += 360f
-                currentAzimuth = azDeg
-                lastMetrics?.let { m ->
-                    metricsListener?.invoke(m.copy(compassHeading = currentAzimuth))
-                }
+                dispatchAzimuthUpdate(azDeg)
             }
             Sensor.TYPE_ACCELEROMETER -> {
                 System.arraycopy(event.values, 0, gravityData, 0, 3)
@@ -349,10 +363,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
                 SensorManager.getOrientation(r, actualOrientation)
                 var az = Math.toDegrees(actualOrientation[0].toDouble()).toFloat()
                 if (az < 0f) az += 360f
-                currentAzimuth = az
-                lastMetrics?.let { m ->
-                    metricsListener?.invoke(m.copy(compassHeading = currentAzimuth))
-                }
+                dispatchAzimuthUpdate(az)
             }
         }
     }

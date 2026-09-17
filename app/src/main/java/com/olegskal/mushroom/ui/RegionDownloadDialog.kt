@@ -106,11 +106,11 @@ object RegionDownloadDialog {
                             totalAll += tot
                         }
                         if (totalAll > 0 && existingAll >= totalAll) {
-                            countryStatuses[c.code] = "  [✓ 100%]"
+                            countryStatuses[c.code] = "  [✓ Завантажено повністю]"
                             changed = true
                         } else if (existingAll > 0) {
                             val pct = (existingAll * 100) / totalAll
-                            countryStatuses[c.code] = "  [⏳ $pct%]"
+                            countryStatuses[c.code] = "  [⏳ Не повністю ($pct%)]"
                             changed = true
                         }
                     }
@@ -326,14 +326,14 @@ object RegionDownloadDialog {
                     } else {
                         val (existing, total) = stat
                         if (total > 0 && existing >= total) {
-                            text = "✓ Завантажено"
+                            text = "✓ Завантажено повністю"
                             setTextColor(Color.parseColor("#4CAF50"))
                         } else if (existing > 0) {
                             val pct = (existing * 100) / total
-                            text = "⏳ $pct%"
+                            text = "⏳ Не повністю ($pct%)"
                             setTextColor(Color.parseColor("#FFB300"))
                         } else {
-                            text = "—"
+                            text = "Не завантажено"
                             setTextColor(Color.GRAY)
                         }
                     }
@@ -478,6 +478,7 @@ object RegionDownloadDialog {
                 }
             },
             onFinished = { success, skipped, failed ->
+                com.olegskal.mushroom.map.OsmTileEngine.clearMissingTileCache()
                 activity.runOnUiThread {
                     if (progressDialog.isShowing) {
                         progressDialog.dismiss()

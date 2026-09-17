@@ -55,7 +55,7 @@ object OverpassSyncManager {
         MapCountry("Словенія", "SI")
     )
 
-    private val BUILTIN_UA_REGIONS: List<MapRegion> = listOf(
+    val BUILTIN_UA_REGIONS: List<MapRegion> = listOf(
         MapRegion("ua_kyiv", "Київська область", 50.1, 51.5, 29.2, 32.1),
         MapRegion("ua_zhytomyr", "Житомирська область", 50.0, 51.7, 27.2, 29.8),
         MapRegion("ua_chernihiv", "Чернігівська область", 50.3, 52.4, 30.5, 33.5),
@@ -83,7 +83,7 @@ object OverpassSyncManager {
         MapRegion("ua_crimea", "АР Крим", 44.3, 46.2, 32.4, 36.7)
     )
 
-    private val BUILTIN_PL_REGIONS: List<MapRegion> = listOf(
+    val BUILTIN_PL_REGIONS: List<MapRegion> = listOf(
         MapRegion("pl_maz", "Мазовецьке (Mazowieckie)", 51.0, 53.5, 19.2, 23.1),
         MapRegion("pl_mlp", "Малопольське (Małopolskie)", 49.1, 50.5, 19.1, 21.4),
         MapRegion("pl_pkr", "Підкарпатське (Podkarpackie)", 49.0, 50.8, 21.1, 23.5),
