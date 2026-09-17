@@ -92,6 +92,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        OsmTileEngine.appContext = applicationContext
         if (!MushroomTrackingService.isRunning) {
             val serviceIntent = Intent(this, MushroomTrackingService::class.java)
             ServiceUtils.startTrackingService(this, serviceIntent)
@@ -1147,7 +1148,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     } else {
                         var drawnFallback = false
                         if (baseZoom > MIN_BASE_ZOOM) {
-                            val parentBmp = OsmTileEngine.getTile(baseZoom - 1, clampedTx / 2, ty / 2)
+                            val parentBmp = OsmTileEngine.getTileFromMemory(baseZoom - 1, clampedTx / 2, ty / 2)
                             if (parentBmp != null) {
                                 val sLeft = if (clampedTx % 2 == 0) 0 else 128
                                 val sTop = if (ty % 2 == 0) 0 else 128

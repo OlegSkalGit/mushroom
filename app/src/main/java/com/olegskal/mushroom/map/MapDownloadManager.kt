@@ -277,13 +277,18 @@ object MapDownloadManager {
             }
             val isBlocked = conn.getHeaderField("x-blocked") != null || conn.getHeaderField("X-Blocked") != null
             if (conn.responseCode == HttpURLConnection.HTTP_OK && !isBlocked && conn.contentLength != 6987) {
+                destFile.parentFile?.mkdirs()
                 val tmp = File(destFile.parentFile, "${destFile.name}.${Thread.currentThread().id}.tmp")
                 inputStream = conn.inputStream
                 FileOutputStream(tmp).use { output ->
                     inputStream?.copyTo(output)
                 }
                 if (tmp.exists() && tmp.length() > 0 && tmp.length() != 6987L) {
-                    tmp.renameTo(destFile)
+                    if (destFile.exists()) destFile.delete()
+                    if (!tmp.renameTo(destFile)) {
+                        tmp.copyTo(destFile, overwrite = true)
+                        tmp.delete()
+                    }
                     true
                 } else {
                     tmp.delete()
@@ -299,6 +304,9 @@ object MapDownloadManager {
         } finally {
             try {
                 inputStream?.close()
+            } catch (_: Exception) {}
+            try {
+                conn?.disconnect()
             } catch (_: Exception) {}
         }
     }

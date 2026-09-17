@@ -31,10 +31,10 @@ object OsmTileEngine {
     }
 
     private val loadingKeys = ConcurrentHashMap.newKeySet<String>()
-    private val missingTileKeys = ConcurrentHashMap.newKeySet<String>()
+    private val failedTileCooldown = ConcurrentHashMap<String, Long>()
     private val activeNetworkDownloads = ConcurrentHashMap.newKeySet<String>()
     private val diskExecutor = Executors.newFixedThreadPool(4)
-    private val networkExecutor = Executors.newFixedThreadPool(2)
+    private val networkExecutor = Executors.newFixedThreadPool(4)
 
     private var lastNetworkCheckTime = 0L
     private var lastNetworkState = false
@@ -47,21 +47,25 @@ object OsmTileEngine {
             return lastNetworkState
         }
         lastNetworkCheckTime = now
-        val ctx = appContext ?: return false
-        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        lastNetworkState = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val active = cm.activeNetwork
-            val caps = active?.let { cm.getNetworkCapabilities(it) }
-            caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        } else {
-            @Suppress("DEPRECATION")
-            cm.activeNetworkInfo?.isConnected == true
+        val ctx = appContext ?: return true
+        return try {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+            lastNetworkState = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val active = cm.activeNetwork
+                val caps = active?.let { cm.getNetworkCapabilities(it) }
+                caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            } else {
+                @Suppress("DEPRECATION")
+                cm.activeNetworkInfo?.isConnected == true
+            }
+            lastNetworkState
+        } catch (_: Exception) {
+            true
         }
-        return lastNetworkState
     }
 
     fun clearMissingTileCache() {
-        missingTileKeys.clear()
+        failedTileCooldown.clear()
     }
 
     fun purgeBlockedTiles() {
@@ -112,18 +116,30 @@ object OsmTileEngine {
 
     fun getTile(zoom: Int, x: Int, y: Int): Bitmap? = getTileBitmap(zoom, x, y)
 
+    fun getTileFromMemory(zoom: Int, x: Int, y: Int): Bitmap? = ramCache.get("$zoom/$x/$y")
+
     fun getTileBitmap(zoom: Int, x: Int, y: Int): Bitmap? {
         val key = "$zoom/$x/$y"
 
         // 1. Check RAM Cache
         ramCache.get(key)?.let { return it }
 
-        // 2. If already marked as missing or currently reading from disk/network, skip
-        if (missingTileKeys.contains(key) || loadingKeys.contains(key) || activeNetworkDownloads.contains(key)) {
+        // 2. Check retry cooldown if previously failed
+        val retryAfter = failedTileCooldown[key]
+        if (retryAfter != null) {
+            if (System.currentTimeMillis() < retryAfter) {
+                return null
+            } else {
+                failedTileCooldown.remove(key)
+            }
+        }
+
+        // 3. If already loading from disk or actively downloading from network, skip
+        if (loadingKeys.contains(key) || activeNetworkDownloads.contains(key)) {
             return null
         }
 
-        // 3. Asynchronously load from disk offline storage
+        // 4. Asynchronously load from disk offline storage
         loadingKeys.add(key)
         diskExecutor.execute {
             try {
@@ -139,6 +155,7 @@ object OsmTileEngine {
                         val bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
                         if (bmp != null) {
                             ramCache.put(key, bmp)
+                            failedTileCooldown.remove(key)
                             onTileReadyListener?.invoke()
                         } else {
                             file.delete()
@@ -149,7 +166,7 @@ object OsmTileEngine {
                     handleMissingTile(zoom, x, y, key, file)
                 }
             } catch (_: Exception) {
-                missingTileKeys.add(key)
+                markTileFailed(key)
             } finally {
                 loadingKeys.remove(key)
             }
@@ -158,46 +175,60 @@ object OsmTileEngine {
     }
 
     private fun handleMissingTile(zoom: Int, x: Int, y: Int, key: String, destFile: java.io.File) {
-        if (isNetworkConnected() && activeNetworkDownloads.size < 16 && activeNetworkDownloads.add(key)) {
-            networkExecutor.execute {
-                try {
-                    val ok = MapDownloadManager.downloadTile(zoom, x, y, destFile)
-                    if (ok) {
-                        val opts = BitmapFactory.Options().apply {
-                            inPreferredConfig = Bitmap.Config.RGB_565
-                        }
-                        val bmp = BitmapFactory.decodeFile(destFile.absolutePath, opts)
-                        if (bmp != null) {
-                            ramCache.put(key, bmp)
-                            onTileReadyListener?.invoke()
-                        } else {
-                            destFile.delete()
-                            markTileMissing(key)
-                        }
-                    } else {
-                        markTileMissing(key)
+        if (!isNetworkConnected()) {
+            return
+        }
+        if (activeNetworkDownloads.size >= 24) {
+            // Concurrent slots are currently full; do not mark as failed.
+            // On subsequent frame redraws, remaining visible tiles will be requested again.
+            return
+        }
+        if (!activeNetworkDownloads.add(key)) {
+            return
+        }
+        networkExecutor.execute {
+            try {
+                val ok = MapDownloadManager.downloadTile(zoom, x, y, destFile)
+                if (ok) {
+                    val opts = BitmapFactory.Options().apply {
+                        inPreferredConfig = Bitmap.Config.RGB_565
                     }
-                } catch (_: Exception) {
-                    markTileMissing(key)
-                } finally {
-                    activeNetworkDownloads.remove(key)
+                    val bmp = BitmapFactory.decodeFile(destFile.absolutePath, opts)
+                    if (bmp != null) {
+                        ramCache.put(key, bmp)
+                        failedTileCooldown.remove(key)
+                        onTileReadyListener?.invoke()
+                    } else {
+                        destFile.delete()
+                        markTileFailed(key)
+                    }
+                } else {
+                    markTileFailed(key)
                 }
+            } catch (_: Exception) {
+                markTileFailed(key)
+            } finally {
+                activeNetworkDownloads.remove(key)
             }
-        } else {
-            markTileMissing(key)
         }
     }
 
-    private fun markTileMissing(key: String) {
-        if (missingTileKeys.size > 2000) {
-            missingTileKeys.clear()
+    private fun markTileFailed(key: String) {
+        val now = System.currentTimeMillis()
+        if (failedTileCooldown.size > 500) {
+            val it = failedTileCooldown.entries.iterator()
+            while (it.hasNext()) {
+                if (it.next().value < now) {
+                    it.remove()
+                }
+            }
         }
-        missingTileKeys.add(key)
+        failedTileCooldown[key] = now + 15_000L
     }
 
     fun clearRamCache() {
         ramCache.evictAll()
-        missingTileKeys.clear()
+        failedTileCooldown.clear()
         activeNetworkDownloads.clear()
     }
 }

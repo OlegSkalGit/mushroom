@@ -15,6 +15,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.olegskal.mushroom.map.OsmTileEngine
 import com.olegskal.mushroom.service.MushroomTrackingService
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
@@ -40,6 +41,7 @@ class SplashActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        OsmTileEngine.appContext = applicationContext
         AppLogger.log("SplashActivity", "onCreate", true, "SplashActivity launched.")
 
         MushroomStorageManager.initStorage()
