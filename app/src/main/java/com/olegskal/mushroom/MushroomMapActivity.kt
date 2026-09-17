@@ -19,6 +19,7 @@ import android.provider.OpenableColumns
 import android.view.*
 import android.widget.*
 import com.olegskal.mushroom.db.DatabaseHelper
+import com.olegskal.mushroom.map.MapDownloadManager
 import com.olegskal.mushroom.map.OsmTileEngine
 import com.olegskal.mushroom.math.ProcessedLocationMetrics
 import com.olegskal.mushroom.math.GeoMath
@@ -40,10 +41,10 @@ class MushroomMapActivity : Activity() {
 
     companion object {
         private const val REQ_CODE_IMPORT_GPX = 1010
-        const val MIN_MAP_ZOOM = 10.0f
-        const val MAX_MAP_ZOOM = 16.0f
-        const val MIN_BASE_ZOOM = 10
-        const val MAX_BASE_ZOOM = 14
+        val MIN_MAP_ZOOM = MapDownloadManager.DEFAULT_MIN_ZOOM.toFloat()
+        val MAX_MAP_ZOOM = MapDownloadManager.DEFAULT_MAX_ZOOM.toFloat()
+        val MIN_BASE_ZOOM = MapDownloadManager.DEFAULT_MIN_ZOOM
+        val MAX_BASE_ZOOM = MapDownloadManager.DEFAULT_MAX_ZOOM
     }
 
     private lateinit var mapView: MushroomMapView
