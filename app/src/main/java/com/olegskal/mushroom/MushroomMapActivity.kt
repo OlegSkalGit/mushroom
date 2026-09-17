@@ -414,6 +414,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     }
 
     fun startTrackRecording(title: String, color: Int) {
+        if (!ServiceUtils.isIgnoringBatteryOptimizations(this)) {
+            ServiceUtils.requestIgnoreBatteryOptimizations(this)
+        }
         val s = MushroomTrackingService.instance
         if (s != null) {
             s.startTrackRecording(title, color)
@@ -538,9 +541,19 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
         container.addView(btnDownloadMaps)
+
+        // 4. Background work without battery optimization
+        if (!ServiceUtils.isIgnoringBatteryOptimizations(this)) {
+            val btnBattery = UiUtils.createStyledButton(this, "🔋 Робота у фоні (без обмежень)", itemParams) {
+                dialog.dismiss()
+                ServiceUtils.requestIgnoreBatteryOptimizations(this@MushroomMapActivity)
+            }
+            container.addView(btnBattery)
+        }
+
         container.addView(UiUtils.createDialogDivider(this))
 
-        // 4. Exit
+        // 5. Exit
         val btnQuit = UiUtils.createStyledButton(this, "🚪 Вихід", itemParams) {
             dialog.dismiss()
             val s = MushroomTrackingService.instance

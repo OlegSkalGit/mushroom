@@ -141,17 +141,12 @@ class SplashActivity : Activity() {
                     }
                 }
 
-                if (needsBgLoc && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (needsBattery && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    ServiceUtils.requestIgnoreBatteryOptimizations(this@SplashActivity)
+                } else if (needsBgLoc && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     try {
                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                             data = Uri.fromParts("package", packageName, null)
-                        }
-                        startActivity(intent)
-                    } catch (_: Exception) {}
-                } else if (needsBattery && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    try {
-                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                            data = Uri.parse("package:$packageName")
                         }
                         startActivity(intent)
                     } catch (_: Exception) {}
