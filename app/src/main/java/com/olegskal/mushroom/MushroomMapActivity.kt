@@ -110,7 +110,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         AppUpdateManager.checkAndDownloadUpdate(this)
         OsmTileEngine.purgeBlockedTiles()
 
-        isFollowLocation = AppPrefs.getFollowUser(this)
+        AppPrefs.restoreFromExternalStorage(this)
+        val hasSavedLoc = AppPrefs.hasSavedMapLocation(this)
+        isFollowLocation = !hasSavedLoc && AppPrefs.getFollowUser(this)
 
         val rootLayout = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#121212"))
@@ -574,6 +576,16 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         uiHandler.removeCallbacks(periodicRefreshRunnable)
         MushroomTrackingService.metricsListener = null
         MushroomTrackingService.serviceStateListener = null
+        if (::mapView.isInitialized) {
+            mapView.saveMapState()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (::mapView.isInitialized) {
+            mapView.saveMapState()
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -744,8 +756,18 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         private var anchorY = 0f
 
         init {
-            val savedZoom = AppPrefs.getMapZoom(context).toFloat()
+            if (AppPrefs.hasSavedMapLocation(context)) {
+                mapCenterLat = AppPrefs.getMapLat(context)
+                mapCenterLon = AppPrefs.getMapLon(context)
+            }
+            val savedZoom = AppPrefs.getMapZoom(context)
             zoomLevel = savedZoom.coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM)
+            val savedBearing = AppPrefs.getMapBearing(context)
+            mapBearing = (savedBearing % 360f + 360f) % 360f
+        }
+
+        fun saveMapState() {
+            AppPrefs.setMapState(context, mapCenterLat, mapCenterLon, zoomLevel, mapBearing)
         }
 
         @SuppressLint("ClickableViewAccessibility")
@@ -802,6 +824,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 MotionEvent.ACTION_MOVE -> {
                     if (isDoubleTapDrag) {
                         isFollowLocation = false
+                        AppPrefs.setFollowUser(context, false)
                         val curX = event.x
                         val curY = event.y
                         val dx = curX - lastTouchX
@@ -854,6 +877,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         val angle = Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
 
                         isFollowLocation = false
+                        AppPrefs.setFollowUser(context, false)
 
                         // 1. Two-finger Pan
                         val dFocusX = focusX - prevFocusX
@@ -891,6 +915,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         if (abs(dx) > 3f || abs(dy) > 3f) {
                             isDragging = true
                             isFollowLocation = false
+                            AppPrefs.setFollowUser(context, false)
                             panMap(dx, dy)
                             lastTouchX = event.x
                             lastTouchY = event.y
@@ -906,7 +931,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                             lastTouchX = event.getX(remIdx)
                             lastTouchY = event.getY(remIdx)
                         }
-                        AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
+                        saveMapState()
                     }
                 }
 
@@ -914,7 +939,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     if (isDoubleTapDrag) {
                         isDoubleTapDrag = false
                         lastTapUpTime = 0L
-                        AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
+                        saveMapState()
                         invalidate()
                     } else {
                         isDragging = false
@@ -928,7 +953,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         } else {
                             lastTapUpTime = 0L
                         }
-                        AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
+                        saveMapState()
                     }
                 }
 
@@ -937,6 +962,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     isMultiTouch = false
                     isDoubleTapDrag = false
                     lastTapUpTime = 0L
+                    saveMapState()
                 }
             }
             return true
@@ -963,6 +989,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         mapBearing = 0f
                         compassButton.setBearing(0f)
                         invalidate()
+                        saveMapState()
                     }
                 })
             }
@@ -983,6 +1010,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             mapCenterLat = lat
             mapCenterLon = lon
             invalidate()
+            saveMapState()
         }
 
         fun centerOnCurrentLocation() {
@@ -990,13 +1018,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 mapCenterLat = it.latitude
                 mapCenterLon = it.longitude
                 invalidate()
+                saveMapState()
             }
         }
 
         fun zoomIn() {
             if (zoomLevel < MAX_MAP_ZOOM) {
                 zoomLevel = (zoomLevel + 1.0f).coerceAtMost(MAX_MAP_ZOOM)
-                AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
+                saveMapState()
                 invalidate()
             }
         }
@@ -1004,7 +1033,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         fun zoomOut() {
             if (zoomLevel > MIN_MAP_ZOOM) {
                 zoomLevel = (zoomLevel - 1.0f).coerceAtLeast(MIN_MAP_ZOOM)
-                AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
+                saveMapState()
                 invalidate()
             }
         }
@@ -1024,7 +1053,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             mapCenterLat = (minLat + maxLat) / 2.0
             mapCenterLon = (minLon + maxLon) / 2.0
             zoomLevel = 13.0f
-            AppPrefs.setMapZoom(context, 13)
+            saveMapState()
             invalidate()
         }
 

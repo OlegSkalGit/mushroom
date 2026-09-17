@@ -19,6 +19,7 @@ object AppPrefs {
     const val KEY_MAP_ZOOM = "map_zoom"
     const val KEY_MAP_LAT = "map_lat"
     const val KEY_MAP_LON = "map_lon"
+    const val KEY_MAP_BEARING = "map_bearing"
     const val KEY_FOLLOW_USER = "follow_user"
     const val KEY_IS_RECORDING = "is_recording"
     const val KEY_ACTIVE_TRACK_ID = "active_track_id"
@@ -36,10 +37,11 @@ object AppPrefs {
                 put(KEY_DEBUG_MODE, p.getBoolean(KEY_DEBUG_MODE, false))
                 put(KEY_LOGGING_ENABLED, p.getBoolean(KEY_LOGGING_ENABLED, false))
                 put(KEY_LAST_UPDATE_CHECK, p.getLong(KEY_LAST_UPDATE_CHECK, 0L))
-                put(KEY_MAP_ZOOM, p.getInt(KEY_MAP_ZOOM, 12))
-                put(KEY_MAP_LAT, p.getFloat(KEY_MAP_LAT, 0f).toDouble())
-                put(KEY_MAP_LON, p.getFloat(KEY_MAP_LON, 0f).toDouble())
-                put(KEY_FOLLOW_USER, p.getBoolean(KEY_FOLLOW_USER, true))
+                put(KEY_MAP_ZOOM, getMapZoom(context).toDouble())
+                put(KEY_MAP_LAT, getMapLat(context))
+                put(KEY_MAP_LON, getMapLon(context))
+                put(KEY_MAP_BEARING, getMapBearing(context).toDouble())
+                put(KEY_FOLLOW_USER, p.getBoolean(KEY_FOLLOW_USER, false))
                 put(KEY_HEADING_UP, p.getBoolean(KEY_HEADING_UP, false))
             }
             MushroomStorageManager.saveSettingsJson(json)
@@ -54,9 +56,18 @@ object AppPrefs {
             if (json.has(KEY_DEBUG_MODE)) editor.putBoolean(KEY_DEBUG_MODE, json.getBoolean(KEY_DEBUG_MODE))
             if (json.has(KEY_LOGGING_ENABLED)) editor.putBoolean(KEY_LOGGING_ENABLED, json.getBoolean(KEY_LOGGING_ENABLED))
             if (json.has(KEY_LAST_UPDATE_CHECK)) editor.putLong(KEY_LAST_UPDATE_CHECK, json.getLong(KEY_LAST_UPDATE_CHECK))
-            if (json.has(KEY_MAP_ZOOM)) editor.putInt(KEY_MAP_ZOOM, json.getInt(KEY_MAP_ZOOM))
-            if (json.has(KEY_MAP_LAT)) editor.putFloat(KEY_MAP_LAT, json.getDouble(KEY_MAP_LAT).toFloat())
-            if (json.has(KEY_MAP_LON)) editor.putFloat(KEY_MAP_LON, json.getDouble(KEY_MAP_LON).toFloat())
+            if (json.has(KEY_MAP_ZOOM)) editor.putFloat(KEY_MAP_ZOOM, json.getDouble(KEY_MAP_ZOOM).toFloat())
+            if (json.has(KEY_MAP_LAT)) {
+                val lat = json.getDouble(KEY_MAP_LAT)
+                editor.putLong(KEY_MAP_LAT + "_d", java.lang.Double.doubleToRawLongBits(lat))
+                editor.putFloat(KEY_MAP_LAT, lat.toFloat())
+            }
+            if (json.has(KEY_MAP_LON)) {
+                val lon = json.getDouble(KEY_MAP_LON)
+                editor.putLong(KEY_MAP_LON + "_d", java.lang.Double.doubleToRawLongBits(lon))
+                editor.putFloat(KEY_MAP_LON, lon.toFloat())
+            }
+            if (json.has(KEY_MAP_BEARING)) editor.putFloat(KEY_MAP_BEARING, json.getDouble(KEY_MAP_BEARING).toFloat())
             if (json.has(KEY_FOLLOW_USER)) editor.putBoolean(KEY_FOLLOW_USER, json.getBoolean(KEY_FOLLOW_USER))
             if (json.has(KEY_HEADING_UP)) editor.putBoolean(KEY_HEADING_UP, json.getBoolean(KEY_HEADING_UP))
             editor.apply()
@@ -104,12 +115,66 @@ object AppPrefs {
     }
 
     // Map state
-    fun getMapZoom(context: Context): Int = getPrefs(context).getInt(KEY_MAP_ZOOM, 12)
-    fun setMapZoom(context: Context, zoom: Int) {
-        getPrefs(context).edit().putInt(KEY_MAP_ZOOM, zoom).apply()
+    fun hasSavedMapLocation(context: Context): Boolean {
+        val p = getPrefs(context)
+        return p.contains(KEY_MAP_LAT) || p.contains(KEY_MAP_LAT + "_d")
     }
 
-    fun getFollowUser(context: Context): Boolean = getPrefs(context).getBoolean(KEY_FOLLOW_USER, true)
+    fun getMapLat(context: Context): Double {
+        val p = getPrefs(context)
+        if (p.contains(KEY_MAP_LAT + "_d")) {
+            return java.lang.Double.longBitsToDouble(p.getLong(KEY_MAP_LAT + "_d", 0L))
+        }
+        return p.getFloat(KEY_MAP_LAT, 50.4501f).toDouble()
+    }
+
+    fun getMapLon(context: Context): Double {
+        val p = getPrefs(context)
+        if (p.contains(KEY_MAP_LON + "_d")) {
+            return java.lang.Double.longBitsToDouble(p.getLong(KEY_MAP_LON + "_d", 0L))
+        }
+        return p.getFloat(KEY_MAP_LON, 30.5234f).toDouble()
+    }
+
+    fun getMapZoom(context: Context): Float {
+        val p = getPrefs(context)
+        return try {
+            p.getFloat(KEY_MAP_ZOOM, 12.0f)
+        } catch (_: Exception) {
+            p.getInt(KEY_MAP_ZOOM, 12).toFloat()
+        }
+    }
+
+    fun setMapZoom(context: Context, zoom: Float) {
+        getPrefs(context).edit().putFloat(KEY_MAP_ZOOM, zoom).apply()
+    }
+
+    fun setMapZoom(context: Context, zoom: Int) {
+        getPrefs(context).edit().putFloat(KEY_MAP_ZOOM, zoom.toFloat()).apply()
+    }
+
+    fun getMapBearing(context: Context): Float {
+        return getPrefs(context).getFloat(KEY_MAP_BEARING, 0.0f)
+    }
+
+    fun setMapBearing(context: Context, bearing: Float) {
+        getPrefs(context).edit().putFloat(KEY_MAP_BEARING, (bearing % 360f + 360f) % 360f).apply()
+    }
+
+    fun setMapState(context: Context, lat: Double, lon: Double, zoom: Float, bearing: Float) {
+        getPrefs(context).edit().apply {
+            putLong(KEY_MAP_LAT + "_d", java.lang.Double.doubleToRawLongBits(lat))
+            putFloat(KEY_MAP_LAT, lat.toFloat())
+            putLong(KEY_MAP_LON + "_d", java.lang.Double.doubleToRawLongBits(lon))
+            putFloat(KEY_MAP_LON, lon.toFloat())
+            putFloat(KEY_MAP_ZOOM, zoom)
+            putFloat(KEY_MAP_BEARING, (bearing % 360f + 360f) % 360f)
+            apply()
+        }
+        syncToExternalStorage(context)
+    }
+
+    fun getFollowUser(context: Context): Boolean = getPrefs(context).getBoolean(KEY_FOLLOW_USER, false)
     fun setFollowUser(context: Context, follow: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_FOLLOW_USER, follow).apply()
     }
