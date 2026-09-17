@@ -67,6 +67,16 @@ object RegionDownloadDialog {
 
         fun renderCountries(list: List<MapCountry>) {
             listContainer.removeAllViews()
+            if (list.isEmpty()) {
+                val emptyTv = TextView(activity).apply {
+                    text = "⏳ Отримання списку країн з OpenStreetMap..."
+                    setTextColor(Color.LTGRAY)
+                    textSize = 14f
+                    setPadding(16, 24, 16, 24)
+                }
+                listContainer.addView(emptyTv)
+                return
+            }
             for (country in list) {
                 val btn = UiUtils.createStyledButton(
                     activity,

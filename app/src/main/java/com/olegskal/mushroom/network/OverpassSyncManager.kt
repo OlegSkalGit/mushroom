@@ -101,18 +101,21 @@ object OverpassSyncManager {
         dbHelper: DatabaseHelper,
         onResult: (List<MapCountry>) -> Unit
     ) {
-        var cached = dbHelper.getCachedCountries()
-        if (cached.isEmpty()) {
-            dbHelper.insertCountries(BUILTIN_COUNTRIES)
-            cached = BUILTIN_COUNTRIES
+        val cached = dbHelper.getCachedCountries()
+        if (cached.isNotEmpty()) {
+            onResult(cached)
+        } else {
+            onResult(BUILTIN_COUNTRIES)
         }
-        onResult(cached)
 
         executor.execute {
             try {
                 val query = """
                     [out:json][timeout:25];
-                    relation["admin_level"="2"]["ISO3166-1"];
+                    (
+                      relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1"];
+                      relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1:alpha2"];
+                    );
                     out tags;
                 """.trimIndent()
 
@@ -121,7 +124,7 @@ object OverpassSyncManager {
                     val parsed = parseCountriesJson(jsonStr)
                     if (parsed.isNotEmpty()) {
                         dbHelper.insertCountries(parsed)
-                        AppLogger.log(TAG, "fetchCountries", true, "Fetched and cached ${parsed.size} countries from OSM.")
+                        AppLogger.log(TAG, "fetchCountries", true, "Fetched and cached ${parsed.size} countries online from OSM.")
                         val all = dbHelper.getCachedCountries()
                         mainHandler.post { onResult(all) }
                     }
@@ -144,51 +147,67 @@ object OverpassSyncManager {
         }
 
         val codeUpper = countryCode.uppercase().trim()
-        if (codeUpper == "UA") {
-            dbHelper.insertRegions("UA", BUILTIN_UA_REGIONS)
-            onResult(BUILTIN_UA_REGIONS)
-            return
-        } else if (codeUpper == "PL") {
-            dbHelper.insertRegions("PL", BUILTIN_PL_REGIONS)
-            onResult(BUILTIN_PL_REGIONS)
-            return
-        }
-
         executor.execute {
             try {
-                val query = """
-                    [out:json][timeout:30];
-                    area["ISO3166-1"="$codeUpper"]->.c;
+                // 1. Fast subarea member hierarchy query (works in 2-4s for almost all countries)
+                val querySubareas = """
+                    [out:json][timeout:25];
                     (
-                      relation["admin_level"="4"](area.c);
+                      relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1"="$codeUpper"];
+                      relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1:alpha2"="$codeUpper"];
                     );
+                    rel(r:"subarea");
                     out tags bb;
                 """.trimIndent()
 
-                var jsonStr = executePostRequest(query)
-                if (jsonStr.isNullOrEmpty()) {
-                    val fallbackQuery = """
-                        [out:json][timeout:30];
-                        area["ISO3166-1:alpha2"="$codeUpper"]->.c;
+                var jsonStr = executePostRequest(querySubareas)
+                var regions = if (!jsonStr.isNullOrEmpty()) parseRegionsJson(jsonStr) else emptyList()
+
+                // 2. Fallback: query by ISO3166-2 code prefix if subarea relation role is omitted
+                if (regions.isEmpty()) {
+                    val queryIso = """
+                        [out:json][timeout:25];
+                        relation["admin_level"="4"]["ISO3166-2"~"^$codeUpper-",i];
+                        out tags bb;
+                    """.trimIndent()
+                    jsonStr = executePostRequest(queryIso)
+                    if (!jsonStr.isNullOrEmpty()) {
+                        regions = parseRegionsJson(jsonStr)
+                    }
+                }
+
+                // 3. Fallback for single-division countries / city-states (Monaco, Singapore, Luxembourg, Vatican, Malta, etc.)
+                if (regions.isEmpty()) {
+                    val querySingle = """
+                        [out:json][timeout:20];
                         (
-                          relation["admin_level"="4"](area.c);
+                          relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1"="$codeUpper"];
+                          relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1:alpha2"="$codeUpper"];
                         );
                         out tags bb;
                     """.trimIndent()
-                    jsonStr = executePostRequest(fallbackQuery)
+                    jsonStr = executePostRequest(querySingle)
+                    if (!jsonStr.isNullOrEmpty()) {
+                        regions = parseRegionsJson(jsonStr)
+                    }
                 }
 
-                val regions = if (!jsonStr.isNullOrEmpty()) parseRegionsJson(jsonStr) else emptyList()
                 if (regions.isNotEmpty()) {
                     dbHelper.insertRegions(codeUpper, regions)
-                    AppLogger.log(TAG, "fetchRegions", true, "Fetched and cached ${regions.size} regions for $codeUpper from OSM.")
+                    AppLogger.log(TAG, "fetchRegions", true, "Fetched and cached ${regions.size} regions online for $codeUpper from OSM.")
                     mainHandler.post { onResult(regions) }
                 } else {
-                    mainHandler.post { onResult(emptyList()) }
+                    // Offline fallback if network is unreachable
+                    val offline = if (codeUpper == "UA") BUILTIN_UA_REGIONS else if (codeUpper == "PL") BUILTIN_PL_REGIONS else emptyList()
+                    if (offline.isNotEmpty()) {
+                        dbHelper.insertRegions(codeUpper, offline)
+                    }
+                    mainHandler.post { onResult(offline) }
                 }
             } catch (e: Exception) {
                 AppLogger.log(TAG, "fetchRegions", false, "Error fetching regions for $codeUpper: ${e.message}")
-                mainHandler.post { onResult(emptyList()) }
+                val offline = if (codeUpper == "UA") BUILTIN_UA_REGIONS else if (codeUpper == "PL") BUILTIN_PL_REGIONS else emptyList()
+                mainHandler.post { onResult(offline) }
             }
         }
     }
@@ -201,8 +220,8 @@ object OverpassSyncManager {
                 val url = URL(mirror)
                 conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
-                    connectTimeout = 8000
-                    readTimeout = 30000
+                    connectTimeout = 6000
+                    readTimeout = 15000
                     doOutput = true
                     setRequestProperty("User-Agent", "MushroomApp/1.0 (Android; Offline Forest Navigator)")
                     setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
@@ -213,9 +232,11 @@ object OverpassSyncManager {
                 }
                 if (conn.responseCode == 200) {
                     return conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                } else {
+                    AppLogger.log(TAG, "executePostRequest", false, "HTTP ${conn.responseCode} on $mirror")
                 }
             } catch (e: Exception) {
-                AppLogger.log(TAG, "executePostRequest", false, "Mirror $mirror failed: ${e.message}")
+                AppLogger.log(TAG, "executePostRequest", false, "Mirror $mirror error: ${e.message}")
             } finally {
                 conn?.disconnect()
             }
@@ -235,9 +256,9 @@ object OverpassSyncManager {
                 if (code.length != 2) continue
 
                 val nameUk = tags.optString("name:uk")
-                val nameLocal = tags.optString("name")
                 val nameEn = tags.optString("name:en")
-                val name = nameUk.ifEmpty { nameLocal.ifEmpty { nameEn } }
+                val nameLocal = tags.optString("name")
+                val name = nameUk.ifEmpty { nameEn.ifEmpty { nameLocal } }
                 if (name.isNotEmpty()) {
                     val clean = name.replace(Regex("""\s*\(.*?\)\s*"""), "").trim()
                     if (!result.containsKey(code) || clean.length < result[code]!!.length) {
@@ -253,27 +274,38 @@ object OverpassSyncManager {
 
     private fun parseRegionsJson(jsonStr: String): List<MapRegion> {
         val list = ArrayList<MapRegion>()
+        val seenIds = HashSet<Long>()
         try {
             val root = JSONObject(jsonStr)
             val elements = root.optJSONArray("elements") ?: return emptyList()
             for (i in 0 until elements.length()) {
                 val el = elements.optJSONObject(i) ?: continue
                 val id = el.optLong("id")
+                if (id != 0L && !seenIds.add(id)) continue
+
                 val bounds = el.optJSONObject("bounds") ?: continue
                 val tags = el.optJSONObject("tags") ?: continue
 
                 val nameUk = tags.optString("name:uk")
-                val nameLocal = tags.optString("name")
                 val nameEn = tags.optString("name:en")
-                val name = nameUk.ifEmpty { nameLocal.ifEmpty { nameEn } }.trim()
-                if (name.isEmpty()) continue
+                val nameLocal = tags.optString("name")
+
+                var displayName = nameUk.ifEmpty { nameLocal.ifEmpty { nameEn } }.trim()
+                if (displayName.isEmpty()) continue
+
+                if (nameUk.isNotEmpty() && nameLocal.isNotEmpty() && nameLocal != nameUk) {
+                    val cleanLocal = nameLocal.replace(Regex("""\s*\(.*?\)\s*"""), "").trim()
+                    if (cleanLocal.isNotEmpty() && !displayName.contains(cleanLocal)) {
+                        displayName = "$nameUk ($cleanLocal)"
+                    }
+                }
 
                 val minLat = bounds.optDouble("minlat")
                 val maxLat = bounds.optDouble("maxlat")
                 val minLon = bounds.optDouble("minlon")
                 val maxLon = bounds.optDouble("maxlon")
                 if (minLat != 0.0 || maxLat != 0.0 || minLon != 0.0 || maxLon != 0.0) {
-                    list.add(MapRegion("osm_$id", name, minLat, maxLat, minLon, maxLon))
+                    list.add(MapRegion("osm_$id", displayName, minLat, maxLat, minLon, maxLon))
                 }
             }
         } catch (e: Exception) {
