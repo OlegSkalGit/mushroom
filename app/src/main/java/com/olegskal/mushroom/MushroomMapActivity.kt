@@ -519,7 +519,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         container.addView(UiUtils.createDialogDivider(this))
 
         // 4. Exit
-        val btnQuit = UiUtils.createStyledButton(this, "🚪 Вихід з програми", itemParams) {
+        val btnQuit = UiUtils.createStyledButton(this, "🚪 Вихід", itemParams) {
             dialog.dismiss()
             val stopIntent = Intent(this@MushroomMapActivity, MushroomTrackingService::class.java).apply {
                 action = MushroomTrackingService.ACTION_STOP_SERVICE
