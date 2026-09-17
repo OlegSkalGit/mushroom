@@ -40,9 +40,6 @@ object MushroomStorageManager {
     val settingsDir: File
         get() = File(baseDir, "settings").apply { if (!exists()) mkdirs() }
 
-    val logsDir: File
-        get() = File(baseDir, "logs").apply { if (!exists()) mkdirs() }
-
     fun initStorage() {
         try {
             baseDir
@@ -51,7 +48,6 @@ object MushroomStorageManager {
             markersDir
             tracksDir
             settingsDir
-            logsDir
             AppLogger.log(TAG, "initStorage", true, "Storage structure initialized at: ${baseDir.absolutePath}")
         } catch (e: Exception) {
             AppLogger.log(TAG, "initStorage", false, "Failed to initialize storage: ${e.message}")

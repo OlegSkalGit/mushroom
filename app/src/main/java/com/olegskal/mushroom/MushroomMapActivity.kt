@@ -45,8 +45,6 @@ class MushroomMapActivity : Activity() {
     private lateinit var dbHelper: DatabaseHelper
 
     // UI overlays
-    private lateinit var tvTopCoords: TextView
-    private lateinit var tvTopStats: TextView
     private lateinit var tvRecordingBadge: TextView
     private lateinit var btnRec: Button
     private lateinit var btnCenter: Button
@@ -89,11 +87,13 @@ class MushroomMapActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
-        // Top Header Info Bar
+        // Top Header Bar
         val topInfoPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#CC121212"))
-            setPadding(24, 24, 24, 16)
+            setBackgroundColor(Color.parseColor("#99121212"))
+            val padH = (16 * resources.displayMetrics.density).toInt()
+            val padV = (12 * resources.displayMetrics.density).toInt()
+            setPadding(padH, padV, padH, padV)
         }
 
         val topHeaderRow = LinearLayout(this).apply {
@@ -101,8 +101,18 @@ class MushroomMapActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val btnClose = UiUtils.createStyledButton(this, "Згорнути") {
-            finish()
+        val menuBtnSize = (44 * resources.displayMetrics.density).toInt()
+        val btnMenu = Button(this).apply {
+            text = "☰"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#DD2A2A2A"))
+            textSize = 22f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(menuBtnSize, menuBtnSize)
+            setOnClickListener {
+                showMainMenuDialog()
+            }
         }
 
         val titleTv = TextView(this).apply {
@@ -110,32 +120,14 @@ class MushroomMapActivity : Activity() {
             setTextColor(Color.parseColor("#4CAF50"))
             textSize = 17f
             setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((14 * resources.displayMetrics.density).toInt(), 0, 0, 0)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val btnMenu = UiUtils.createStyledButton(this, "Меню") {
-            showMainMenuDialog()
-        }
-
-        topHeaderRow.addView(btnClose)
-        topHeaderRow.addView(titleTv)
         topHeaderRow.addView(btnMenu)
+        topHeaderRow.addView(titleTv)
         topInfoPanel.addView(topHeaderRow)
-
-        tvTopCoords = TextView(this).apply {
-            text = "Координати: пошук GPS..."
-            setTextColor(Color.WHITE)
-            textSize = 13f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 8, 0, 2)
-        }
-
-        tvTopStats = TextView(this).apply {
-            text = "Точність: -- | Швидкість: 0 км/год | Компас: --"
-            setTextColor(Color.parseColor("#00E5FF"))
-            textSize = 12f
-        }
 
         tvRecordingBadge = TextView(this).apply {
             text = "⏺️ ЗАПИС ТРЕКУ: 0.00 км (00:00)"
@@ -143,11 +135,8 @@ class MushroomMapActivity : Activity() {
             textSize = 13f
             setTypeface(null, Typeface.BOLD)
             visibility = View.GONE
-            setPadding(0, 6, 0, 0)
+            setPadding(0, 8, 0, 0)
         }
-
-        topInfoPanel.addView(tvTopCoords)
-        topInfoPanel.addView(tvTopStats)
         topInfoPanel.addView(tvRecordingBadge)
 
         rootLayout.addView(topInfoPanel, FrameLayout.LayoutParams(
@@ -483,17 +472,6 @@ class MushroomMapActivity : Activity() {
         val isRec = s?.isRecording == true
         val metrics = currentMetrics ?: MushroomTrackingService.lastMetrics
         if (metrics != null) {
-            val loc = metrics.location
-            val latStr = String.format(Locale.US, "%.5f°", loc.latitude)
-            val lonStr = String.format(Locale.US, "%.5f°", loc.longitude)
-            val acc = if (loc.hasAccuracy()) "±${loc.accuracy.toInt()}м" else "--"
-            val spd = "${metrics.speedKmh.toInt()} км/год"
-            val alt = if (loc.hasAltitude()) "${loc.altitude.toInt()}м" else "--"
-            val az = "${metrics.compassHeading.toInt()}°"
-
-            tvTopCoords.text = "Шир: $latStr  Довг: $lonStr (Вис: $alt)"
-            tvTopStats.text = "Точність: $acc | Швидк: $spd | Компас: $az | ${metrics.gpsStatusStr}"
-
             if (isRec) {
                 updateRecordingUi(true, metrics.recordedDistanceMeters, metrics.recordedDurationSec)
             } else {
