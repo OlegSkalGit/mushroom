@@ -356,7 +356,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private fun onReceivedCoordinates(lat: Double, lon: Double) {
         isFollowLocation = false
         mapView.setCenter(lat, lon)
-        AddMarkerDialog.show(
+        ItemEditDialog.showAddMarker(
             this,
             dbHelper,
             lat,
@@ -413,22 +413,37 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         return name
     }
 
+    fun startTrackRecording(title: String, color: Int) {
+        val s = MushroomTrackingService.instance
+        if (s != null) {
+            s.startTrackRecording(title, color)
+            updateRecordingUi(true, 0f, 0L)
+            mapView.reloadTracks()
+        } else {
+            val intent = Intent(this, MushroomTrackingService::class.java).apply {
+                action = MushroomTrackingService.ACTION_START_RECORDING
+                putExtra(MushroomTrackingService.EXTRA_TRACK_TITLE, title)
+                putExtra(MushroomTrackingService.EXTRA_TRACK_COLOR, color)
+            }
+            startService(intent)
+            updateRecordingUi(true, 0f, 0L)
+        }
+    }
+
+    fun stopTrackRecording() {
+        val s = MushroomTrackingService.instance
+        s?.stopTrackRecording()
+        updateRecordingUi(false, 0f, 0L)
+        mapView.reloadTracks()
+    }
+
     fun toggleTrackRecording() {
         val s = MushroomTrackingService.instance
         if (s?.isRecording == true) {
-            s.stopTrackRecording()
-            updateRecordingUi(false, 0f, 0L)
-            mapView.reloadTracks()
+            stopTrackRecording()
         } else {
-            if (s != null) {
-                s.startTrackRecording()
-                updateRecordingUi(true, 0f, 0L)
-            } else {
-                val intent = Intent(this, MushroomTrackingService::class.java).apply {
-                    action = MushroomTrackingService.ACTION_START_RECORDING
-                }
-                startService(intent)
-                updateRecordingUi(true, 0f, 0L)
+            ItemEditDialog.showCreateTrack(this) { title, color ->
+                startTrackRecording(title, color)
             }
         }
     }
@@ -448,13 +463,16 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private fun updateLiveStats() {
         val s = MushroomTrackingService.instance
         val isRec = s?.isRecording == true
-        val metrics = currentMetrics ?: MushroomTrackingService.lastMetrics
-        if (metrics != null) {
-            if (isRec) {
-                updateRecordingUi(true, metrics.recordedDistanceMeters, metrics.recordedDurationSec)
-            } else {
-                updateRecordingUi(false, 0f, 0L)
-            }
+        if (isRec) {
+            val dist = currentMetrics?.recordedDistanceMeters
+                ?: MushroomTrackingService.lastMetrics?.recordedDistanceMeters
+                ?: s?.currentActiveTrack?.distanceMeters ?: 0f
+            val dur = currentMetrics?.recordedDurationSec
+                ?: MushroomTrackingService.lastMetrics?.recordedDurationSec
+                ?: s?.currentActiveTrack?.durationSec ?: 0L
+            updateRecordingUi(true, dist, dur)
+        } else {
+            updateRecordingUi(false, 0f, 0L)
         }
     }
 
@@ -525,6 +543,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         // 4. Exit
         val btnQuit = UiUtils.createStyledButton(this, "🚪 Вихід", itemParams) {
             dialog.dismiss()
+            val s = MushroomTrackingService.instance
+            if (s?.isRecording == true) {
+                s.stopTrackRecording()
+            }
             val stopIntent = Intent(this@MushroomMapActivity, MushroomTrackingService::class.java).apply {
                 action = MushroomTrackingService.ACTION_STOP_SERVICE
             }
@@ -542,9 +564,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         mapView.reloadMarkers()
         mapView.reloadTracks()
+        updateLiveStats()
 
         MushroomTrackingService.serviceStateListener = { isRunning ->
             if (!isRunning) runOnUiThread { finish() }
+            else runOnUiThread { updateLiveStats(); mapView.reloadTracks() }
         }
 
         if (::compassButton.isInitialized) {
@@ -586,6 +610,20 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         if (::mapView.isInitialized) {
             mapView.saveMapState()
         }
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) {
+            val s = MushroomTrackingService.instance
+            if (s?.isRecording == true) {
+                s.stopTrackRecording()
+            }
+            val stopIntent = Intent(this, MushroomTrackingService::class.java).apply {
+                action = MushroomTrackingService.ACTION_STOP_SERVICE
+            }
+            startService(stopIntent)
+        }
+        super.onDestroy()
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -765,7 +803,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 isLongPressTriggered = true
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                 val coords = screenToLatLon(downX, downY)
-                AddMarkerDialog.show(
+                ItemEditDialog.showAddMarker(
                     this@MushroomMapActivity,
                     dbHelper,
                     coords.first,
@@ -1269,7 +1307,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             trackPaint.strokeWidth = 8f / scale
             liveTrackPaint.strokeWidth = 9f / scale
 
+            val s = MushroomTrackingService.instance
+            val activeTrackId = if (s?.isRecording == true) s.currentActiveTrack?.id else null
+
             for (track in tracksList) {
+                if (track.id == activeTrackId) continue
                 if (!track.isVisible || track.points.size < 2) continue
                 trackPaint.color = track.color
 
@@ -1289,10 +1331,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
 
             // Draw Live Active Track
-            val s = MushroomTrackingService.instance
             if (s?.isRecording == true) {
                 val active = s.currentActiveTrack
                 if (active != null && active.points.size >= 2) {
+                    liveTrackPaint.color = active.color
                     var prevX = -1f
                     var prevY = -1f
                     for (p in active.points) {

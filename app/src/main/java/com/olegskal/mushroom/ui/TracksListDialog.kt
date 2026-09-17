@@ -64,12 +64,17 @@ object TracksListDialog {
             }
             layoutParams = btnParams
             setOnClickListener {
-                (activity as? com.olegskal.mushroom.MushroomMapActivity)?.toggleTrackRecording()
-                val nowRec = com.olegskal.mushroom.service.MushroomTrackingService.instance?.isRecording == true
-                text = if (nowRec) "⏹️ Зупинити запис треку" else "⏺️ Записати новий трек"
-                setBackgroundColor(if (nowRec) Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
-                onVisibilityChanged()
-                dialog.dismiss()
+                val act = activity as? com.olegskal.mushroom.MushroomMapActivity
+                val s = com.olegskal.mushroom.service.MushroomTrackingService.instance
+                if (s?.isRecording == true) {
+                    act?.stopTrackRecording()
+                    dialog.dismiss()
+                } else {
+                    dialog.dismiss()
+                    ItemEditDialog.showCreateTrack(activity) { title, color ->
+                        act?.startTrackRecording(title, color)
+                    }
+                }
             }
         }
         container.addView(btnRecordTrack)
@@ -94,7 +99,10 @@ object TracksListDialog {
 
         fun populateTracks() {
             listContainer.removeAllViews()
-            val tracks = dbHelper.getAllTracks()
+            val activeId = if (com.olegskal.mushroom.service.MushroomTrackingService.instance?.isRecording == true) {
+                com.olegskal.mushroom.service.MushroomTrackingService.instance?.currentActiveTrack?.id
+            } else null
+            val tracks = dbHelper.getAllTracks().filter { activeId == null || it.id != activeId }
 
             if (tracks.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
@@ -176,15 +184,9 @@ object TracksListDialog {
                     textSize = 15f
                     setPadding(8, 0, 8, 0)
                     setOnClickListener {
-                        showRenameTrackDialog(activity, track.title, track.color) { newTitle, newColor ->
-                            if (newTitle.isNotBlank()) {
-                                val trimmed = newTitle.trim()
-                                dbHelper.updateTrackInfo(track.id, trimmed, newColor)
-                                track.title = trimmed
-                                track.color = newColor
-                                onVisibilityChanged()
-                                populateTracks()
-                            }
+                        ItemEditDialog.showEditTrack(activity, dbHelper, track) {
+                            onVisibilityChanged()
+                            populateTracks()
                         }
                     }
                 }
@@ -236,92 +238,5 @@ object TracksListDialog {
 
         dialog.setContentView(container)
         dialog.show()
-    }
-
-    private fun showRenameTrackDialog(
-        activity: Activity,
-        currentTitle: String,
-        currentColor: Int,
-        onRenamed: (String, Int) -> Unit
-    ) {
-        val container = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(40, 24, 40, 16)
-            setBackgroundColor(Color.parseColor("#222222"))
-        }
-
-        val input = EditText(activity).apply {
-            setText(currentTitle)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#333333"))
-            setPadding(20, 16, 20, 16)
-            setSelection(currentTitle.length)
-        }
-        container.addView(input)
-
-        val colorTitle = TextView(activity).apply {
-            text = "Колір треку:"
-            setTextColor(Color.LTGRAY)
-            textSize = 13f
-            setPadding(0, 16, 0, 8)
-        }
-        container.addView(colorTitle)
-
-        val colors = listOf(
-            0xFF4CAF50.toInt(), // Зелений
-            0xFFFF9800.toInt(), // Помаранчевий
-            0xFFF44336.toInt(), // Червоний
-            0xFFFFEB3B.toInt(), // Жовтий
-            0xFF00E5FF.toInt(), // Блакитний
-            0xFFE040FB.toInt()  // Фіолетовий
-        )
-
-        var selectedColor = currentColor
-        val colorRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val colorViews = ArrayList<TextView>()
-        fun updateColorSelection() {
-            for ((idx, tv) in colorViews.withIndex()) {
-                val c = colors[idx]
-                tv.text = if (c == selectedColor) "✓" else ""
-            }
-        }
-
-        val density = activity.resources.displayMetrics.density
-        val sz = (36 * density).toInt()
-        val m = (4 * density).toInt()
-
-        for (c in colors) {
-            val tv = TextView(activity).apply {
-                layoutParams = LinearLayout.LayoutParams(sz, sz).apply {
-                    setMargins(m, 0, m, 0)
-                }
-                setBackgroundColor(c)
-                setTextColor(if (c == 0xFFFFEB3B.toInt()) Color.BLACK else Color.WHITE)
-                textSize = 18f
-                setTypeface(null, Typeface.BOLD)
-                gravity = Gravity.CENTER
-                setOnClickListener {
-                    selectedColor = c
-                    updateColorSelection()
-                }
-            }
-            colorViews.add(tv)
-            colorRow.addView(tv)
-        }
-        updateColorSelection()
-        container.addView(colorRow)
-
-        AlertDialog.Builder(activity)
-            .setTitle("Редагувати трек")
-            .setView(container)
-            .setPositiveButton("Зберегти") { _, _ ->
-                onRenamed(input.text.toString(), selectedColor)
-            }
-            .setNegativeButton("Скасувати", null)
-            .show()
     }
 }

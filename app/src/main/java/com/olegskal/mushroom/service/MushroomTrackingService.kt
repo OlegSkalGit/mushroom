@@ -46,6 +46,8 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         const val ACTION_STOP_SERVICE = "com.olegskal.mushroom.ACTION_STOP_SERVICE"
         const val ACTION_START_RECORDING = "com.olegskal.mushroom.ACTION_START_RECORDING"
         const val ACTION_STOP_RECORDING = "com.olegskal.mushroom.ACTION_STOP_RECORDING"
+        const val EXTRA_TRACK_TITLE = "extra_track_title"
+        const val EXTRA_TRACK_COLOR = "extra_track_color"
 
         const val GPS_FULL_UPDATE_INTERVAL_MS = 1000L // 1 second full rate
 
@@ -163,7 +165,9 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
                 return START_NOT_STICKY
             }
             ACTION_START_RECORDING -> {
-                startTrackRecording()
+                val title = intent.getStringExtra(EXTRA_TRACK_TITLE)
+                val color = if (intent.hasExtra(EXTRA_TRACK_COLOR)) intent.getIntExtra(EXTRA_TRACK_COLOR, 0xFF4CAF50.toInt()) else null
+                startTrackRecording(title, color)
             }
             ACTION_STOP_RECORDING -> {
                 stopTrackRecording()
@@ -172,7 +176,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         return START_NOT_STICKY
     }
 
-    fun startTrackRecording() {
+    fun startTrackRecording(customTitle: String? = null, customColor: Int? = null) {
         if (isRecording) return
         isRecording = true
         AppPrefs.setRecordingTrack(this, true)
@@ -180,13 +184,15 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
 
         val now = System.currentTimeMillis()
         val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
-        val title = "Трек від ${sdf.format(Date(now))}"
+        val title = customTitle?.trim()?.ifEmpty { null } ?: "Трек (${sdf.format(Date(now))})"
+        val color = customColor ?: 0xFF4CAF50.toInt()
 
         val track = MushroomTrack(
             id = now,
             title = title,
             startTime = now,
-            endTime = now
+            endTime = now,
+            color = color
         )
         activeTrack = track
         AppPrefs.setActiveTrackId(this, track.id)
@@ -435,6 +441,9 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
     }
 
     fun stopSelfAndCleanup() {
+        if (isRecording) {
+            stopTrackRecording()
+        }
         isRunning = false
         AppPrefs.setUserStopped(this, true)
         releaseWakeLock()

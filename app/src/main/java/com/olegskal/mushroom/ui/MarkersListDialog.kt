@@ -67,7 +67,7 @@ object MarkersListDialog {
             layoutParams = addParams
             setOnClickListener {
                 dialog.dismiss()
-                AddMarkerDialog.show(
+                ItemEditDialog.showAddMarker(
                     activity,
                     dbHelper,
                     currentLat ?: 50.4501,
@@ -85,7 +85,7 @@ object MarkersListDialog {
             val coords = com.olegskal.mushroom.util.GeoDataExchange.parseCoordinates(clipText)
             if (coords != null) {
                 dialog.dismiss()
-                AddMarkerDialog.show(
+                ItemEditDialog.showAddMarker(
                     activity,
                     dbHelper,
                     coords.first,
@@ -194,7 +194,7 @@ object MarkersListDialog {
                     textSize = 15f
                     setPadding(8, 0, 8, 0)
                     setOnClickListener {
-                        AddMarkerDialog.showEdit(activity, dbHelper, marker) {
+                        ItemEditDialog.showEditMarker(activity, dbHelper, marker) {
                             onVisibilityChanged()
                             populateMarkers()
                         }
