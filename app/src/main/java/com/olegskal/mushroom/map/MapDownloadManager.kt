@@ -38,11 +38,9 @@ data class TileTask(
 object MapDownloadManager {
 
     private const val TAG = "MapDownloadManager"
-    private val TILE_SERVERS = arrayOf(
-        "a.tile.openstreetmap.org",
-        "b.tile.openstreetmap.org",
-        "c.tile.openstreetmap.org"
-    )
+    private const val OSM_TILE_URL = "https://tile.openstreetmap.org"
+    private const val USER_AGENT = "Mushroom/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
+    private const val REFERER = "https://tile.openstreetmap.org/"
     private const val WORKER_COUNT = 3
 
     private val dispatcherExecutor = Executors.newSingleThreadExecutor()
@@ -184,7 +182,6 @@ object MapDownloadManager {
                 val latch = CountDownLatch(WORKER_COUNT)
 
                 for (workerId in 0 until WORKER_COUNT) {
-                    val server = TILE_SERVERS[workerId % TILE_SERVERS.size]
                     workerExecutor.execute {
                         try {
                             while (!cancelFlag.get()) {
@@ -193,12 +190,16 @@ object MapDownloadManager {
 
                                 val file = MushroomStorageManager.getTileFile(task.z, task.x, task.y)
                                 if (file.exists() && file.length() > 0) {
-                                    skipped.incrementAndGet()
-                                    onProgress(cur, totalTiles, task.regionName)
-                                    continue
+                                    if (file.length() == 6987L) {
+                                        file.delete()
+                                    } else {
+                                        skipped.incrementAndGet()
+                                        onProgress(cur, totalTiles, task.regionName)
+                                        continue
+                                    }
                                 }
 
-                                val ok = downloadTile(server, task.z, task.x, task.y, file)
+                                val ok = downloadTile(task.z, task.x, task.y, file)
                                 if (ok) {
                                     success.incrementAndGet()
                                 } else {
@@ -232,24 +233,26 @@ object MapDownloadManager {
         }
     }
 
-    private fun downloadTile(server: String, z: Int, x: Int, y: Int, destFile: File): Boolean {
+    private fun downloadTile(z: Int, x: Int, y: Int, destFile: File): Boolean {
         var conn: HttpURLConnection? = null
         var inputStream: InputStream? = null
         return try {
-            val url = URL("https://$server/$z/$x/$y.png")
+            val url = URL("$OSM_TILE_URL/$z/$x/$y.png")
             conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5000
-                readTimeout = 8000
-                setRequestProperty("User-Agent", "MushroomApp/1.0 (Android; Offline Forest Navigator)")
+                connectTimeout = 6000
+                readTimeout = 9000
+                setRequestProperty("User-Agent", USER_AGENT)
+                setRequestProperty("Referer", REFERER)
                 setRequestProperty("Connection", "keep-alive")
             }
-            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+            val isBlocked = conn.getHeaderField("x-blocked") != null || conn.getHeaderField("X-Blocked") != null
+            if (conn.responseCode == HttpURLConnection.HTTP_OK && !isBlocked && conn.contentLength != 6987) {
                 val tmp = File(destFile.parentFile, "${destFile.name}.tmp")
                 inputStream = conn.inputStream
                 FileOutputStream(tmp).use { output ->
                     inputStream?.copyTo(output)
                 }
-                if (tmp.exists() && tmp.length() > 0) {
+                if (tmp.exists() && tmp.length() > 0 && tmp.length() != 6987L) {
                     tmp.renameTo(destFile)
                     true
                 } else {
@@ -268,5 +271,28 @@ object MapDownloadManager {
                 inputStream?.close()
             } catch (_: Exception) {}
         }
+    }
+
+    fun getRegionDownloadStatus(region: MapRegion, minZoom: Int = 10, maxZoom: Int = 13): Pair<Int, Int> {
+        var total = 0
+        var existing = 0
+        for (z in minZoom..maxZoom) {
+            val p1 = OsmTileEngine.latLonToTile(region.maxLat, region.minLon, z)
+            val p2 = OsmTileEngine.latLonToTile(region.minLat, region.maxLon, z)
+            val minX = minOf(p1.first, p2.first)
+            val maxX = maxOf(p1.first, p2.first)
+            val minY = minOf(p1.second, p2.second)
+            val maxY = maxOf(p1.second, p2.second)
+            for (x in minX..maxX) {
+                for (y in minY..maxY) {
+                    total++
+                    val f = MushroomStorageManager.getTileFile(z, x, y)
+                    if (f.exists() && f.length() > 0 && f.length() != 6987L) {
+                        existing++
+                    }
+                }
+            }
+        }
+        return Pair(existing, total)
     }
 }

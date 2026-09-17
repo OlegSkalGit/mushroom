@@ -63,13 +63,14 @@ object RegionDownloadDialog {
         }
 
         var fullCountryList = emptyList<MapCountry>()
+        val countryStatuses = HashMap<String, String>()
         val itemParams = UiUtils.createStandardItemParams()
 
         fun renderCountries(list: List<MapCountry>) {
             listContainer.removeAllViews()
             if (list.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = "⏳ Отримання списку країн з OpenStreetMap..."
+                    text = if (fullCountryList.isEmpty()) "⏳ Отримання списку країн з OpenStreetMap..." else "Країн не знайдено"
                     setTextColor(Color.LTGRAY)
                     textSize = 14f
                     setPadding(16, 24, 16, 24)
@@ -78,9 +79,10 @@ object RegionDownloadDialog {
                 return
             }
             for (country in list) {
+                val status = countryStatuses[country.code] ?: ""
                 val btn = UiUtils.createStyledButton(
                     activity,
-                    "${country.name} (${country.code})",
+                    "${country.name} (${country.code})$status",
                     itemParams
                 ) {
                     dialog.dismiss()
@@ -88,6 +90,42 @@ object RegionDownloadDialog {
                 }
                 listContainer.addView(btn)
             }
+        }
+
+        fun checkCountryStatuses(countries: List<MapCountry>) {
+            Thread {
+                var changed = false
+                for (c in countries) {
+                    val cached = dbHelper.getCachedRegions(c.code)
+                    if (cached.isNotEmpty()) {
+                        var totalAll = 0
+                        var existingAll = 0
+                        for (r in cached) {
+                            val (ex, tot) = MapDownloadManager.getRegionDownloadStatus(r, 10, 13)
+                            existingAll += ex
+                            totalAll += tot
+                        }
+                        if (totalAll > 0 && existingAll >= totalAll) {
+                            countryStatuses[c.code] = "  [✓ 100%]"
+                            changed = true
+                        } else if (existingAll > 0) {
+                            val pct = (existingAll * 100) / totalAll
+                            countryStatuses[c.code] = "  [⏳ $pct%]"
+                            changed = true
+                        }
+                    }
+                }
+                if (changed) {
+                    activity.runOnUiThread {
+                        val q = searchInput.text.toString().trim().lowercase(Locale.getDefault())
+                        val toShow = if (q.isEmpty()) fullCountryList else fullCountryList.filter {
+                            it.name.lowercase(Locale.getDefault()).contains(q) ||
+                                    it.code.lowercase(Locale.getDefault()).contains(q)
+                        }
+                        renderCountries(toShow)
+                    }
+                }
+            }.start()
         }
 
         searchInput.addTextChangedListener(object : android.text.TextWatcher {
@@ -116,6 +154,7 @@ object RegionDownloadDialog {
                             it.code.lowercase(Locale.getDefault()).contains(q)
                 }
                 renderCountries(toShow)
+                checkCountryStatuses(countries)
             }
         }
 
@@ -196,9 +235,23 @@ object RegionDownloadDialog {
             text = "Вибрано: 0 регіонів (0 тайлів)"
             setTextColor(Color.parseColor("#4CAF50"))
             textSize = 13f
-            setPadding(0, 0, 0, 12)
+            setPadding(0, 0, 0, 8)
         }
         container.addView(infoTv)
+
+        val searchInput = EditText(activity).apply {
+            hint = "🔍 Пошук області..."
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            setPadding(20, 14, 20, 14)
+            textSize = 14f
+        }
+        val searchParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 0, 0, 8)
+        }
+        searchInput.layoutParams = searchParams
+        container.addView(searchInput)
 
         fun updateInfo() {
             val count = selectedRegions.size
@@ -223,39 +276,109 @@ object RegionDownloadDialog {
             orientation = LinearLayout.VERTICAL
         }
 
-        val checkboxes = ArrayList<CheckBox>()
+        val regionStatuses = HashMap<String, Pair<Int, Int>>()
+        var currentFiltered = regions
 
-        for (region in regions) {
-            val row = LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(8, 8, 8, 8)
-            }
-
-            val chk = CheckBox(activity).apply {
-                text = region.name
-                setTextColor(Color.WHITE)
-                textSize = 14f
-                setOnCheckedChangeListener { _, isChecked ->
-                    if (isChecked) {
-                        selectedRegions.add(region)
-                    } else {
-                        selectedRegions.remove(region)
-                    }
-                    updateInfo()
+        fun renderRegions(list: List<MapRegion>) {
+            currentFiltered = list
+            listContainer.removeAllViews()
+            if (list.isEmpty()) {
+                val emptyTv = TextView(activity).apply {
+                    text = "Областей не знайдено"
+                    setTextColor(Color.LTGRAY)
+                    textSize = 14f
+                    setPadding(16, 24, 16, 24)
                 }
+                listContainer.addView(emptyTv)
+                return
             }
-            checkboxes.add(chk)
-            row.addView(chk)
-            listContainer.addView(row)
+
+            for (region in list) {
+                val row = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(6, 4, 6, 4)
+                }
+
+                val chk = CheckBox(activity).apply {
+                    text = region.name
+                    setTextColor(Color.WHITE)
+                    textSize = 14f
+                    isChecked = selectedRegions.contains(region)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    setOnCheckedChangeListener { _, isChecked ->
+                        if (isChecked) {
+                            selectedRegions.add(region)
+                        } else {
+                            selectedRegions.remove(region)
+                        }
+                        updateInfo()
+                    }
+                }
+                row.addView(chk)
+
+                val stat = regionStatuses[region.id]
+                val statusTv = TextView(activity).apply {
+                    textSize = 12f
+                    setPadding(8, 0, 4, 0)
+                    if (stat == null) {
+                        text = ""
+                    } else {
+                        val (existing, total) = stat
+                        if (total > 0 && existing >= total) {
+                            text = "✓ Завантажено"
+                            setTextColor(Color.parseColor("#4CAF50"))
+                        } else if (existing > 0) {
+                            val pct = (existing * 100) / total
+                            text = "⏳ $pct%"
+                            setTextColor(Color.parseColor("#FFB300"))
+                        } else {
+                            text = "—"
+                            setTextColor(Color.GRAY)
+                        }
+                    }
+                }
+                row.addView(statusTv)
+
+                listContainer.addView(row)
+            }
         }
+
+        searchInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val q = s?.toString()?.trim()?.lowercase(Locale.getDefault()) ?: ""
+                val filtered = if (q.isEmpty()) regions else regions.filter {
+                    it.name.lowercase(Locale.getDefault()).contains(q)
+                }
+                renderRegions(filtered)
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
 
         btnSelectAll.setOnClickListener {
-            val allChecked = selectedRegions.size == regions.size
-            for (chk in checkboxes) {
-                chk.isChecked = !allChecked
+            val allChecked = currentFiltered.isNotEmpty() && currentFiltered.all { selectedRegions.contains(it) }
+            if (allChecked) {
+                selectedRegions.removeAll(currentFiltered.toSet())
+            } else {
+                selectedRegions.addAll(currentFiltered)
             }
+            renderRegions(currentFiltered)
+            updateInfo()
         }
+
+        renderRegions(regions)
+
+        Thread {
+            val map = HashMap<String, Pair<Int, Int>>()
+            for (r in regions) {
+                map[r.id] = MapDownloadManager.getRegionDownloadStatus(r, 10, 13)
+            }
+            activity.runOnUiThread {
+                regionStatuses.putAll(map)
+                renderRegions(currentFiltered)
+            }
+        }.start()
 
         scrollView.addView(listContainer)
         container.addView(scrollView)

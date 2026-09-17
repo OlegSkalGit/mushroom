@@ -55,6 +55,24 @@ object MarkersListDialog {
         headerRow.addView(btnClose)
         container.addView(headerRow)
 
+        val btnAddMarker = UiUtils.createStyledButton(activity, "➕ Створити нову мітку") {
+            dialog.dismiss()
+            AddMarkerDialog.show(
+                activity,
+                dbHelper,
+                currentLat ?: 50.4501,
+                currentLon ?: 30.5234,
+                0.0
+            ) {
+                onVisibilityChanged()
+            }
+        }
+        val addParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 0, 0, 8)
+        }
+        btnAddMarker.layoutParams = addParams
+        container.addView(btnAddMarker)
+
         val btnPasteClip = UiUtils.createStyledButton(activity, "📋 Вставити координати з буфера") {
             val clipText = com.olegskal.mushroom.util.GeoDataExchange.getClipboardText(activity)
             val coords = com.olegskal.mushroom.util.GeoDataExchange.parseCoordinates(clipText)
@@ -94,7 +112,7 @@ object MarkersListDialog {
 
             if (markers.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = "Немає збережених міток.\nНатисніть кнопку \"+ Мітка\" на карті."
+                    text = "Немає збережених міток.\nНатисніть \"➕ Створити нову мітку\"."
                     setTextColor(Color.GRAY)
                     textSize = 14f
                     gravity = Gravity.CENTER
@@ -109,7 +127,7 @@ object MarkersListDialog {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     setBackgroundColor(Color.parseColor("#222222"))
-                    setPadding(16, 12, 16, 12)
+                    setPadding(12, 8, 12, 8)
                     val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                     params.setMargins(0, 0, 0, 8)
                     layoutParams = params
@@ -162,11 +180,40 @@ object MarkersListDialog {
                 infoCol.addView(nameTv)
                 infoCol.addView(subTv)
 
+                val btnRename = Button(activity).apply {
+                    text = "✏️"
+                    setTextColor(Color.parseColor("#FFD54F"))
+                    setBackgroundColor(Color.TRANSPARENT)
+                    textSize = 15f
+                    setPadding(8, 0, 8, 0)
+                    setOnClickListener {
+                        showRenameDialog(activity, marker.name) { newName ->
+                            if (newName.isNotBlank()) {
+                                dbHelper.updateMarkerName(marker.id, newName.trim())
+                                onVisibilityChanged()
+                                populateMarkers()
+                            }
+                        }
+                    }
+                }
+
+                val btnShare = Button(activity).apply {
+                    text = "📤"
+                    setTextColor(Color.parseColor("#00E5FF"))
+                    setBackgroundColor(Color.TRANSPARENT)
+                    textSize = 15f
+                    setPadding(8, 0, 8, 0)
+                    setOnClickListener {
+                        com.olegskal.mushroom.util.GeoDataExchange.shareMarker(activity, marker)
+                    }
+                }
+
                 val btnDelete = Button(activity).apply {
                     text = "🗑"
                     setTextColor(Color.parseColor("#FF5252"))
                     setBackgroundColor(Color.TRANSPARENT)
-                    textSize = 16f
+                    textSize = 15f
+                    setPadding(8, 0, 8, 0)
                     setOnClickListener {
                         AlertDialog.Builder(activity)
                             .setTitle("Видалити мітку?")
@@ -181,18 +228,9 @@ object MarkersListDialog {
                     }
                 }
 
-                val btnShare = Button(activity).apply {
-                    text = "📤"
-                    setTextColor(Color.parseColor("#00E5FF"))
-                    setBackgroundColor(Color.TRANSPARENT)
-                    textSize = 16f
-                    setOnClickListener {
-                        com.olegskal.mushroom.util.GeoDataExchange.shareMarker(activity, marker)
-                    }
-                }
-
                 itemRow.addView(chkVisible)
                 itemRow.addView(infoCol)
+                itemRow.addView(btnRename)
                 itemRow.addView(btnShare)
                 itemRow.addView(btnDelete)
 
@@ -220,5 +258,23 @@ object MarkersListDialog {
             b in 292.5..337.5 -> "Пн-Зх"
             else -> "Пн"
         }
+    }
+
+    private fun showRenameDialog(activity: Activity, currentName: String, onRenamed: (String) -> Unit) {
+        val input = EditText(activity).apply {
+            setText(currentName)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            setPadding(20, 16, 20, 16)
+            setSelection(currentName.length)
+        }
+        AlertDialog.Builder(activity)
+            .setTitle("Перейменувати мітку")
+            .setView(input)
+            .setPositiveButton("Зберегти") { _, _ ->
+                onRenamed(input.text.toString())
+            }
+            .setNegativeButton("Скасувати", null)
+            .show()
     }
 }

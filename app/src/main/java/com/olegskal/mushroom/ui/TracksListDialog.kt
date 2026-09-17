@@ -52,6 +52,28 @@ object TracksListDialog {
         headerRow.addView(btnClose)
         container.addView(headerRow)
 
+        val isRecording = com.olegskal.mushroom.service.MushroomTrackingService.instance?.isRecording == true
+        val btnRecordTrack = Button(activity).apply {
+            text = if (isRecording) "⏹️ Зупинити запис треку" else "⏺️ Записати новий трек"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(if (isRecording) Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            val btnParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, 8)
+            }
+            layoutParams = btnParams
+            setOnClickListener {
+                (activity as? com.olegskal.mushroom.MushroomMapActivity)?.toggleTrackRecording()
+                val nowRec = com.olegskal.mushroom.service.MushroomTrackingService.instance?.isRecording == true
+                text = if (nowRec) "⏹️ Зупинити запис треку" else "⏺️ Записати новий трек"
+                setBackgroundColor(if (nowRec) Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
+                onVisibilityChanged()
+                dialog.dismiss()
+            }
+        }
+        container.addView(btnRecordTrack)
+
         val btnImportGpx = UiUtils.createStyledButton(activity, "📂 Імпортувати GPX файл") {
             dialog.dismiss()
             (activity as? com.olegskal.mushroom.MushroomMapActivity)?.openGpxFilePicker()
@@ -76,7 +98,7 @@ object TracksListDialog {
 
             if (tracks.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = "Немає збережених треків.\nНатисніть кнопку \"REC\" для початку запису."
+                    text = "Немає збережених треків.\nНатисніть \"⏺️ Записати новий трек\"."
                     setTextColor(Color.GRAY)
                     textSize = 14f
                     gravity = Gravity.CENTER
@@ -93,7 +115,7 @@ object TracksListDialog {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     setBackgroundColor(Color.parseColor("#222222"))
-                    setPadding(16, 12, 16, 12)
+                    setPadding(12, 8, 12, 8)
                     val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                     params.setMargins(0, 0, 0, 8)
                     layoutParams = params
@@ -147,11 +169,40 @@ object TracksListDialog {
                 infoCol.addView(subTv)
                 infoCol.addView(dateTv)
 
+                val btnRename = Button(activity).apply {
+                    text = "✏️"
+                    setTextColor(Color.parseColor("#FFD54F"))
+                    setBackgroundColor(Color.TRANSPARENT)
+                    textSize = 15f
+                    setPadding(8, 0, 8, 0)
+                    setOnClickListener {
+                        showRenameTrackDialog(activity, track.title) { newTitle ->
+                            if (newTitle.isNotBlank()) {
+                                dbHelper.updateTrackTitle(track.id, newTitle.trim())
+                                onVisibilityChanged()
+                                populateTracks()
+                            }
+                        }
+                    }
+                }
+
+                val btnShare = Button(activity).apply {
+                    text = "📤"
+                    setTextColor(Color.parseColor("#00E5FF"))
+                    setBackgroundColor(Color.TRANSPARENT)
+                    textSize = 15f
+                    setPadding(8, 0, 8, 0)
+                    setOnClickListener {
+                        com.olegskal.mushroom.util.GeoDataExchange.shareTrackGpx(activity, track)
+                    }
+                }
+
                 val btnDelete = Button(activity).apply {
                     text = "🗑"
                     setTextColor(Color.parseColor("#FF5252"))
                     setBackgroundColor(Color.TRANSPARENT)
-                    textSize = 16f
+                    textSize = 15f
+                    setPadding(8, 0, 8, 0)
                     setOnClickListener {
                         AlertDialog.Builder(activity)
                             .setTitle("Видалити трек?")
@@ -166,18 +217,9 @@ object TracksListDialog {
                     }
                 }
 
-                val btnShare = Button(activity).apply {
-                    text = "📤"
-                    setTextColor(Color.parseColor("#00E5FF"))
-                    setBackgroundColor(Color.TRANSPARENT)
-                    textSize = 16f
-                    setOnClickListener {
-                        com.olegskal.mushroom.util.GeoDataExchange.shareTrackGpx(activity, track)
-                    }
-                }
-
                 itemRow.addView(chkVisible)
                 itemRow.addView(infoCol)
+                itemRow.addView(btnRename)
                 itemRow.addView(btnShare)
                 itemRow.addView(btnDelete)
 
@@ -191,5 +233,23 @@ object TracksListDialog {
 
         dialog.setContentView(container)
         dialog.show()
+    }
+
+    private fun showRenameTrackDialog(activity: Activity, currentTitle: String, onRenamed: (String) -> Unit) {
+        val input = EditText(activity).apply {
+            setText(currentTitle)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            setPadding(20, 16, 20, 16)
+            setSelection(currentTitle.length)
+        }
+        AlertDialog.Builder(activity)
+            .setTitle("Перейменувати трек")
+            .setView(input)
+            .setPositiveButton("Зберегти") { _, _ ->
+                onRenamed(input.text.toString())
+            }
+            .setNegativeButton("Скасувати", null)
+            .show()
     }
 }
