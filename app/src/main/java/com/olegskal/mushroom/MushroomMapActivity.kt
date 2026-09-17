@@ -46,7 +46,6 @@ class MushroomMapActivity : Activity() {
 
     // UI overlays
     private lateinit var tvRecordingBadge: TextView
-    private lateinit var btnTrackBottom: Button
     private lateinit var btnCenter: Button
     private lateinit var compassButton: CompassButton
 
@@ -216,67 +215,17 @@ class MushroomMapActivity : Activity() {
         rightControls.addView(btnZoomIn)
         rightControls.addView(btnZoomOut)
 
+        val padR = (12 * resources.displayMetrics.density).toInt()
+        val topOffset = (68 * resources.displayMetrics.density).toInt()
         val rightParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.CENTER_VERTICAL or Gravity.END
-        )
+            Gravity.TOP or Gravity.END
+        ).apply {
+            topMargin = topOffset
+            rightMargin = padR
+        }
         rootLayout.addView(rightControls, rightParams)
-
-        // Bottom Action Bar (Мітка & Трек)
-        val bottomActionBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Color.parseColor("#E6181818"))
-            setPadding(16, 12, 16, 16)
-            gravity = Gravity.CENTER
-        }
-
-        val btnMarker = UiUtils.createStyledButton(this, "🍄 Мітка") {
-            val loc = mapView.currentLocation ?: currentMetrics?.location
-            MarkersListDialog.show(
-                this,
-                dbHelper,
-                loc?.latitude,
-                loc?.longitude,
-                onSelectMarker = { marker ->
-                    isFollowLocation = false
-                    mapView.setCenter(marker.lat, marker.lon)
-                },
-                onVisibilityChanged = {
-                    mapView.reloadMarkers()
-                }
-            )
-        }
-
-        btnTrackBottom = UiUtils.createStyledButton(this, "🧭 Трек") {
-            TracksListDialog.show(
-                this,
-                dbHelper,
-                onSelectTrack = { track ->
-                    isFollowLocation = false
-                    mapView.fitTrackBounds(track)
-                },
-                onVisibilityChanged = {
-                    mapView.reloadTracks()
-                    updateRecordingUi(MushroomTrackingService.instance?.isRecording == true, 0f, 0L)
-                }
-            )
-        }
-
-        val p = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-            setMargins(8, 0, 8, 0)
-        }
-        btnMarker.layoutParams = p
-        btnTrackBottom.layoutParams = p
-
-        bottomActionBar.addView(btnMarker)
-        bottomActionBar.addView(btnTrackBottom)
-
-        rootLayout.addView(bottomActionBar, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM
-        ))
 
         setContentView(rootLayout)
 
@@ -445,16 +394,12 @@ class MushroomMapActivity : Activity() {
 
     private fun updateRecordingUi(isRec: Boolean, distMeters: Float, durationSec: Long) {
         if (isRec) {
-            btnTrackBottom.text = "⏹️ Трек (REC)"
-            btnTrackBottom.setTextColor(Color.parseColor("#FF5252"))
             tvRecordingBadge.visibility = View.VISIBLE
             val km = distMeters / 1000f
             val m = durationSec / 60
             val s = durationSec % 60
             tvRecordingBadge.text = String.format(Locale.US, "⏺️ ЗАПИС ТРЕКУ: %.2f км (%02d:%02d)", km, m, s)
         } else {
-            btnTrackBottom.text = "🧭 Трек"
-            btnTrackBottom.setTextColor(Color.WHITE)
             tvRecordingBadge.visibility = View.GONE
         }
     }
@@ -486,7 +431,47 @@ class MushroomMapActivity : Activity() {
         }
         container.addView(titleTv)
 
-        // 1. Download offline maps
+        // 1. Markers
+        val btnMarkers = UiUtils.createStyledButton(this, "🍄 Мітка", itemParams) {
+            dialog.dismiss()
+            val loc = mapView.currentLocation ?: currentMetrics?.location
+            MarkersListDialog.show(
+                this@MushroomMapActivity,
+                dbHelper,
+                loc?.latitude,
+                loc?.longitude,
+                onSelectMarker = { marker ->
+                    isFollowLocation = false
+                    mapView.setCenter(marker.lat, marker.lon)
+                },
+                onVisibilityChanged = {
+                    mapView.reloadMarkers()
+                }
+            )
+        }
+        container.addView(btnMarkers)
+
+        // 2. Tracks
+        val isRec = MushroomTrackingService.instance?.isRecording == true
+        val trackText = if (isRec) "⏹️ Трек (триває запис...)" else "🧭 Трек"
+        val btnTracks = UiUtils.createStyledButton(this, trackText, itemParams) {
+            dialog.dismiss()
+            TracksListDialog.show(
+                this@MushroomMapActivity,
+                dbHelper,
+                onSelectTrack = { track ->
+                    isFollowLocation = false
+                    mapView.fitTrackBounds(track)
+                },
+                onVisibilityChanged = {
+                    mapView.reloadTracks()
+                    updateLiveStats()
+                }
+            )
+        }
+        container.addView(btnTracks)
+
+        // 3. Download offline maps
         val btnDownloadMaps = UiUtils.createStyledButton(this, "🗺️ Завантажити офлайн карти", itemParams) {
             dialog.dismiss()
             RegionDownloadDialog.show(this@MushroomMapActivity) {
@@ -496,7 +481,7 @@ class MushroomMapActivity : Activity() {
         container.addView(btnDownloadMaps)
         container.addView(UiUtils.createDialogDivider(this))
 
-        // 2. Exit
+        // 4. Exit
         val btnQuit = UiUtils.createStyledButton(this, "🚪 Вихід з програми", itemParams) {
             dialog.dismiss()
             val stopIntent = Intent(this@MushroomMapActivity, MushroomTrackingService::class.java).apply {
