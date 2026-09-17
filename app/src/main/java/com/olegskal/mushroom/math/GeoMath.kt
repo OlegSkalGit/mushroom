@@ -3,7 +3,7 @@ package com.olegskal.mushroom.math
 import android.location.Location
 import kotlin.math.*
 
-object RadarMath {
+object GeoMath {
 
     fun angleDifference(bearing1: Float, bearing2: Float): Float {
         var diff = (bearing1 - bearing2) % 360f
@@ -171,10 +171,10 @@ class TrajectoryFilter(
 
         val first = pts.first()
         val last = pts.last()
-        val dist = RadarMath.calculateDistance(first, last.latitude, last.longitude)
+        val dist = GeoMath.calculateDistance(first, last.latitude, last.longitude)
         val timeSec = maxOf(1.0, (last.time - first.time) / 1000.0)
         val speedKmh = ((dist / timeSec) * 3.6).toFloat()
-        val bearing = RadarMath.calculateDistanceAndBearing(first.latitude, first.longitude, last.latitude, last.longitude)[1]
+        val bearing = GeoMath.calculateDistanceAndBearing(first.latitude, first.longitude, last.latitude, last.longitude)[1]
 
         val isStationary = dist < 3.0f && speedKmh < 1.0f
 

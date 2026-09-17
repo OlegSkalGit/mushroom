@@ -93,7 +93,7 @@ object AppUpdateManager {
                 requestMethod = "GET"
                 connectTimeout = 10000
                 readTimeout = 15000
-                setRequestProperty("User-Agent", "RadarStop-Updater/1.0")
+                setRequestProperty("User-Agent", "Mushroom-Updater/1.0")
                 setRequestProperty("Accept", "application/vnd.github.v3+json")
             }
 
@@ -390,7 +390,7 @@ object AppUpdateManager {
             }
 
             val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
-                setTitle("RadarStop Update")
+                setTitle("Mushroom Update")
                 setDescription("Downloading $fileName...")
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
@@ -473,7 +473,7 @@ object AppUpdateManager {
             conn = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15000
                 readTimeout = 60000
-                setRequestProperty("User-Agent", "RadarStop-Updater/1.0")
+                setRequestProperty("User-Agent", "Mushroom-Updater/1.0")
                 instanceFollowRedirects = true
             }
 

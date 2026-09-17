@@ -5,37 +5,29 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.hardware.TriggerEvent
-import android.hardware.TriggerEventListener
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.os.PowerManager
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import com.olegskal.mushroom.MushroomMapActivity
 import com.olegskal.mushroom.R
-import com.olegskal.mushroom.RadarMapActivity
 import com.olegskal.mushroom.db.DatabaseHelper
+import com.olegskal.mushroom.math.GeoMath
 import com.olegskal.mushroom.math.ProcessedLocationMetrics
-import com.olegskal.mushroom.math.RadarMath
 import com.olegskal.mushroom.math.TrajectoryFilter
 import com.olegskal.mushroom.model.MushroomTrack
 import com.olegskal.mushroom.model.TrackPoint
-import com.olegskal.mushroom.receiver.AlarmWatchdogReceiver
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
 import com.olegskal.mushroom.util.AppPrefs
@@ -45,7 +37,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class RadarForegroundService : Service(), LocationListener, SensorEventListener {
+class MushroomTrackingService : Service(), LocationListener, SensorEventListener {
 
     companion object {
         const val CHANNEL_ID = "mushroom_tracker_channel"
@@ -54,12 +46,13 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         const val ACTION_STOP_SERVICE = "com.olegskal.mushroom.ACTION_STOP_SERVICE"
         const val ACTION_START_RECORDING = "com.olegskal.mushroom.ACTION_START_RECORDING"
         const val ACTION_STOP_RECORDING = "com.olegskal.mushroom.ACTION_STOP_RECORDING"
-        const val EXTRA_START_IN_DEEP_SLEEP = "extra_start_in_deep_sleep"
+
+        const val GPS_FULL_UPDATE_INTERVAL_MS = 1000L // 1 second full rate
 
         @Volatile
         var isRunning = false
         @Volatile
-        var instance: RadarForegroundService? = null
+        var instance: MushroomTrackingService? = null
         @Volatile
         var lastMetrics: ProcessedLocationMetrics? = null
         @Volatile
@@ -80,7 +73,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private var rotationVectorSensor: Sensor? = null
     private var accelerometerSensor: Sensor? = null
     private var magneticSensor: Sensor? = null
-    private var significantMotionSensor: Sensor? = null
 
     private val rotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
@@ -98,36 +90,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     val currentActiveTrack: MushroomTrack?
         get() = activeTrack
     private var lastRecordedPoint: TrackPoint? = null
-    private var recordingStartTimeMs: Long = 0L
-
-    // Power saving / Deep sleep
-    @Volatile
-    var isDeepSleepState: Boolean = false
-    private var stationaryStartTimeMs: Long = 0L
-    private var isSignificantMotionActive: Boolean = false
-    private var isPowerConnected: Boolean = false
-
-    private val watchdogHandler = Handler(Looper.getMainLooper())
-    private var lastLocationTimeMs: Long = System.currentTimeMillis()
-    private val WATCHDOG_INTERVAL_MS = 30000L
-
-    private val watchdogRunnable = object : Runnable {
-        override fun run() {
-            if (!isRunning) return
-            checkWatchdogStall()
-            watchdogHandler.postDelayed(this, WATCHDOG_INTERVAL_MS)
-        }
-    }
-
-    private val sigMotionListener = object : TriggerEventListener() {
-        override fun onTrigger(event: TriggerEvent?) {
-            isSignificantMotionActive = false
-            if (isRunning && isDeepSleepState) {
-                AppLogger.log("ForegroundService", "onTrigger", true, "Motion detected. Waking up...")
-                wakeUpFromDeepSleep("Significant Motion")
-            }
-        }
-    }
 
     override fun onCreate() {
         super.onCreate()
@@ -135,73 +97,69 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         isRunning = true
         AppPrefs.setUserStopped(this, false)
 
-        MushroomStorageManager.initStorage()
-        dbHelper = DatabaseHelper(this)
-        dbHelper.restoreDataFromExternalStorageIfDbEmpty()
-
-        createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification("Грибник: пошук GPS..."))
-
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        dbHelper = DatabaseHelper(this)
 
-        initSensors()
-        initPowerReceiver()
-
-        AppLogger.log("ForegroundService", "onCreate", true, "Service started. Initializing GPS...")
-        registerGpsUpdates(if (isRecording) 2000L else 4000L, force = true)
-
-        watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
-        AlarmWatchdogReceiver.scheduleNextAlarm(this)
-
-        val last = LocationUtils.getLastKnownLocationCascade(locationManager)
-        if (last != null) {
-            lastLocation = last
-            publishMetrics(last, 0f)
+        rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        if (rotationVectorSensor == null) {
+            accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            magneticSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
         }
+
+        createNotificationChannel()
+        startForeground(NOTIF_ID, buildNotification("Пошук супутників GPS..."))
+
+        registerSensors()
+        registerGpsUpdates()
+
+        // Resume track recording if was active prior to process kill
+        if (AppPrefs.isRecordingTrack(this)) {
+            val savedTrackId = AppPrefs.getActiveTrackId(this)
+            if (savedTrackId > 0L) {
+                val tracks = dbHelper.getAllTracks()
+                val found = tracks.firstOrNull { it.id == savedTrackId }
+                if (found != null) {
+                    activeTrack = found
+                    isRecording = true
+                    lastRecordedPoint = found.points.lastOrNull()
+                    acquireWakeLock()
+                    updateNotification()
+                    AppLogger.log("TrackingService", "onCreate", true, "Resumed track recording: ${found.id}")
+                }
+            }
+        }
+
+        serviceStateListener?.invoke(true)
+        AppLogger.log("TrackingService", "onCreate", true, "MushroomTrackingService started. GPS at full 1-sec rate.")
     }
 
-    private fun initSensors() {
-        rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+    private fun registerSensors() {
         if (rotationVectorSensor != null) {
             sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_UI)
         } else {
-            accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-            magneticSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
             accelerometerSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
             magneticSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
         }
-        significantMotionSensor = sensorManager.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
     }
 
-    private fun initPowerReceiver() {
+    private fun registerGpsUpdates() {
         try {
-            val filter = IntentFilter().apply {
-                addAction(Intent.ACTION_POWER_CONNECTED)
-                addAction(Intent.ACTION_POWER_DISCONNECTED)
-            }
-            registerReceiver(powerReceiver, filter)
-        } catch (_: Exception) {}
-    }
-
-    private val powerReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.action) {
-                Intent.ACTION_POWER_CONNECTED -> {
-                    isPowerConnected = true
-                    if (isDeepSleepState) wakeUpFromDeepSleep("Power Connected")
-                }
-                Intent.ACTION_POWER_DISCONNECTED -> {
-                    isPowerConnected = false
+            locationManager.removeUpdates(this)
+            val providers = arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            for (p in providers) {
+                if (locationManager.isProviderEnabled(p)) {
+                    locationManager.requestLocationUpdates(p, GPS_FULL_UPDATE_INTERVAL_MS, 0f, this)
                 }
             }
+        } catch (e: SecurityException) {
+            AppLogger.log("TrackingService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
+        } catch (e: Exception) {
+            AppLogger.log("TrackingService", "registerGpsUpdates", false, "Error: ${e.message}")
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.getBooleanExtra(EXTRA_START_IN_DEEP_SLEEP, false) == true) {
-            enterDeepSleep()
-        }
         when (intent?.action) {
             ACTION_STOP_SERVICE -> {
                 stopSelfAndCleanup()
@@ -224,7 +182,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         acquireWakeLock()
 
         val now = System.currentTimeMillis()
-        recordingStartTimeMs = now
         val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
         val title = "Трек від ${sdf.format(Date(now))}"
 
@@ -245,10 +202,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             dbHelper.addPointToTrack(track.id, pt, 0f, 0L)
         }
 
-        registerGpsUpdates(2000L, force = true)
         updateNotification()
         Toast.makeText(this, "Запис треку розпочато", Toast.LENGTH_SHORT).show()
-        AppLogger.log("ForegroundService", "startTrackRecording", true, "Started track ${track.id}")
+        AppLogger.log("TrackingService", "startTrackRecording", true, "Started track ${track.id}")
     }
 
     fun stopTrackRecording() {
@@ -262,15 +218,14 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             track.durationSec = maxOf(1L, (track.endTime - track.startTime) / 1000L)
             dbHelper.updateTrack(track)
             MushroomStorageManager.saveTrackToGpx(track)
-            AppLogger.log("ForegroundService", "stopTrackRecording", true, "Stopped track ${track.id}, dist: ${track.distanceMeters}m")
+            AppLogger.log("TrackingService", "stopTrackRecording", true, "Stopped track ${track.id}, dist: ${track.distanceMeters}m")
         }
         activeTrack = null
         lastRecordedPoint = null
 
         releaseWakeLock()
-        registerGpsUpdates(4000L, force = true)
         updateNotification()
-        Toast.makeText(this, "Запис треку завершено і збережено", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Запис треку збережено", Toast.LENGTH_SHORT).show()
     }
 
     private fun acquireWakeLock() {
@@ -279,8 +234,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mushroom:TrackWakeLock")
         }
         if (wakeLock?.isHeld == false) {
-            wakeLock?.acquire(12 * 60 * 60 * 1000L) // max 12 hours safety
-            AppLogger.log("ForegroundService", "acquireWakeLock", true, "WakeLock acquired for background track recording.")
+            wakeLock?.acquire(12 * 60 * 60 * 1000L) // max 12h safety
+            AppLogger.log("TrackingService", "acquireWakeLock", true, "WakeLock acquired for background track recording.")
         }
     }
 
@@ -288,30 +243,13 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
-                AppLogger.log("ForegroundService", "releaseWakeLock", true, "WakeLock released.")
+                AppLogger.log("TrackingService", "releaseWakeLock", true, "WakeLock released.")
             }
         } catch (_: Exception) {}
     }
 
-    private fun registerGpsUpdates(intervalMs: Long, force: Boolean = false) {
-        try {
-            locationManager.removeUpdates(this)
-            val providers = arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            for (p in providers) {
-                if (locationManager.isProviderEnabled(p)) {
-                    locationManager.requestLocationUpdates(p, intervalMs, 0f, this)
-                }
-            }
-        } catch (e: SecurityException) {
-            AppLogger.log("ForegroundService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
-        } catch (e: Exception) {
-            AppLogger.log("ForegroundService", "registerGpsUpdates", false, "Error: ${e.message}")
-        }
-    }
-
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
-        lastLocationTimeMs = System.currentTimeMillis()
         lastLocation = location
 
         val traj = trajectoryFilter.processLocation(location)
@@ -321,27 +259,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             processTrackRecordingPoint(location)
         }
 
-        // Deep sleep evaluation when NOT recording and stationary > 3 min
-        if (!isRecording && !isPowerConnected) {
-            if (traj.isStationary) {
-                if (stationaryStartTimeMs == 0L) stationaryStartTimeMs = System.currentTimeMillis()
-                if (System.currentTimeMillis() - stationaryStartTimeMs >= 3 * 60 * 1000L) {
-                    enterDeepSleep()
-                    return
-                }
-            } else {
-                stationaryStartTimeMs = 0L
-            }
-        } else {
-            stationaryStartTimeMs = 0L
-        }
-
         publishMetrics(location, speedKmh, traj.trajectoryBearing, traj.isStationary)
     }
 
     private fun processTrackRecordingPoint(location: Location) {
         val track = activeTrack ?: return
-        // Ignore inaccurate points
         if (location.hasAccuracy() && location.accuracy > 35f) return
 
         val prev = lastRecordedPoint
@@ -353,8 +275,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             return
         }
 
-        val dist = RadarMath.calculateDistance(prev.lat, prev.lon, location.latitude, location.longitude)
-        // Add point only if moved at least 2.5 meters to prevent sitting jitter
+        val dist = GeoMath.calculateDistance(prev.lat, prev.lon, location.latitude, location.longitude)
+        // Add point when moved at least 2.5 meters
         if (dist >= 2.5f) {
             val now = System.currentTimeMillis()
             val pt = TrackPoint(location.latitude, location.longitude, location.altitude, now, location.speed)
@@ -375,59 +297,20 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         isStationary: Boolean = false
     ) {
         val isGpsDisabled = LocationUtils.isGpsDisabled(this, locationManager)
-        val metrics = RadarMath.evaluateLocationData(
+        val metrics = GeoMath.evaluateLocationData(
             location = loc,
             speedKmh = speedKmh,
             trajectoryBearing = bearing,
             compassHeading = currentAzimuth,
             isStationary = isStationary,
             isGpsDisabled = isGpsDisabled,
-            isDeepSleep = isDeepSleepState,
+            isDeepSleep = false,
             isRecordingTrack = isRecording,
             recordedDistanceMeters = activeTrack?.distanceMeters ?: 0f,
             recordedDurationSec = activeTrack?.durationSec ?: 0L
         )
         lastMetrics = metrics
         metricsListener?.invoke(metrics)
-    }
-
-    private fun enterDeepSleep() {
-        if (isDeepSleepState) return
-        isDeepSleepState = true
-        AppLogger.log("ForegroundService", "enterDeepSleep", true, "Entering energy saving deep sleep...")
-        try {
-            locationManager.removeUpdates(this)
-        } catch (_: Exception) {}
-
-        if (significantMotionSensor != null) {
-            isSignificantMotionActive = sensorManager.requestTriggerSensor(sigMotionListener, significantMotionSensor)
-        }
-
-        lastLocation?.let { publishMetrics(it, 0f, isStationary = true) }
-        updateNotification("Грибник у режимі сну (очікування руху)")
-    }
-
-    fun wakeUpFromDeepSleep(reason: String) {
-        if (!isDeepSleepState) return
-        isDeepSleepState = false
-        AppLogger.log("ForegroundService", "wakeUpFromDeepSleep", true, "Waking up: $reason")
-        if (isSignificantMotionActive && significantMotionSensor != null) {
-            try {
-                sensorManager.cancelTriggerSensor(sigMotionListener, significantMotionSensor)
-            } catch (_: Exception) {}
-            isSignificantMotionActive = false
-        }
-        stationaryStartTimeMs = 0L
-        registerGpsUpdates(if (isRecording) 2000L else 4000L, force = true)
-    }
-
-    fun checkWatchdogStall() {
-        if (isDeepSleepState) return
-        val elapsed = System.currentTimeMillis() - lastLocationTimeMs
-        if (elapsed >= 60000L) {
-            AppLogger.log("ForegroundService", "checkWatchdogStall", false, "No GPS updates for ${elapsed / 1000}s. Re-registering GPS...")
-            registerGpsUpdates(if (isRecording) 2000L else 4000L, force = true)
-        }
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -492,7 +375,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     private fun buildNotification(text: String): Notification {
-        val launchIntent = Intent(this, RadarMapActivity::class.java).apply {
+        val launchIntent = Intent(this, MushroomMapActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
@@ -509,7 +392,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
         if (isRecording) {
-            val stopRecIntent = Intent(this, RadarForegroundService::class.java).apply {
+            val stopRecIntent = Intent(this, MushroomTrackingService::class.java).apply {
                 action = ACTION_STOP_RECORDING
             }
             val pStopRec = PendingIntent.getService(
@@ -539,11 +422,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     fun stopSelfAndCleanup() {
         isRunning = false
         AppPrefs.setUserStopped(this, true)
-        watchdogHandler.removeCallbacksAndMessages(null)
         releaseWakeLock()
-        try {
-            unregisterReceiver(powerReceiver)
-        } catch (_: Exception) {}
         try {
             sensorManager.unregisterListener(this)
         } catch (_: Exception) {}
@@ -554,7 +433,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         stopSelf()
         serviceStateListener?.invoke(false)
         instance = null
-        AppLogger.log("ForegroundService", "stopSelfAndCleanup", true, "Service stopped completely.")
+        AppLogger.log("TrackingService", "stopSelfAndCleanup", true, "Service stopped completely.")
     }
 
     override fun onDestroy() {

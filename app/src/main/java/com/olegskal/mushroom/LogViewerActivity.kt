@@ -274,7 +274,7 @@ class LogViewerActivity : Activity() {
     private fun getLogLineColor(line: String): Int {
         return when {
             line.contains("FAILURE") -> Color.parseColor("#FF3366") // Red for errors
-            line.contains("SPEED THRESHOLD") || line.contains("Radar!") || line.contains("Linear Zone Alert") -> Color.parseColor("#FFD700") // Gold for speed/radar alerts
+            line.contains("TRACK") || line.contains("MARKER") || line.contains("RECORDING") -> Color.parseColor("#FFD700") // Gold for track/marker events
             line.contains("Weak GPS") -> Color.parseColor("#FF9100") // Orange for weak GPS
             line.contains("SUCCESS") -> Color.parseColor("#00FF66") // Green for success
             else -> Color.parseColor("#00E5FF") // Cyan for general info
@@ -359,7 +359,7 @@ class LogViewerActivity : Activity() {
                     if (!isFinishing && !isDestroyed) {
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "RadarStop Log ($fileName)")
+                            putExtra(Intent.EXTRA_SUBJECT, "Mushroom Log ($fileName)")
                             putExtra(Intent.EXTRA_STREAM, contentUri)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
@@ -375,7 +375,7 @@ class LogViewerActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (!com.olegskal.mushroom.service.RadarForegroundService.isRunning) {
+        if (!com.olegskal.mushroom.service.MushroomTrackingService.isRunning) {
             finish()
         }
     }

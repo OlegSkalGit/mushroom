@@ -5,7 +5,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import com.olegskal.mushroom.service.RadarForegroundService
 
 /**
  * Utility functions for service management and common Intent creations.
@@ -15,7 +14,7 @@ object ServiceUtils {
     val PENDING_INTENT_IMMUTABLE_FLAGS: Int =
         PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
 
-    fun startRadarForegroundService(context: Context, intent: Intent) {
+    fun startTrackingService(context: Context, intent: Intent) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -23,7 +22,7 @@ object ServiceUtils {
                 context.startService(intent)
             }
         } catch (e: Exception) {
-            AppLogger.log("ServiceUtils", "startRadarForegroundService", false, "Failed to start service: ${e.message}")
+            AppLogger.log("ServiceUtils", "startTrackingService", false, "Failed to start service: ${e.message}")
         }
     }
 }

@@ -15,9 +15,10 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.olegskal.mushroom.service.RadarForegroundService
+import com.olegskal.mushroom.service.MushroomTrackingService
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
+import com.olegskal.mushroom.util.ServiceUtils
 import com.olegskal.mushroom.util.createSingleTopIntent
 
 class SplashActivity : Activity() {
@@ -43,8 +44,8 @@ class SplashActivity : Activity() {
 
         MushroomStorageManager.initStorage()
 
-        if (RadarForegroundService.isRunning) {
-            startActivity(createSingleTopIntent<RadarMapActivity>())
+        if (MushroomTrackingService.isRunning) {
+            startActivity(createSingleTopIntent<MushroomMapActivity>())
             finish()
             return
         }
@@ -162,9 +163,9 @@ class SplashActivity : Activity() {
     }
 
     private fun startMushroomServiceAndFinish() {
-        val serviceIntent = Intent(this, RadarForegroundService::class.java)
-        com.olegskal.mushroom.util.ServiceUtils.startRadarForegroundService(this, serviceIntent)
-        startActivity(createSingleTopIntent<RadarMapActivity>())
+        val serviceIntent = Intent(this, MushroomTrackingService::class.java)
+        ServiceUtils.startTrackingService(this, serviceIntent)
+        startActivity(createSingleTopIntent<MushroomMapActivity>())
         finish()
     }
 }

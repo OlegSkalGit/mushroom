@@ -10,7 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import com.olegskal.mushroom.db.DatabaseHelper
-import com.olegskal.mushroom.math.RadarMath
+import com.olegskal.mushroom.math.GeoMath
 import com.olegskal.mushroom.model.MushroomMarker
 import java.util.Locale
 
@@ -117,7 +117,7 @@ object MarkersListDialog {
 
                 var distStr = ""
                 if (currentLat != null && currentLon != null && (currentLat != 0.0 || currentLon != 0.0)) {
-                    val geo = RadarMath.calculateDistanceAndBearing(currentLat, currentLon, marker.lat, marker.lon)
+                    val geo = GeoMath.calculateDistanceAndBearing(currentLat, currentLon, marker.lat, marker.lon)
                     val distM = geo[0]
                     val bearingDeg = geo[1]
                     val direction = getBearingDirection(bearingDeg)

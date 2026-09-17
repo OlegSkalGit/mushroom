@@ -15,20 +15,21 @@ import android.widget.*
 import com.olegskal.mushroom.db.DatabaseHelper
 import com.olegskal.mushroom.map.OsmTileEngine
 import com.olegskal.mushroom.math.ProcessedLocationMetrics
-import com.olegskal.mushroom.math.RadarMath
+import com.olegskal.mushroom.math.GeoMath
 import com.olegskal.mushroom.model.MushroomMarker
 import com.olegskal.mushroom.model.MushroomTrack
 import com.olegskal.mushroom.network.AppUpdateManager
-import com.olegskal.mushroom.service.RadarForegroundService
+import com.olegskal.mushroom.service.MushroomTrackingService
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.ui.*
 import com.olegskal.mushroom.util.AppLogger
 import com.olegskal.mushroom.util.AppPrefs
 import com.olegskal.mushroom.util.LocationUtils
+import com.olegskal.mushroom.util.ServiceUtils
 import java.util.Locale
 import kotlin.math.*
 
-class RadarMapActivity : Activity() {
+class MushroomMapActivity : Activity() {
 
     private lateinit var mapView: MushroomMapView
     private lateinit var dbHelper: DatabaseHelper
@@ -54,9 +55,9 @@ class RadarMapActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!RadarForegroundService.isRunning) {
-            val serviceIntent = Intent(this, RadarForegroundService::class.java)
-            com.olegskal.mushroom.util.ServiceUtils.startRadarForegroundService(this, serviceIntent)
+        if (!MushroomTrackingService.isRunning) {
+            val serviceIntent = Intent(this, MushroomTrackingService::class.java)
+            ServiceUtils.startTrackingService(this, serviceIntent)
         }
 
         MushroomStorageManager.initStorage()
@@ -158,9 +159,9 @@ class RadarMapActivity : Activity() {
             textSize = 13f
             setOnClickListener {
                 isHeadingUp = !isHeadingUp
-                AppPrefs.setHeadingUp(this@RadarMapActivity, isHeadingUp)
+                AppPrefs.setHeadingUp(this@MushroomMapActivity, isHeadingUp)
                 text = if (isHeadingUp) "🧭 Рух" else "🧭 Пн"
-                Toast.makeText(this@RadarMapActivity, if (isHeadingUp) "Орієнтація: за курсом" else "Орієнтація: Північ зверху", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MushroomMapActivity, if (isHeadingUp) "Орієнтація: за курсом" else "Орієнтація: Північ зверху", Toast.LENGTH_SHORT).show()
                 mapView.invalidate()
             }
         }
@@ -172,7 +173,7 @@ class RadarMapActivity : Activity() {
             textSize = 13f
             setOnClickListener {
                 isFollowLocation = true
-                AppPrefs.setFollowUser(this@RadarMapActivity, true)
+                AppPrefs.setFollowUser(this@MushroomMapActivity, true)
                 mapView.centerOnCurrentLocation()
             }
         }
@@ -287,7 +288,7 @@ class RadarMapActivity : Activity() {
     }
 
     private fun toggleTrackRecording() {
-        val s = RadarForegroundService.instance
+        val s = MushroomTrackingService.instance
         if (s?.isRecording == true) {
             s.stopTrackRecording()
             updateRecordingUi(false, 0f, 0L)
@@ -297,8 +298,8 @@ class RadarMapActivity : Activity() {
                 s.startTrackRecording()
                 updateRecordingUi(true, 0f, 0L)
             } else {
-                val intent = Intent(this, RadarForegroundService::class.java).apply {
-                    action = RadarForegroundService.ACTION_START_RECORDING
+                val intent = Intent(this, MushroomTrackingService::class.java).apply {
+                    action = MushroomTrackingService.ACTION_START_RECORDING
                 }
                 startService(intent)
                 updateRecordingUi(true, 0f, 0L)
@@ -323,9 +324,9 @@ class RadarMapActivity : Activity() {
     }
 
     private fun updateLiveStats() {
-        val s = RadarForegroundService.instance
+        val s = MushroomTrackingService.instance
         val isRec = s?.isRecording == true
-        val metrics = currentMetrics ?: RadarForegroundService.lastMetrics
+        val metrics = currentMetrics ?: MushroomTrackingService.lastMetrics
         if (metrics != null) {
             val loc = metrics.location
             val latStr = String.format(Locale.US, "%.5f°", loc.latitude)
@@ -363,7 +364,7 @@ class RadarMapActivity : Activity() {
         // 1. Download offline maps
         val btnDownloadMaps = UiUtils.createStyledButton(this, "🗺️ Завантажити офлайн карти", itemParams) {
             dialog.dismiss()
-            RegionDownloadDialog.show(this@RadarMapActivity) {
+            RegionDownloadDialog.show(this@MushroomMapActivity) {
                 mapView.invalidate()
             }
         }
@@ -373,36 +374,24 @@ class RadarMapActivity : Activity() {
         // 2. Check updates
         val btnUpdates = UiUtils.createStyledButton(this, "🔄 Перевірити оновлення програми", itemParams) {
             dialog.dismiss()
-            AppUpdateManager.performManualUpdateCheck(this@RadarMapActivity)
+            AppUpdateManager.performManualUpdateCheck(this@MushroomMapActivity)
         }
         container.addView(btnUpdates)
         container.addView(UiUtils.createDialogDivider(this))
 
-        // 3. Autostart toggle
-        var isAutostart = AppPrefs.isAutostartEnabled(this)
-        lateinit var btnAutostart: Button
-        btnAutostart = UiUtils.createStyledButton(this, if (isAutostart) "Вимкнути автозапуск" else "Увімкнути автозапуск", itemParams) {
-            isAutostart = !isAutostart
-            AppPrefs.setAutostartEnabled(this@RadarMapActivity, isAutostart)
-            btnAutostart.text = if (isAutostart) "Вимкнути автозапуск" else "Увімкнути автозапуск"
-            Toast.makeText(this@RadarMapActivity, if (isAutostart) "Автозапуск увімкнено" else "Автозапуск вимкнено", Toast.LENGTH_SHORT).show()
-        }
-        container.addView(btnAutostart)
-        container.addView(UiUtils.createDialogDivider(this))
-
-        // 4. Help
+        // 3. Help
         val btnHelp = UiUtils.createStyledButton(this, "ℹ️ Довідка грибника", itemParams) {
             dialog.dismiss()
-            startActivity(Intent(this@RadarMapActivity, HelpActivity::class.java))
+            startActivity(Intent(this@MushroomMapActivity, HelpActivity::class.java))
         }
         container.addView(btnHelp)
         container.addView(UiUtils.createDialogDivider(this))
 
-        // 5. Exit
+        // 4. Exit
         val btnQuit = UiUtils.createStyledButton(this, "🚪 Вихід з програми", itemParams) {
             dialog.dismiss()
-            val stopIntent = Intent(this@RadarMapActivity, RadarForegroundService::class.java).apply {
-                action = RadarForegroundService.ACTION_STOP_SERVICE
+            val stopIntent = Intent(this@MushroomMapActivity, MushroomTrackingService::class.java).apply {
+                action = MushroomTrackingService.ACTION_STOP_SERVICE
             }
             startService(stopIntent)
             finishAffinity()
@@ -419,11 +408,11 @@ class RadarMapActivity : Activity() {
         mapView.reloadMarkers()
         mapView.reloadTracks()
 
-        RadarForegroundService.serviceStateListener = { isRunning ->
+        MushroomTrackingService.serviceStateListener = { isRunning ->
             if (!isRunning) runOnUiThread { finish() }
         }
 
-        RadarForegroundService.metricsListener = { metrics ->
+        MushroomTrackingService.metricsListener = { metrics ->
             runOnUiThread {
                 currentMetrics = metrics
                 mapView.updateLocationMetrics(metrics)
@@ -438,8 +427,8 @@ class RadarMapActivity : Activity() {
         super.onPause()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         uiHandler.removeCallbacks(periodicRefreshRunnable)
-        RadarForegroundService.metricsListener = null
-        RadarForegroundService.serviceStateListener = null
+        MushroomTrackingService.metricsListener = null
+        MushroomTrackingService.serviceStateListener = null
     }
 
     // --- INNER MAP CANVAS VIEW ---
@@ -738,7 +727,7 @@ class RadarMapActivity : Activity() {
             }
 
             // Draw Live Active Track
-            val s = RadarForegroundService.instance
+            val s = MushroomTrackingService.instance
             if (s?.isRecording == true) {
                 val active = s.currentActiveTrack
                 if (active != null && active.points.size >= 2) {

@@ -13,7 +13,6 @@ object AppPrefs {
     private const val PREFS_NAME = "mushroom_prefs"
 
     const val KEY_USER_STOPPED = "user_stopped"
-    const val KEY_AUTOSTART = "autostart"
     const val KEY_DEBUG_MODE = "debug_mode"
     const val KEY_LOGGING_ENABLED = "pref_logging_enabled"
     const val KEY_LAST_UPDATE_CHECK = "last_update_check_ms"
@@ -34,7 +33,6 @@ object AppPrefs {
             val p = getPrefs(context)
             val json = JSONObject().apply {
                 put(KEY_USER_STOPPED, p.getBoolean(KEY_USER_STOPPED, false))
-                put(KEY_AUTOSTART, p.getBoolean(KEY_AUTOSTART, false))
                 put(KEY_DEBUG_MODE, p.getBoolean(KEY_DEBUG_MODE, false))
                 put(KEY_LOGGING_ENABLED, p.getBoolean(KEY_LOGGING_ENABLED, false))
                 put(KEY_LAST_UPDATE_CHECK, p.getLong(KEY_LAST_UPDATE_CHECK, 0L))
@@ -53,7 +51,6 @@ object AppPrefs {
             val json = MushroomStorageManager.loadSettingsJson() ?: return
             val editor = getPrefs(context).edit()
             if (json.has(KEY_USER_STOPPED)) editor.putBoolean(KEY_USER_STOPPED, json.getBoolean(KEY_USER_STOPPED))
-            if (json.has(KEY_AUTOSTART)) editor.putBoolean(KEY_AUTOSTART, json.getBoolean(KEY_AUTOSTART))
             if (json.has(KEY_DEBUG_MODE)) editor.putBoolean(KEY_DEBUG_MODE, json.getBoolean(KEY_DEBUG_MODE))
             if (json.has(KEY_LOGGING_ENABLED)) editor.putBoolean(KEY_LOGGING_ENABLED, json.getBoolean(KEY_LOGGING_ENABLED))
             if (json.has(KEY_LAST_UPDATE_CHECK)) editor.putLong(KEY_LAST_UPDATE_CHECK, json.getLong(KEY_LAST_UPDATE_CHECK))
@@ -73,16 +70,6 @@ object AppPrefs {
 
     fun setUserStopped(context: Context, stopped: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_USER_STOPPED, stopped).apply()
-        syncToExternalStorage(context)
-    }
-
-    // Autostart
-    fun isAutostartEnabled(context: Context): Boolean {
-        return getPrefs(context).getBoolean(KEY_AUTOSTART, false)
-    }
-
-    fun setAutostartEnabled(context: Context, enabled: Boolean) {
-        getPrefs(context).edit().putBoolean(KEY_AUTOSTART, enabled).apply()
         syncToExternalStorage(context)
     }
 
