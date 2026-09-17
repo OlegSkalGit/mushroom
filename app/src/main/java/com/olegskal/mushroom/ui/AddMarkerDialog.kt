@@ -43,7 +43,7 @@ object AddMarkerDialog {
         container.addView(titleTv)
 
         val sdf = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
-        val defaultName = initialName ?: "Білий гриб (${sdf.format(Date())})"
+        val defaultName = initialName ?: "Мітка (${sdf.format(Date())})"
 
         val nameInput = EditText(activity).apply {
             setText(defaultName)

@@ -273,8 +273,8 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         }
 
         val dist = GeoMath.calculateDistance(prev.lat, prev.lon, location.latitude, location.longitude)
-        // Add point when moved at least 2.5 meters
-        if (dist >= 2.5f) {
+        val minRequiredDist = maxOf(15f, if (location.hasAccuracy()) location.accuracy else 15f)
+        if (dist >= minRequiredDist) {
             val now = System.currentTimeMillis()
             val pt = TrackPoint(location.latitude, location.longitude, location.altitude, now, location.speed)
             track.points.add(pt)

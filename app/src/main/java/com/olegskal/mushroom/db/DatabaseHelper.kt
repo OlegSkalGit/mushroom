@@ -208,6 +208,16 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         syncMarkersToStorage()
     }
 
+    fun updateMarker(markerId: Long, newName: String, newColor: Int) {
+        val db = writableDatabase
+        val cv = ContentValues().apply {
+            put(COL_MARKER_NAME, newName)
+            put(COL_MARKER_COLOR, newColor)
+        }
+        db.update(TABLE_MARKERS, cv, "$COL_MARKER_ID = ?", arrayOf(markerId.toString()))
+        syncMarkersToStorage()
+    }
+
     fun setMarkerVisibility(markerId: Long, isVisible: Boolean) {
         val db = writableDatabase
         val cv = ContentValues().apply {
@@ -313,6 +323,16 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             put(COL_TRACK_VISIBLE, if (track.isVisible) 1 else 0)
         }
         db.update(TABLE_TRACKS, cv, "$COL_TRACK_ID = ?", arrayOf(track.id.toString()))
+        syncTracksToStorage()
+    }
+
+    fun updateTrackInfo(trackId: Long, newTitle: String, newColor: Int) {
+        val db = writableDatabase
+        val cv = ContentValues().apply {
+            put(COL_TRACK_TITLE, newTitle)
+            put(COL_TRACK_COLOR, newColor)
+        }
+        db.update(TABLE_TRACKS, cv, "$COL_TRACK_ID = ?", arrayOf(trackId.toString()))
         syncTracksToStorage()
     }
 

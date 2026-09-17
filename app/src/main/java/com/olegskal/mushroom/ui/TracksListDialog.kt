@@ -121,6 +121,15 @@ object TracksListDialog {
                     layoutParams = params
                 }
 
+                val chkVisible = CheckBox(activity).apply {
+                    isChecked = track.isVisible
+                    setOnCheckedChangeListener { _, isChecked ->
+                        track.isVisible = isChecked
+                        dbHelper.setTrackVisibility(track.id, isChecked)
+                        onVisibilityChanged()
+                    }
+                }
+
                 val infoCol = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -146,7 +155,7 @@ object TracksListDialog {
 
                 val subTv = TextView(activity).apply {
                     text = String.format(Locale.US, "%.2f км • %s • %d точок", km, timeStr, track.points.size)
-                    setTextColor(Color.parseColor("#2196F3"))
+                    setTextColor(track.color)
                     textSize = 12f
                 }
 
@@ -167,9 +176,12 @@ object TracksListDialog {
                     textSize = 15f
                     setPadding(8, 0, 8, 0)
                     setOnClickListener {
-                        showRenameTrackDialog(activity, track.title) { newTitle ->
+                        showRenameTrackDialog(activity, track.title, track.color) { newTitle, newColor ->
                             if (newTitle.isNotBlank()) {
-                                dbHelper.updateTrackTitle(track.id, newTitle.trim())
+                                val trimmed = newTitle.trim()
+                                dbHelper.updateTrackInfo(track.id, trimmed, newColor)
+                                track.title = trimmed
+                                track.color = newColor
                                 onVisibilityChanged()
                                 populateTracks()
                             }
@@ -208,6 +220,7 @@ object TracksListDialog {
                     }
                 }
 
+                itemRow.addView(chkVisible)
                 itemRow.addView(infoCol)
                 itemRow.addView(btnRename)
                 itemRow.addView(btnShare)
@@ -225,19 +238,88 @@ object TracksListDialog {
         dialog.show()
     }
 
-    private fun showRenameTrackDialog(activity: Activity, currentTitle: String, onRenamed: (String) -> Unit) {
+    private fun showRenameTrackDialog(
+        activity: Activity,
+        currentTitle: String,
+        currentColor: Int,
+        onRenamed: (String, Int) -> Unit
+    ) {
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 24, 40, 16)
+            setBackgroundColor(Color.parseColor("#222222"))
+        }
+
         val input = EditText(activity).apply {
             setText(currentTitle)
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            setBackgroundColor(Color.parseColor("#333333"))
             setPadding(20, 16, 20, 16)
             setSelection(currentTitle.length)
         }
+        container.addView(input)
+
+        val colorTitle = TextView(activity).apply {
+            text = "Колір треку:"
+            setTextColor(Color.LTGRAY)
+            textSize = 13f
+            setPadding(0, 16, 0, 8)
+        }
+        container.addView(colorTitle)
+
+        val colors = listOf(
+            0xFF4CAF50.toInt(), // Зелений
+            0xFFFF9800.toInt(), // Помаранчевий
+            0xFFF44336.toInt(), // Червоний
+            0xFFFFEB3B.toInt(), // Жовтий
+            0xFF00E5FF.toInt(), // Блакитний
+            0xFFE040FB.toInt()  // Фіолетовий
+        )
+
+        var selectedColor = currentColor
+        val colorRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val colorViews = ArrayList<TextView>()
+        fun updateColorSelection() {
+            for ((idx, tv) in colorViews.withIndex()) {
+                val c = colors[idx]
+                tv.text = if (c == selectedColor) "✓" else ""
+            }
+        }
+
+        val density = activity.resources.displayMetrics.density
+        val sz = (36 * density).toInt()
+        val m = (4 * density).toInt()
+
+        for (c in colors) {
+            val tv = TextView(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(sz, sz).apply {
+                    setMargins(m, 0, m, 0)
+                }
+                setBackgroundColor(c)
+                setTextColor(if (c == 0xFFFFEB3B.toInt()) Color.BLACK else Color.WHITE)
+                textSize = 18f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setOnClickListener {
+                    selectedColor = c
+                    updateColorSelection()
+                }
+            }
+            colorViews.add(tv)
+            colorRow.addView(tv)
+        }
+        updateColorSelection()
+        container.addView(colorRow)
+
         AlertDialog.Builder(activity)
-            .setTitle("Перейменувати трек")
-            .setView(input)
+            .setTitle("Редагувати трек")
+            .setView(container)
             .setPositiveButton("Зберегти") { _, _ ->
-                onRenamed(input.text.toString())
+                onRenamed(input.text.toString(), selectedColor)
             }
             .setNegativeButton("Скасувати", null)
             .show()

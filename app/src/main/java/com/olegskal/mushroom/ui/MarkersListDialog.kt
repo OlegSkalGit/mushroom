@@ -55,22 +55,29 @@ object MarkersListDialog {
         headerRow.addView(btnClose)
         container.addView(headerRow)
 
-        val btnAddMarker = UiUtils.createStyledButton(activity, "➕ Створити нову мітку") {
-            dialog.dismiss()
-            AddMarkerDialog.show(
-                activity,
-                dbHelper,
-                currentLat ?: 50.4501,
-                currentLon ?: 30.5234,
-                0.0
-            ) {
-                onVisibilityChanged()
+        val btnAddMarker = Button(activity).apply {
+            text = "➕ Створити нову мітку"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#2E7D32"))
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            val addParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, 8)
+            }
+            layoutParams = addParams
+            setOnClickListener {
+                dialog.dismiss()
+                AddMarkerDialog.show(
+                    activity,
+                    dbHelper,
+                    currentLat ?: 50.4501,
+                    currentLon ?: 30.5234,
+                    0.0
+                ) {
+                    onVisibilityChanged()
+                }
             }
         }
-        val addParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, 0, 0, 8)
-        }
-        btnAddMarker.layoutParams = addParams
         container.addView(btnAddMarker)
 
         val btnPasteClip = UiUtils.createStyledButton(activity, "📋 Вставити координати з буфера") {
@@ -133,6 +140,15 @@ object MarkersListDialog {
                     layoutParams = params
                 }
 
+                val chkVisible = CheckBox(activity).apply {
+                    isChecked = marker.isVisible
+                    setOnCheckedChangeListener { _, isChecked ->
+                        marker.isVisible = isChecked
+                        dbHelper.setMarkerVisibility(marker.id, isChecked)
+                        onVisibilityChanged()
+                    }
+                }
+
                 val infoCol = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -164,7 +180,7 @@ object MarkersListDialog {
 
                 val subTv = TextView(activity).apply {
                     text = if (distStr.isNotEmpty()) "${marker.type} • $distStr" else marker.type
-                    setTextColor(Color.parseColor("#4CAF50"))
+                    setTextColor(marker.color)
                     textSize = 12f
                 }
 
@@ -178,9 +194,12 @@ object MarkersListDialog {
                     textSize = 15f
                     setPadding(8, 0, 8, 0)
                     setOnClickListener {
-                        showRenameDialog(activity, marker.name) { newName ->
+                        showRenameDialog(activity, marker.name, marker.color) { newName, newColor ->
                             if (newName.isNotBlank()) {
-                                dbHelper.updateMarkerName(marker.id, newName.trim())
+                                val trimmed = newName.trim()
+                                dbHelper.updateMarker(marker.id, trimmed, newColor)
+                                marker.name = trimmed
+                                marker.color = newColor
                                 onVisibilityChanged()
                                 populateMarkers()
                             }
@@ -219,6 +238,7 @@ object MarkersListDialog {
                     }
                 }
 
+                itemRow.addView(chkVisible)
                 itemRow.addView(infoCol)
                 itemRow.addView(btnRename)
                 itemRow.addView(btnShare)
@@ -250,19 +270,88 @@ object MarkersListDialog {
         }
     }
 
-    private fun showRenameDialog(activity: Activity, currentName: String, onRenamed: (String) -> Unit) {
+    private fun showRenameDialog(
+        activity: Activity,
+        currentName: String,
+        currentColor: Int,
+        onRenamed: (String, Int) -> Unit
+    ) {
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 24, 40, 16)
+            setBackgroundColor(Color.parseColor("#222222"))
+        }
+
         val input = EditText(activity).apply {
             setText(currentName)
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            setBackgroundColor(Color.parseColor("#333333"))
             setPadding(20, 16, 20, 16)
             setSelection(currentName.length)
         }
+        container.addView(input)
+
+        val colorTitle = TextView(activity).apply {
+            text = "Колір мітки:"
+            setTextColor(Color.LTGRAY)
+            textSize = 13f
+            setPadding(0, 16, 0, 8)
+        }
+        container.addView(colorTitle)
+
+        val colors = listOf(
+            0xFFFF9800.toInt(), // Помаранчевий
+            0xFFF44336.toInt(), // Червоний
+            0xFFFFEB3B.toInt(), // Жовтий
+            0xFF4CAF50.toInt(), // Зелений
+            0xFF00E5FF.toInt(), // Блакитний
+            0xFFE040FB.toInt()  // Фіолетовий
+        )
+
+        var selectedColor = currentColor
+        val colorRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val colorViews = ArrayList<TextView>()
+        fun updateColorSelection() {
+            for ((idx, tv) in colorViews.withIndex()) {
+                val c = colors[idx]
+                tv.text = if (c == selectedColor) "✓" else ""
+            }
+        }
+
+        val density = activity.resources.displayMetrics.density
+        val sz = (36 * density).toInt()
+        val m = (4 * density).toInt()
+
+        for (c in colors) {
+            val tv = TextView(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(sz, sz).apply {
+                    setMargins(m, 0, m, 0)
+                }
+                setBackgroundColor(c)
+                setTextColor(if (c == 0xFFFFEB3B.toInt()) Color.BLACK else Color.WHITE)
+                textSize = 18f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setOnClickListener {
+                    selectedColor = c
+                    updateColorSelection()
+                }
+            }
+            colorViews.add(tv)
+            colorRow.addView(tv)
+        }
+        updateColorSelection()
+        container.addView(colorRow)
+
         AlertDialog.Builder(activity)
-            .setTitle("Перейменувати мітку")
-            .setView(input)
+            .setTitle("Редагувати мітку")
+            .setView(container)
             .setPositiveButton("Зберегти") { _, _ ->
-                onRenamed(input.text.toString())
+                onRenamed(input.text.toString(), selectedColor)
             }
             .setNegativeButton("Скасувати", null)
             .show()

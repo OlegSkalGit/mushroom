@@ -697,6 +697,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             style = Paint.Style.STROKE
             strokeWidth = 1f
         }
+        private val tileBitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+            isDither = true
+        }
+        private val tileDstRect = RectF()
+        private val tileSrcRect = Rect()
         private val anchorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#8000E5FF")
             style = Paint.Style.STROKE
@@ -1134,12 +1139,26 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
                     val screenLeft = (tx * tileSize - centerWorld.first + cx).toFloat()
                     val screenTop = (ty * tileSize - centerWorld.second + cy).toFloat()
+                    tileDstRect.set(screenLeft, screenTop, screenLeft + tileSize + 0.6f, screenTop + tileSize + 0.6f)
 
                     val bmp = OsmTileEngine.getTile(baseZoom, clampedTx, ty)
                     if (bmp != null) {
-                        canvas.drawBitmap(bmp, screenLeft, screenTop, null)
+                        canvas.drawBitmap(bmp, null, tileDstRect, tileBitmapPaint)
                     } else {
-                        canvas.drawRect(screenLeft, screenTop, screenLeft + tileSize, screenTop + tileSize, tileGridPaint)
+                        var drawnFallback = false
+                        if (baseZoom > MIN_BASE_ZOOM) {
+                            val parentBmp = OsmTileEngine.getTile(baseZoom - 1, clampedTx / 2, ty / 2)
+                            if (parentBmp != null) {
+                                val sLeft = if (clampedTx % 2 == 0) 0 else 128
+                                val sTop = if (ty % 2 == 0) 0 else 128
+                                tileSrcRect.set(sLeft, sTop, sLeft + 128, sTop + 128)
+                                canvas.drawBitmap(parentBmp, tileSrcRect, tileDstRect, tileBitmapPaint)
+                                drawnFallback = true
+                            }
+                        }
+                        if (!drawnFallback) {
+                            canvas.drawRect(screenLeft, screenTop, screenLeft + tileSize, screenTop + tileSize, tileGridPaint)
+                        }
                     }
                 }
             }
