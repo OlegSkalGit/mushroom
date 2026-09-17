@@ -47,6 +47,7 @@ class MushroomMapActivity : Activity() {
     private lateinit var tvRecordingBadge: TextView
     private lateinit var btnRec: Button
     private lateinit var btnCenter: Button
+    private lateinit var compassButton: CompassButton
 
     private var currentMetrics: ProcessedLocationMetrics? = null
     private var isFollowLocation: Boolean = true
@@ -161,16 +162,29 @@ class MushroomMapActivity : Activity() {
             setPadding(0, 0, 24, 0)
         }
 
-        val btnCompass = Button(this).apply {
-            text = "🧭 Пн"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#DD2A2A2A"))
-            textSize = 13f
+        val btnSize = (48 * resources.displayMetrics.density).toInt()
+        val btnMargin = (4 * resources.displayMetrics.density).toInt()
+        val ctrlParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
+            setMargins(0, btnMargin, 0, btnMargin)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        compassButton = CompassButton(this).apply {
+            layoutParams = ctrlParams
+            setBearing(if (isHeadingUp) -(currentMetrics?.compassHeading ?: 0f) else 0f, isHeadingUp)
             setOnClickListener {
-                isHeadingUp = !isHeadingUp
-                AppPrefs.setHeadingUp(this@MushroomMapActivity, isHeadingUp)
-                text = if (isHeadingUp) "🧭 Рух" else "🧭 Пн"
-                Toast.makeText(this@MushroomMapActivity, if (isHeadingUp) "Орієнтація: за курсом" else "Орієнтація: Північ зверху", Toast.LENGTH_SHORT).show()
+                if (isHeadingUp) {
+                    isHeadingUp = false
+                    AppPrefs.setHeadingUp(this@MushroomMapActivity, false)
+                    setBearing(0f, false)
+                    Toast.makeText(this@MushroomMapActivity, "Карту вирівняно на Північ", Toast.LENGTH_SHORT).show()
+                } else {
+                    isHeadingUp = true
+                    AppPrefs.setHeadingUp(this@MushroomMapActivity, true)
+                    val az = currentMetrics?.compassHeading ?: 0f
+                    setBearing(-az, true)
+                    Toast.makeText(this@MushroomMapActivity, "Режим компаса увімкнено", Toast.LENGTH_SHORT).show()
+                }
                 mapView.invalidate()
             }
         }
@@ -181,6 +195,8 @@ class MushroomMapActivity : Activity() {
             setBackgroundColor(Color.parseColor("#DD2A2A2A"))
             textSize = 22f
             setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 0)
+            layoutParams = ctrlParams
             setOnClickListener {
                 isFollowLocation = true
                 AppPrefs.setFollowUser(this@MushroomMapActivity, true)
@@ -194,6 +210,8 @@ class MushroomMapActivity : Activity() {
             setBackgroundColor(Color.parseColor("#DD2A2A2A"))
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 0)
+            layoutParams = ctrlParams
             setOnClickListener { mapView.zoomIn() }
         }
 
@@ -203,10 +221,12 @@ class MushroomMapActivity : Activity() {
             setBackgroundColor(Color.parseColor("#DD2A2A2A"))
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 0)
+            layoutParams = ctrlParams
             setOnClickListener { mapView.zoomOut() }
         }
 
-        rightControls.addView(btnCompass)
+        rightControls.addView(compassButton)
         rightControls.addView(btnCenter)
         rightControls.addView(btnZoomIn)
         rightControls.addView(btnZoomOut)
@@ -541,10 +561,17 @@ class MushroomMapActivity : Activity() {
             if (!isRunning) runOnUiThread { finish() }
         }
 
+        if (::compassButton.isInitialized) {
+            compassButton.setBearing(if (isHeadingUp) -(currentMetrics?.compassHeading ?: 0f) else 0f, isHeadingUp)
+        }
+
         MushroomTrackingService.metricsListener = { metrics ->
             runOnUiThread {
                 currentMetrics = metrics
                 mapView.updateLocationMetrics(metrics)
+                if (::compassButton.isInitialized) {
+                    compassButton.setBearing(if (isHeadingUp) -metrics.compassHeading else 0f, isHeadingUp)
+                }
                 updateLiveStats()
             }
         }
