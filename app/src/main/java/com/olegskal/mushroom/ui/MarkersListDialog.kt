@@ -194,15 +194,9 @@ object MarkersListDialog {
                     textSize = 15f
                     setPadding(8, 0, 8, 0)
                     setOnClickListener {
-                        showRenameDialog(activity, marker.name, marker.color) { newName, newColor ->
-                            if (newName.isNotBlank()) {
-                                val trimmed = newName.trim()
-                                dbHelper.updateMarker(marker.id, trimmed, newColor)
-                                marker.name = trimmed
-                                marker.color = newColor
-                                onVisibilityChanged()
-                                populateMarkers()
-                            }
+                        AddMarkerDialog.showEdit(activity, dbHelper, marker) {
+                            onVisibilityChanged()
+                            populateMarkers()
                         }
                     }
                 }
@@ -268,92 +262,5 @@ object MarkersListDialog {
             b in 292.5..337.5 -> "Пн-Зх"
             else -> "Пн"
         }
-    }
-
-    private fun showRenameDialog(
-        activity: Activity,
-        currentName: String,
-        currentColor: Int,
-        onRenamed: (String, Int) -> Unit
-    ) {
-        val container = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(40, 24, 40, 16)
-            setBackgroundColor(Color.parseColor("#222222"))
-        }
-
-        val input = EditText(activity).apply {
-            setText(currentName)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#333333"))
-            setPadding(20, 16, 20, 16)
-            setSelection(currentName.length)
-        }
-        container.addView(input)
-
-        val colorTitle = TextView(activity).apply {
-            text = "Колір мітки:"
-            setTextColor(Color.LTGRAY)
-            textSize = 13f
-            setPadding(0, 16, 0, 8)
-        }
-        container.addView(colorTitle)
-
-        val colors = listOf(
-            0xFFFF9800.toInt(), // Помаранчевий
-            0xFFF44336.toInt(), // Червоний
-            0xFFFFEB3B.toInt(), // Жовтий
-            0xFF4CAF50.toInt(), // Зелений
-            0xFF00E5FF.toInt(), // Блакитний
-            0xFFE040FB.toInt()  // Фіолетовий
-        )
-
-        var selectedColor = currentColor
-        val colorRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val colorViews = ArrayList<TextView>()
-        fun updateColorSelection() {
-            for ((idx, tv) in colorViews.withIndex()) {
-                val c = colors[idx]
-                tv.text = if (c == selectedColor) "✓" else ""
-            }
-        }
-
-        val density = activity.resources.displayMetrics.density
-        val sz = (36 * density).toInt()
-        val m = (4 * density).toInt()
-
-        for (c in colors) {
-            val tv = TextView(activity).apply {
-                layoutParams = LinearLayout.LayoutParams(sz, sz).apply {
-                    setMargins(m, 0, m, 0)
-                }
-                setBackgroundColor(c)
-                setTextColor(if (c == 0xFFFFEB3B.toInt()) Color.BLACK else Color.WHITE)
-                textSize = 18f
-                setTypeface(null, Typeface.BOLD)
-                gravity = Gravity.CENTER
-                setOnClickListener {
-                    selectedColor = c
-                    updateColorSelection()
-                }
-            }
-            colorViews.add(tv)
-            colorRow.addView(tv)
-        }
-        updateColorSelection()
-        container.addView(colorRow)
-
-        AlertDialog.Builder(activity)
-            .setTitle("Редагувати мітку")
-            .setView(container)
-            .setPositiveButton("Зберегти") { _, _ ->
-                onRenamed(input.text.toString(), selectedColor)
-            }
-            .setNegativeButton("Скасувати", null)
-            .show()
     }
 }

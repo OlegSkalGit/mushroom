@@ -18,6 +18,15 @@ import java.util.Locale
 
 object AddMarkerDialog {
 
+    private val COLORS = intArrayOf(
+        0xFFFF9800.toInt(), // Помаранчевий
+        0xFFF44336.toInt(), // Червоний
+        0xFFFFEB3B.toInt(), // Жовтий
+        0xFF4CAF50.toInt(), // Зелений
+        0xFF00E5FF.toInt(), // Блакитний
+        0xFFE040FB.toInt()  // Фіолетовий
+    )
+
     fun show(
         activity: Activity,
         dbHelper: DatabaseHelper,
@@ -28,13 +37,65 @@ object AddMarkerDialog {
         initialType: String? = null,
         onMarkerAdded: (MushroomMarker) -> Unit
     ) {
-        val dialog = Dialog(activity)
-        dialog.setTitle("Нова мітка")
+        val sdf = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
+        val defaultName = initialName ?: "Мітка (${sdf.format(Date())})"
 
+        showDialog(
+            activity = activity,
+            title = "🍄 Нова мітка",
+            initialName = defaultName,
+            initialColor = 0xFF4CAF50.toInt()
+        ) { name, color ->
+            val marker = MushroomMarker(
+                id = System.currentTimeMillis(),
+                name = name,
+                type = initialType ?: "Гриб",
+                lat = lat,
+                lon = lon,
+                altitude = altitude,
+                timestamp = System.currentTimeMillis(),
+                note = "",
+                color = color,
+                isVisible = true
+            )
+            dbHelper.insertMarker(marker)
+            onMarkerAdded(marker)
+            Toast.makeText(activity, "Мітку \"$name\" збережено!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun showEdit(
+        activity: Activity,
+        dbHelper: DatabaseHelper,
+        marker: MushroomMarker,
+        onMarkerUpdated: (MushroomMarker) -> Unit
+    ) {
+        showDialog(
+            activity = activity,
+            title = "✏️ Редагування мітки",
+            initialName = marker.name,
+            initialColor = marker.color
+        ) { name, color ->
+            dbHelper.updateMarker(marker.id, name, color)
+            marker.name = name
+            marker.color = color
+            onMarkerUpdated(marker)
+            Toast.makeText(activity, "Мітку \"$name\" оновлено!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showDialog(
+        activity: Activity,
+        title: String,
+        initialName: String,
+        initialColor: Int,
+        onSave: (name: String, color: Int) -> Unit
+    ) {
+        val dialog = Dialog(activity)
         val container = UiUtils.createDarkDialogContainer(activity)
 
         val titleTv = TextView(activity).apply {
-            text = "🍄 Нова мітка"
+            text = title
             setTextColor(Color.parseColor("#4CAF50"))
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -42,11 +103,8 @@ object AddMarkerDialog {
         }
         container.addView(titleTv)
 
-        val sdf = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
-        val defaultName = initialName ?: "Мітка (${sdf.format(Date())})"
-
         val nameInput = EditText(activity).apply {
-            setText(defaultName)
+            setText(initialName)
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#333333"))
             setPadding(20, 20, 20, 20)
@@ -54,6 +112,54 @@ object AddMarkerDialog {
             selectAll()
         }
         container.addView(nameInput)
+
+        val colorTitle = TextView(activity).apply {
+            text = "Колір мітки:"
+            setTextColor(Color.LTGRAY)
+            textSize = 13f
+            setPadding(0, 16, 0, 8)
+        }
+        container.addView(colorTitle)
+
+        var selectedColor = initialColor
+        val colorRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 8)
+        }
+
+        val colorViews = ArrayList<TextView>()
+        fun updateColorSelection() {
+            for ((idx, tv) in colorViews.withIndex()) {
+                val c = COLORS[idx]
+                tv.text = if (c == selectedColor) "✓" else ""
+            }
+        }
+
+        val density = activity.resources.displayMetrics.density
+        val sz = (36 * density).toInt()
+        val m = (4 * density).toInt()
+
+        for (c in COLORS) {
+            val tv = TextView(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(sz, sz).apply {
+                    setMargins(m, 0, m, 0)
+                }
+                setBackgroundColor(c)
+                setTextColor(if (c == 0xFFFFEB3B.toInt()) Color.BLACK else Color.WHITE)
+                textSize = 18f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setOnClickListener {
+                    selectedColor = c
+                    updateColorSelection()
+                }
+            }
+            colorViews.add(tv)
+            colorRow.addView(tv)
+        }
+        updateColorSelection()
+        container.addView(colorRow)
 
         container.addView(UiUtils.createDialogDivider(activity))
 
@@ -69,21 +175,7 @@ object AddMarkerDialog {
 
         val btnSave = UiUtils.createStyledButton(activity, "Зберегти") {
             val name = nameInput.text.toString().trim().ifEmpty { "Мітка" }
-            val marker = MushroomMarker(
-                id = System.currentTimeMillis(),
-                name = name,
-                type = initialType ?: "Гриб",
-                lat = lat,
-                lon = lon,
-                altitude = altitude,
-                timestamp = System.currentTimeMillis(),
-                note = "",
-                color = 0xFF4CAF50.toInt(),
-                isVisible = true
-            )
-            dbHelper.insertMarker(marker)
-            onMarkerAdded(marker)
-            Toast.makeText(activity, "Мітку \"$name\" збережено!", Toast.LENGTH_SHORT).show()
+            onSave(name, selectedColor)
             dialog.dismiss()
         }
         btnSave.layoutParams = rowParams
