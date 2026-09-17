@@ -685,9 +685,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             style = Paint.Style.FILL
         }
         private val markerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
+            color = Color.BLACK
             textSize = 28f
-            setShadowLayer(4f, 1f, 1f, Color.BLACK)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            setShadowLayer(4f, 0f, 0f, Color.WHITE)
         }
         private val markerPinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
