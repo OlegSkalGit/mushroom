@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
@@ -815,15 +816,30 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             if (!isDragging && !isMultiTouch && !isDoubleTapDrag) {
                 isLongPressTriggered = true
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                val coords = screenToLatLon(downX, downY)
-                ItemEditDialog.showAddMarker(
-                    this@MushroomMapActivity,
-                    dbHelper,
-                    coords.first,
-                    coords.second,
-                    altitude = 0.0
-                ) {
-                    reloadMarkers()
+
+                val hitMarker = findMarkerAt(downX, downY, 40f * resources.displayMetrics.density)
+                if (hitMarker != null) {
+                    AlertDialog.Builder(this@MushroomMapActivity)
+                        .setTitle("Видалити мітку?")
+                        .setMessage("Видалити \"${hitMarker.name}\"?")
+                        .setPositiveButton("Видалити") { _, _ ->
+                            dbHelper.deleteMarker(hitMarker.id)
+                            reloadMarkers()
+                            Toast.makeText(this@MushroomMapActivity, "Мітку \"${hitMarker.name}\" видалено", Toast.LENGTH_SHORT).show()
+                        }
+                        .setNegativeButton("Скасувати", null)
+                        .show()
+                } else {
+                    val coords = screenToLatLon(downX, downY)
+                    ItemEditDialog.showAddMarker(
+                        this@MushroomMapActivity,
+                        dbHelper,
+                        coords.first,
+                        coords.second,
+                        altitude = 0.0
+                    ) {
+                        reloadMarkers()
+                    }
                 }
             }
         }
@@ -869,6 +885,45 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             val targetWorldX = centerWorld.first + rotDx / scale
             val targetWorldY = centerWorld.second + rotDy / scale
             return OsmTileEngine.worldPixelToLatLon(targetWorldX, targetWorldY, baseZoom)
+        }
+
+        fun latLonToScreen(lat: Double, lon: Double): Pair<Float, Float> {
+            val cx = width / 2f
+            val cy = height / 2f
+            val baseZoom = zoomLevel.toInt().coerceIn(MIN_BASE_ZOOM, MAX_BASE_ZOOM)
+            val scale = 2.0f.pow(zoomLevel - baseZoom)
+            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
+            val targetWorld = OsmTileEngine.latLonToWorldPixel(lat, lon, baseZoom)
+
+            val scaledDx = (targetWorld.first - centerWorld.first) * scale
+            val scaledDy = (targetWorld.second - centerWorld.second) * scale
+
+            val rad = Math.toRadians(mapBearing.toDouble())
+            val cosR = cos(rad)
+            val sinR = sin(rad)
+
+            val screenDx = scaledDx * cosR + scaledDy * sinR
+            val screenDy = -scaledDx * sinR + scaledDy * cosR
+
+            return Pair((cx + screenDx).toFloat(), (cy + screenDy).toFloat())
+        }
+
+        fun findMarkerAt(touchX: Float, touchY: Float, maxDistPx: Float): MushroomMarker? {
+            var closest: MushroomMarker? = null
+            var minDist = maxDistPx
+
+            for (marker in markersList) {
+                if (!marker.isVisible) continue
+                val (mx, my) = latLonToScreen(marker.lat, marker.lon)
+                val d = hypot((touchX - mx).toDouble(), (touchY - my).toDouble()).toFloat()
+                val dHead = hypot((touchX - mx).toDouble(), (touchY - (my - 18f)).toDouble()).toFloat()
+                val dist = minOf(d, dHead)
+                if (dist < minDist) {
+                    minDist = dist
+                    closest = marker
+                }
+            }
+            return closest
         }
 
         @SuppressLint("ClickableViewAccessibility")
