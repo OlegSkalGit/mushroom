@@ -102,10 +102,8 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         dbHelper = DatabaseHelper(this)
 
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        if (rotationVectorSensor == null) {
-            accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-            magneticSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
-        }
+        accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        magneticSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
         createNotificationChannel()
         startForeground(NOTIF_ID, buildNotification("Пошук супутників GPS..."))
@@ -137,10 +135,9 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
     private fun registerSensors() {
         if (rotationVectorSensor != null) {
             sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_UI)
-        } else {
-            accelerometerSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-            magneticSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
         }
+        accelerometerSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+        magneticSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
     }
 
     private fun registerGpsUpdates() {
@@ -324,8 +321,15 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         if (diff >= 2.0f && (now - lastAzimuthTime >= 100L)) {
             lastSentAzimuth = azDeg
             lastAzimuthTime = now
-            lastMetrics?.let { m ->
+            val m = lastMetrics
+            if (m != null) {
                 metricsListener?.invoke(m.copy(compassHeading = currentAzimuth))
+            } else {
+                val loc = lastLocation ?: Location("sensor").apply {
+                    latitude = 50.4501
+                    longitude = 30.5234
+                }
+                publishMetrics(loc, 0f, currentAzimuth, isStationary = true)
             }
         }
     }

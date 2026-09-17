@@ -9,6 +9,10 @@ import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.net.Uri
 import android.os.Bundle
@@ -37,7 +41,7 @@ import com.olegskal.mushroom.util.ServiceUtils
 import java.util.Locale
 import kotlin.math.*
 
-class MushroomMapActivity : Activity() {
+class MushroomMapActivity : Activity(), SensorEventListener {
 
     companion object {
         private const val REQ_CODE_IMPORT_GPX = 1010
@@ -54,6 +58,21 @@ class MushroomMapActivity : Activity() {
     private lateinit var tvRecordingBadge: TextView
     private lateinit var btnCenter: Button
     private lateinit var compassButton: CompassButton
+
+    // Compass & motion sensors
+    private lateinit var sensorManager: SensorManager
+    private var rotationVectorSensor: Sensor? = null
+    private var accelSensor: Sensor? = null
+    private var magSensor: Sensor? = null
+
+    private val rotMatrix = FloatArray(9)
+    private val orientAngles = FloatArray(3)
+    private val gravityVals = FloatArray(3)
+    private val magVals = FloatArray(3)
+    private var hasGravity = false
+    private var hasMag = false
+    private var currentFilteredAzimuth = 0f
+    private var lastCompassUiTime = 0L
 
     private var currentMetrics: ProcessedLocationMetrics? = null
     private var isFollowLocation: Boolean = true
@@ -78,6 +97,11 @@ class MushroomMapActivity : Activity() {
             ServiceUtils.startTrackingService(this, serviceIntent)
         }
 
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        accelSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        magSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+
         MushroomStorageManager.initStorage()
         dbHelper = DatabaseHelper(this)
         dbHelper.restoreDataFromExternalStorageIfDbEmpty()
@@ -93,6 +117,13 @@ class MushroomMapActivity : Activity() {
 
         // Map View
         mapView = MushroomMapView(this)
+        val initialLoc = LocationUtils.getLastKnownLocationCascade(this)
+        if (initialLoc != null) {
+            mapView.currentLocation = initialLoc
+            if (isFollowLocation) {
+                mapView.setCenter(initialLoc.latitude, initialLoc.longitude)
+            }
+        }
         rootLayout.addView(mapView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -516,6 +547,13 @@ class MushroomMapActivity : Activity() {
             compassButton.setBearing(-mapView.mapBearing)
         }
 
+        // Register hardware orientation sensors for instant, real-time compass
+        if (rotationVectorSensor != null) {
+            sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_UI)
+        }
+        accelSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+        magSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+
         MushroomTrackingService.metricsListener = { metrics ->
             runOnUiThread {
                 currentMetrics = metrics
@@ -530,9 +568,67 @@ class MushroomMapActivity : Activity() {
     override fun onPause() {
         super.onPause()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        sensorManager.unregisterListener(this)
         uiHandler.removeCallbacks(periodicRefreshRunnable)
         MushroomTrackingService.metricsListener = null
         MushroomTrackingService.serviceStateListener = null
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null) return
+        var newAzimuth: Float? = null
+
+        if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
+            SensorManager.getRotationMatrixFromVector(rotMatrix, event.values)
+            SensorManager.getOrientation(rotMatrix, orientAngles)
+            var az = Math.toDegrees(orientAngles[0].toDouble()).toFloat()
+            if (az < 0f) az += 360f
+            newAzimuth = az
+        } else if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+            System.arraycopy(event.values, 0, gravityVals, 0, 3)
+            hasGravity = true
+            if (hasMag && rotationVectorSensor == null) {
+                if (SensorManager.getRotationMatrix(rotMatrix, null, gravityVals, magVals)) {
+                    SensorManager.getOrientation(rotMatrix, orientAngles)
+                    var az = Math.toDegrees(orientAngles[0].toDouble()).toFloat()
+                    if (az < 0f) az += 360f
+                    newAzimuth = az
+                }
+            }
+        } else if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
+            System.arraycopy(event.values, 0, magVals, 0, 3)
+            hasMag = true
+            if (hasGravity && rotationVectorSensor == null) {
+                if (SensorManager.getRotationMatrix(rotMatrix, null, gravityVals, magVals)) {
+                    SensorManager.getOrientation(rotMatrix, orientAngles)
+                    var az = Math.toDegrees(orientAngles[0].toDouble()).toFloat()
+                    if (az < 0f) az += 360f
+                    newAzimuth = az
+                }
+            }
+        }
+
+        if (newAzimuth != null) {
+            onCompassAzimuthChanged(newAzimuth)
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private fun onCompassAzimuthChanged(targetAzimuth: Float) {
+        val now = SystemClock.uptimeMillis()
+        var diff = targetAzimuth - currentFilteredAzimuth
+        while (diff < -180f) diff += 360f
+        while (diff > 180f) diff -= 360f
+
+        currentFilteredAzimuth = (currentFilteredAzimuth + diff * 0.35f + 360f) % 360f
+
+        if (now - lastCompassUiTime >= 33L) {
+            lastCompassUiTime = now
+            mapView.setCompassHeading(currentFilteredAzimuth)
+            val compassBearing = -(currentFilteredAzimuth - mapView.mapBearing)
+            compassButton.setBearing(compassBearing)
+        }
     }
 
     // --- INNER MAP CANVAS VIEW ---
@@ -943,6 +1039,16 @@ class MushroomMapActivity : Activity() {
             invalidate()
         }
 
+        fun setCompassHeading(az: Float) {
+            val prev = compassHeading ?: -999f
+            var diff = kotlin.math.abs(az - prev)
+            if (diff > 180f) diff = 360f - diff
+            compassHeading = az
+            if (diff >= 0.8f) {
+                invalidate()
+            }
+        }
+
         fun updateLocationMetrics(metrics: ProcessedLocationMetrics) {
             val locChanged = currentLocation?.latitude != metrics.location.latitude ||
                     currentLocation?.longitude != metrics.location.longitude
@@ -1118,14 +1224,17 @@ class MushroomMapActivity : Activity() {
         }
 
         private fun drawUserLocation(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float) {
-            val loc = currentLocation ?: return
+            val loc = currentLocation
+            val targetLat = loc?.latitude ?: mapCenterLat
+            val targetLon = loc?.longitude ?: mapCenterLon
+
             val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
-            val wp = OsmTileEngine.latLonToWorldPixel(loc.latitude, loc.longitude, baseZoom)
+            val wp = OsmTileEngine.latLonToWorldPixel(targetLat, targetLon, baseZoom)
             val sx = (wp.first - centerWorld.first + cx).toFloat()
             val sy = (wp.second - centerWorld.second + cy).toFloat()
 
             // Accuracy circle (scales with geographic terrain)
-            if (loc.hasAccuracy()) {
+            if (loc != null && loc.hasAccuracy()) {
                 val metersPerPx = (156543.03392 * cos(Math.toRadians(loc.latitude))) / (1 shl baseZoom)
                 val accPx = (loc.accuracy / metersPerPx).toFloat()
                 canvas.drawCircle(sx, sy, accPx, accuracyPaint)
@@ -1140,7 +1249,7 @@ class MushroomMapActivity : Activity() {
             }
 
             val bearingToDraw: Float? = compassHeading
-                ?: if (loc.hasBearing() && loc.speed > 0.5f) loc.bearing
+                ?: if (loc?.hasBearing() == true && loc.speed > 0.5f) loc.bearing
                 else if (trajectoryBearing != 0f) trajectoryBearing
                 else null
 
