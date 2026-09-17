@@ -18,9 +18,6 @@ object LocationUtils {
         return isGpsDisabled(lm)
     }
 
-    fun isGpsDisabled(context: Context, lm: LocationManager): Boolean {
-        return isGpsDisabled(lm)
-    }
 
     /**
      * Checks whether system GPS / location is disabled via LocationManager instance.

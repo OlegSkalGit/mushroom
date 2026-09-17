@@ -4,6 +4,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.olegskal.mushroom.map.MapCountry
+import com.olegskal.mushroom.map.MapRegion
 import com.olegskal.mushroom.model.MushroomMarker
 import com.olegskal.mushroom.model.MushroomTrack
 import com.olegskal.mushroom.model.TrackPoint
@@ -49,6 +51,21 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         const val COL_PT_ALT = "altitude"
         const val COL_PT_TIME = "time"
         const val COL_PT_SPEED = "speed"
+
+        // OSM Countries table
+        const val TABLE_COUNTRIES = "osm_countries"
+        const val COL_COUNTRY_CODE = "code"
+        const val COL_COUNTRY_NAME = "name"
+
+        // OSM Regions table
+        const val TABLE_REGIONS = "osm_regions"
+        const val COL_REGION_ID = "id"
+        const val COL_REGION_COUNTRY_CODE = "country_code"
+        const val COL_REGION_NAME = "name"
+        const val COL_REGION_MIN_LAT = "min_lat"
+        const val COL_REGION_MAX_LAT = "max_lat"
+        const val COL_REGION_MIN_LON = "min_lon"
+        const val COL_REGION_MAX_LON = "max_lon"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -100,7 +117,39 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         )
         db.execSQL("CREATE INDEX idx_track_pts ON $TABLE_TRACK_POINTS($COL_PT_TRACK_ID, $COL_PT_TIME)")
 
-        AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_MARKERS, $TABLE_TRACKS, $TABLE_TRACK_POINTS) created.")
+        ensureOsmTables(db)
+
+        AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_MARKERS, $TABLE_TRACKS, $TABLE_TRACK_POINTS, $TABLE_COUNTRIES, $TABLE_REGIONS) created.")
+    }
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        ensureOsmTables(db)
+    }
+
+    private fun ensureOsmTables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS $TABLE_COUNTRIES (
+                $COL_COUNTRY_CODE TEXT PRIMARY KEY,
+                $COL_COUNTRY_NAME TEXT NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS $TABLE_REGIONS (
+                $COL_REGION_ID TEXT PRIMARY KEY,
+                $COL_REGION_COUNTRY_CODE TEXT NOT NULL,
+                $COL_REGION_NAME TEXT NOT NULL,
+                $COL_REGION_MIN_LAT REAL NOT NULL,
+                $COL_REGION_MAX_LAT REAL NOT NULL,
+                $COL_REGION_MIN_LON REAL NOT NULL,
+                $COL_REGION_MAX_LON REAL NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_regions_country ON $TABLE_REGIONS($COL_REGION_COUNTRY_CODE)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -395,6 +444,100 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             }
         } catch (e: Exception) {
             AppLogger.log("DatabaseHelper", "restoreDataFromExternalStorage", false, "Error: ${e.message}")
+        }
+    }
+
+    // --- OSM COUNTRIES & REGIONS CACHE ---
+
+    fun getCachedCountries(): List<MapCountry> {
+        val list = ArrayList<MapCountry>()
+        val db = readableDatabase
+        ensureOsmTables(db)
+        db.query(TABLE_COUNTRIES, null, null, null, null, null, "$COL_COUNTRY_NAME ASC").use { c ->
+            val codeIdx = c.getColumnIndexOrThrow(COL_COUNTRY_CODE)
+            val nameIdx = c.getColumnIndexOrThrow(COL_COUNTRY_NAME)
+            while (c.moveToNext()) {
+                list.add(MapCountry(name = c.getString(nameIdx), code = c.getString(codeIdx)))
+            }
+        }
+        return list
+    }
+
+    fun insertCountries(countries: List<MapCountry>) {
+        val db = writableDatabase
+        ensureOsmTables(db)
+        db.beginTransaction()
+        try {
+            val stmt = db.compileStatement("INSERT OR REPLACE INTO $TABLE_COUNTRIES ($COL_COUNTRY_CODE, $COL_COUNTRY_NAME) VALUES (?, ?)")
+            for (c in countries) {
+                stmt.clearBindings()
+                stmt.bindString(1, c.code)
+                stmt.bindString(2, c.name)
+                stmt.executeInsert()
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun getCachedRegions(countryCode: String): List<MapRegion> {
+        val list = ArrayList<MapRegion>()
+        val db = readableDatabase
+        ensureOsmTables(db)
+        db.query(
+            TABLE_REGIONS,
+            null,
+            "$COL_REGION_COUNTRY_CODE = ?",
+            arrayOf(countryCode),
+            null,
+            null,
+            "$COL_REGION_NAME ASC"
+        ).use { c ->
+            val idIdx = c.getColumnIndexOrThrow(COL_REGION_ID)
+            val nameIdx = c.getColumnIndexOrThrow(COL_REGION_NAME)
+            val minLatIdx = c.getColumnIndexOrThrow(COL_REGION_MIN_LAT)
+            val maxLatIdx = c.getColumnIndexOrThrow(COL_REGION_MAX_LAT)
+            val minLonIdx = c.getColumnIndexOrThrow(COL_REGION_MIN_LON)
+            val maxLonIdx = c.getColumnIndexOrThrow(COL_REGION_MAX_LON)
+            while (c.moveToNext()) {
+                list.add(
+                    MapRegion(
+                        id = c.getString(idIdx),
+                        name = c.getString(nameIdx),
+                        minLat = c.getDouble(minLatIdx),
+                        maxLat = c.getDouble(maxLatIdx),
+                        minLon = c.getDouble(minLonIdx),
+                        maxLon = c.getDouble(maxLonIdx)
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun insertRegions(countryCode: String, regions: List<MapRegion>) {
+        val db = writableDatabase
+        ensureOsmTables(db)
+        db.beginTransaction()
+        try {
+            val stmt = db.compileStatement(
+                "INSERT OR REPLACE INTO $TABLE_REGIONS ($COL_REGION_ID, $COL_REGION_COUNTRY_CODE, $COL_REGION_NAME, $COL_REGION_MIN_LAT, $COL_REGION_MAX_LAT, $COL_REGION_MIN_LON, $COL_REGION_MAX_LON) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            )
+            for (r in regions) {
+                stmt.clearBindings()
+                stmt.bindString(1, r.id)
+                stmt.bindString(2, countryCode)
+                stmt.bindString(3, r.name)
+                stmt.bindDouble(4, r.minLat)
+                stmt.bindDouble(5, r.maxLat)
+                stmt.bindDouble(6, r.minLon)
+                stmt.bindDouble(7, r.maxLon)
+                stmt.executeInsert()
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
     }
 }

@@ -21,7 +21,7 @@ data class MapRegion(
 data class MapCountry(
     val name: String,
     val code: String,
-    val regions: List<MapRegion>
+    val regions: List<MapRegion> = emptyList()
 )
 
 object MapDownloadManager {

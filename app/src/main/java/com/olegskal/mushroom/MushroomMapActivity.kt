@@ -176,10 +176,11 @@ class MushroomMapActivity : Activity() {
         }
 
         btnCenter = Button(this).apply {
-            text = "📍 Центр"
+            text = "⌖"
             setTextColor(Color.parseColor("#00E5FF"))
             setBackgroundColor(Color.parseColor("#DD2A2A2A"))
-            textSize = 13f
+            textSize = 22f
+            setTypeface(null, Typeface.BOLD)
             setOnClickListener {
                 isFollowLocation = true
                 AppPrefs.setFollowUser(this@MushroomMapActivity, true)

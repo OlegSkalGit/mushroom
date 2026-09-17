@@ -296,7 +296,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         bearing: Float = loc.bearing,
         isStationary: Boolean = false
     ) {
-        val isGpsDisabled = LocationUtils.isGpsDisabled(this, locationManager)
+        val isGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
         val metrics = GeoMath.evaluateLocationData(
             location = loc,
             speedKmh = speedKmh,
