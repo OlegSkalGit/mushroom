@@ -38,7 +38,7 @@ object AppUpdateManager {
     private const val REPO_OWNER = "OlegSkalGit"
     private const val REPO_NAME = "mushroom"
     private const val API_URL = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases"
-    private const val CHECK_THROTTLE_MS = 24 * 60 * 60 * 1000L // 24 hours
+    private const val CHECK_THROTTLE_MS = 15 * 60 * 1000L // 15 minutes throttle
 
     const val NOTIFICATION_ID = 9901
     const val NOTIFICATION_CHANNEL_ID = "mushroom_update_channel"
@@ -212,8 +212,8 @@ object AppUpdateManager {
         onResult: ((String) -> Unit)?
     ) {
         mainHandler.post {
-            val title = "New version available"
-            val message = "New version available (Current: $installedVerStr / New: $latestRemoteName).\n\nDownload now?"
+            val title = "Доступне оновлення"
+            val message = "Вийшла нова версія $latestRemoteName\n(поточна: $installedVerStr).\n\nЗавантажити та оновити?"
 
             val downloadAction = {
                 executor.execute {
@@ -223,7 +223,7 @@ object AppUpdateManager {
 
             val laterAction = {
                 postponeUpdate(context.applicationContext)
-                val msg = "Update postponed."
+                val msg = "Оновлення відкладено."
                 onResult?.let { mainHandler.post { it(msg) } }
             }
 
@@ -232,11 +232,11 @@ object AppUpdateManager {
                 AlertDialog.Builder(activity)
                     .setTitle(title)
                     .setMessage(message)
-                    .setPositiveButton("Download") { dialog, _ ->
+                    .setPositiveButton("Оновити") { dialog, _ ->
                         dialog.dismiss()
                         downloadAction()
                     }
-                    .setNegativeButton("Later") { dialog, _ ->
+                    .setNegativeButton("Пізніше") { dialog, _ ->
                         dialog.dismiss()
                         laterAction()
                     }
@@ -365,8 +365,8 @@ object AppUpdateManager {
                 .setStyle(Notification.BigTextStyle().bigText(message))
                 .setPriority(Notification.PRIORITY_HIGH)
                 .setAutoCancel(true)
-                .addAction(android.R.drawable.ic_menu_save, "Download", pendingDownload)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Later", pendingLater)
+                .addAction(android.R.drawable.ic_menu_save, "Оновити", pendingDownload)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Пізніше", pendingLater)
                 .setContentIntent(pendingDownload)
                 .build()
 

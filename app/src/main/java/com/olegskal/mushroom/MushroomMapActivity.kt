@@ -71,6 +71,8 @@ class MushroomMapActivity : Activity() {
         dbHelper = DatabaseHelper(this)
         dbHelper.restoreDataFromExternalStorageIfDbEmpty()
 
+        AppUpdateManager.checkAndDownloadUpdate(this)
+
         isFollowLocation = AppPrefs.getFollowUser(this)
         isHeadingUp = AppPrefs.isHeadingUp(this)
 
@@ -513,23 +515,7 @@ class MushroomMapActivity : Activity() {
         container.addView(btnDownloadMaps)
         container.addView(UiUtils.createDialogDivider(this))
 
-        // 2. Check updates
-        val btnUpdates = UiUtils.createStyledButton(this, "🔄 Перевірити оновлення програми", itemParams) {
-            dialog.dismiss()
-            AppUpdateManager.performManualUpdateCheck(this@MushroomMapActivity)
-        }
-        container.addView(btnUpdates)
-        container.addView(UiUtils.createDialogDivider(this))
-
-        // 3. Help
-        val btnHelp = UiUtils.createStyledButton(this, "ℹ️ Довідка грибника", itemParams) {
-            dialog.dismiss()
-            startActivity(Intent(this@MushroomMapActivity, HelpActivity::class.java))
-        }
-        container.addView(btnHelp)
-        container.addView(UiUtils.createDialogDivider(this))
-
-        // 4. Exit
+        // 2. Exit
         val btnQuit = UiUtils.createStyledButton(this, "🚪 Вихід з програми", itemParams) {
             dialog.dismiss()
             val stopIntent = Intent(this@MushroomMapActivity, MushroomTrackingService::class.java).apply {

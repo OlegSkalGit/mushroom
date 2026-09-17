@@ -39,12 +39,6 @@
         </activity>
 
         <activity
-            android:name=".HelpActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:theme="@style/Theme.Transparent" />
-
-        <activity
             android:name=".LogViewerActivity"
             android:exported="false"
             android:launchMode="singleTop"
