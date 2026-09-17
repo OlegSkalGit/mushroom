@@ -544,7 +544,7 @@ class MushroomMapActivity : Activity() {
         var zoomLevel: Float = 12.0f
 
         var currentLocation: Location? = null
-        private var compassHeading: Float = 0f
+        private var compassHeading: Float? = null
         private var trajectoryBearing: Float = 0f
 
         private var markersList: List<MushroomMarker> = emptyList()
@@ -946,7 +946,7 @@ class MushroomMapActivity : Activity() {
         fun updateLocationMetrics(metrics: ProcessedLocationMetrics) {
             val locChanged = currentLocation?.latitude != metrics.location.latitude ||
                     currentLocation?.longitude != metrics.location.longitude
-            val headingDiff = kotlin.math.abs(compassHeading - metrics.compassHeading)
+            val headingDiff = kotlin.math.abs((compassHeading ?: -999f) - metrics.compassHeading)
             val trajectoryDiff = kotlin.math.abs(trajectoryBearing - metrics.trajectoryBearing)
 
             currentLocation = metrics.location
@@ -1139,14 +1139,12 @@ class MushroomMapActivity : Activity() {
                 canvas.scale(invScale, invScale)
             }
 
-            val bearingToDraw = if (loc.hasBearing() && loc.speed > 0.5f) {
-                loc.bearing
-            } else if (compassHeading != 0f) {
-                compassHeading
-            } else {
-                trajectoryBearing
-            }
-            if (bearingToDraw != 0f) {
+            val bearingToDraw: Float? = compassHeading
+                ?: if (loc.hasBearing() && loc.speed > 0.5f) loc.bearing
+                else if (trajectoryBearing != 0f) trajectoryBearing
+                else null
+
+            if (bearingToDraw != null) {
                 canvas.save()
                 canvas.rotate(bearingToDraw, 0f, 0f)
                 val arrowPath = Path().apply {
