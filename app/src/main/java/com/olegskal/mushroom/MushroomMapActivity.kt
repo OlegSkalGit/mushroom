@@ -755,7 +755,29 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         private var anchorX = 0f
         private var anchorY = 0f
 
+        private var isLongPressTriggered = false
+        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+        private val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
+
+        private val longPressRunnable = Runnable {
+            if (!isDragging && !isMultiTouch && !isDoubleTapDrag) {
+                isLongPressTriggered = true
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                val coords = screenToLatLon(downX, downY)
+                AddMarkerDialog.show(
+                    this@MushroomMapActivity,
+                    dbHelper,
+                    coords.first,
+                    coords.second,
+                    altitude = 0.0
+                ) {
+                    reloadMarkers()
+                }
+            }
+        }
+
         init {
+            isHapticFeedbackEnabled = true
             if (AppPrefs.hasSavedMapLocation(context)) {
                 mapCenterLat = AppPrefs.getMapLat(context)
                 mapCenterLon = AppPrefs.getMapLon(context)
@@ -766,8 +788,35 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             mapBearing = (savedBearing % 360f + 360f) % 360f
         }
 
+        override fun onDetachedFromWindow() {
+            super.onDetachedFromWindow()
+            removeCallbacks(longPressRunnable)
+        }
+
         fun saveMapState() {
             AppPrefs.setMapState(context, mapCenterLat, mapCenterLon, zoomLevel, mapBearing)
+        }
+
+        fun screenToLatLon(touchX: Float, touchY: Float): Pair<Double, Double> {
+            val cx = width / 2f
+            val cy = height / 2f
+            val baseZoom = zoomLevel.toInt().coerceIn(MIN_BASE_ZOOM, MAX_BASE_ZOOM)
+            val scale = 2.0f.pow(zoomLevel - baseZoom)
+            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
+
+            val rad = Math.toRadians(mapBearing.toDouble())
+            val cosR = cos(rad)
+            val sinR = sin(rad)
+
+            val screenDx = (touchX - cx).toDouble()
+            val screenDy = (touchY - cy).toDouble()
+
+            val rotDx = screenDx * cosR - screenDy * sinR
+            val rotDy = screenDx * sinR + screenDy * cosR
+
+            val targetWorldX = centerWorld.first + rotDx / scale
+            val targetWorldY = centerWorld.second + rotDy / scale
+            return OsmTileEngine.worldPixelToLatLon(targetWorldX, targetWorldY, baseZoom)
         }
 
         @SuppressLint("ClickableViewAccessibility")
@@ -779,6 +828,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 MotionEvent.ACTION_DOWN -> {
                     val now = SystemClock.uptimeMillis()
                     val tapDist = hypot((event.x - lastTapUpX).toDouble(), (event.y - lastTapUpY).toDouble()).toFloat()
+
+                    isLongPressTriggered = false
+                    removeCallbacks(longPressRunnable)
 
                     if (now - lastTapUpTime < 350L && tapDist < 80f * density) {
                         isDoubleTapDrag = true
@@ -797,6 +849,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         lastTouchY = event.y
                         isDragging = false
                         isMultiTouch = false
+                        postDelayed(longPressRunnable, longPressTimeout)
                     }
                     downTime = now
                     downX = event.x
@@ -804,6 +857,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 }
 
                 MotionEvent.ACTION_POINTER_DOWN -> {
+                    removeCallbacks(longPressRunnable)
                     if (isDoubleTapDrag) {
                         isDoubleTapDrag = false
                     }
@@ -822,6 +876,13 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 }
 
                 MotionEvent.ACTION_MOVE -> {
+                    val moveDist = hypot((event.x - downX).toDouble(), (event.y - downY).toDouble()).toFloat()
+                    if (moveDist > touchSlop) {
+                        removeCallbacks(longPressRunnable)
+                    }
+                    if (isLongPressTriggered) {
+                        return true
+                    }
                     if (isDoubleTapDrag) {
                         isFollowLocation = false
                         AppPrefs.setFollowUser(context, false)
@@ -924,6 +985,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 }
 
                 MotionEvent.ACTION_POINTER_UP -> {
+                    removeCallbacks(longPressRunnable)
                     if (count <= 2) {
                         isMultiTouch = false
                         val remIdx = if (event.actionIndex == 0) 1 else 0
@@ -936,6 +998,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 }
 
                 MotionEvent.ACTION_UP -> {
+                    removeCallbacks(longPressRunnable)
+                    if (isLongPressTriggered) {
+                        isLongPressTriggered = false
+                        return true
+                    }
                     if (isDoubleTapDrag) {
                         isDoubleTapDrag = false
                         lastTapUpTime = 0L
@@ -958,6 +1025,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
+                    removeCallbacks(longPressRunnable)
+                    isLongPressTriggered = false
                     isDragging = false
                     isMultiTouch = false
                     isDoubleTapDrag = false
