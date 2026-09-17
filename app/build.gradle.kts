@@ -12,11 +12,11 @@ fun getFormattedVersionName(): String = SimpleDateFormat("yy.MM.dd_HHmm", Locale
 fun getFormattedVersionCode(): Int = SimpleDateFormat("yyDDDHHmm", Locale.US).format(getBuildTimestamp()).toInt()
 
 android {
-    namespace = "com.example.radardetector"
+    namespace = "com.olegskal.mushroom"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.radardetector"
+        applicationId = "com.olegskal.mushroom"
         minSdk = 26
         targetSdk = 34
         versionCode = getFormattedVersionCode()

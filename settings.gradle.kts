@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "RadarStop"
+rootProject.name = "Mushroom"
 include(":app")
