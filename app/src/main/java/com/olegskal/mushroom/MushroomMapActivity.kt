@@ -266,6 +266,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         setContentView(rootLayout)
 
+        OsmTileEngine.appContext = applicationContext
         OsmTileEngine.onTileReadyListener = {
             if (!isTileRedrawPending) {
                 isTileRedrawPending = true

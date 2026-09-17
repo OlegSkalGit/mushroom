@@ -131,28 +131,43 @@ object MapDownloadManager {
 
     fun isCurrentlyDownloading(): Boolean = isDownloading.get()
 
+    data class ProgressInfo(
+        val current: Int,
+        val total: Int,
+        val currentZoom: Int,
+        val currentRegion: String
+    )
+
+    var lastProgressInfo: ProgressInfo? = null
+        private set
+    var onProgressUpdate: ((ProgressInfo) -> Unit)? = null
+    var onDownloadCompleted: ((successCount: Int, skippedCount: Int, failCount: Int) -> Unit)? = null
+
     fun cancelDownload() {
         cancelFlag.set(true)
         taskQueue.clear()
+        lastProgressInfo = null
     }
 
     fun downloadRegions(
         regions: List<MapRegion>,
         minZoom: Int = DEFAULT_MIN_ZOOM,
         maxZoom: Int = DEFAULT_MAX_ZOOM,
-        onProgress: (current: Int, total: Int, currentRegion: String) -> Unit,
-        onFinished: (successCount: Int, skippedCount: Int, failCount: Int) -> Unit
+        onProgress: ((ProgressInfo) -> Unit)? = null,
+        onFinished: ((successCount: Int, skippedCount: Int, failCount: Int) -> Unit)? = null
     ) {
         if (!isDownloading.compareAndSet(false, true)) return
         cancelFlag.set(false)
         taskQueue.clear()
+        this.onProgressUpdate = onProgress
+        this.onDownloadCompleted = onFinished
 
         dispatcherExecutor.execute {
             try {
                 val seen = HashSet<Long>()
-                for (region in regions) {
+                for (z in minZoom..maxZoom) {
                     if (cancelFlag.get()) break
-                    for (z in minZoom..maxZoom) {
+                    for (region in regions) {
                         if (cancelFlag.get()) break
                         val p1 = OsmTileEngine.latLonToTile(region.maxLat, region.minLon, z)
                         val p2 = OsmTileEngine.latLonToTile(region.minLat, region.maxLon, z)
@@ -182,7 +197,8 @@ object MapDownloadManager {
 
                 if (totalTiles == 0 || cancelFlag.get()) {
                     isDownloading.set(false)
-                    onFinished(0, 0, 0)
+                    lastProgressInfo = null
+                    onDownloadCompleted?.invoke(0, 0, 0)
                     return@execute
                 }
 
@@ -201,7 +217,9 @@ object MapDownloadManager {
                                         file.delete()
                                     } else {
                                         skipped.incrementAndGet()
-                                        onProgress(cur, totalTiles, task.regionName)
+                                        val info = ProgressInfo(cur, totalTiles, task.z, task.regionName)
+                                        lastProgressInfo = info
+                                        onProgressUpdate?.invoke(info)
                                         continue
                                     }
                                 }
@@ -212,7 +230,9 @@ object MapDownloadManager {
                                 } else {
                                     failed.incrementAndGet()
                                 }
-                                onProgress(cur, totalTiles, task.regionName)
+                                val info = ProgressInfo(cur, totalTiles, task.z, task.regionName)
+                                lastProgressInfo = info
+                                onProgressUpdate?.invoke(info)
                             }
                         } catch (e: Exception) {
                             AppLogger.log(TAG, "worker_$workerId", false, "Worker error: ${e.message}")
@@ -229,10 +249,12 @@ object MapDownloadManager {
                 val f = failed.get()
 
                 AppLogger.log(TAG, "downloadRegions", true, "Finished download: success=$s, skipped=$sk, failed=$f")
-                onFinished(s, sk, f)
+                lastProgressInfo = null
+                onDownloadCompleted?.invoke(s, sk, f)
             } catch (e: Exception) {
                 AppLogger.log(TAG, "downloadRegions", false, "Dispatcher error: ${e.message}")
-                onFinished(0, 0, 0)
+                lastProgressInfo = null
+                onDownloadCompleted?.invoke(0, 0, 0)
             } finally {
                 taskQueue.clear()
                 isDownloading.set(false)
@@ -240,7 +262,7 @@ object MapDownloadManager {
         }
     }
 
-    private fun downloadTile(z: Int, x: Int, y: Int, destFile: File): Boolean {
+    fun downloadTile(z: Int, x: Int, y: Int, destFile: File): Boolean {
         var conn: HttpURLConnection? = null
         var inputStream: InputStream? = null
         return try {

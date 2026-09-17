@@ -1,7 +1,11 @@
 package com.olegskal.mushroom.map
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import android.util.LruCache
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import java.util.concurrent.ConcurrentHashMap
@@ -11,6 +15,8 @@ import kotlin.math.*
 object OsmTileEngine {
 
     const val TILE_SIZE = 256
+
+    var appContext: Context? = null
 
     private val ramCache: LruCache<String, Bitmap>
 
@@ -26,9 +32,33 @@ object OsmTileEngine {
 
     private val loadingKeys = ConcurrentHashMap.newKeySet<String>()
     private val missingTileKeys = ConcurrentHashMap.newKeySet<String>()
+    private val activeNetworkDownloads = ConcurrentHashMap.newKeySet<String>()
     private val diskExecutor = Executors.newFixedThreadPool(4)
+    private val networkExecutor = Executors.newFixedThreadPool(2)
+
+    private var lastNetworkCheckTime = 0L
+    private var lastNetworkState = false
 
     var onTileReadyListener: (() -> Unit)? = null
+
+    fun isNetworkConnected(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastNetworkCheckTime < 2000L) {
+            return lastNetworkState
+        }
+        lastNetworkCheckTime = now
+        val ctx = appContext ?: return false
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        lastNetworkState = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val active = cm.activeNetwork
+            val caps = active?.let { cm.getNetworkCapabilities(it) }
+            caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        } else {
+            @Suppress("DEPRECATION")
+            cm.activeNetworkInfo?.isConnected == true
+        }
+        return lastNetworkState
+    }
 
     fun clearMissingTileCache() {
         missingTileKeys.clear()
@@ -88,8 +118,8 @@ object OsmTileEngine {
         // 1. Check RAM Cache
         ramCache.get(key)?.let { return it }
 
-        // 2. If already marked as missing or currently reading from disk, skip
-        if (missingTileKeys.contains(key) || loadingKeys.contains(key)) {
+        // 2. If already marked as missing or currently reading from disk/network, skip
+        if (missingTileKeys.contains(key) || loadingKeys.contains(key) || activeNetworkDownloads.contains(key)) {
             return null
         }
 
@@ -101,7 +131,7 @@ object OsmTileEngine {
                 if (file.exists() && file.length() > 0L) {
                     if (file.length() == 6987L) {
                         file.delete()
-                        missingTileKeys.add(key)
+                        handleMissingTile(zoom, x, y, key, file)
                     } else {
                         val opts = BitmapFactory.Options().apply {
                             inPreferredConfig = Bitmap.Config.RGB_565
@@ -112,11 +142,11 @@ object OsmTileEngine {
                             onTileReadyListener?.invoke()
                         } else {
                             file.delete()
-                            missingTileKeys.add(key)
+                            handleMissingTile(zoom, x, y, key, file)
                         }
                     }
                 } else {
-                    missingTileKeys.add(key)
+                    handleMissingTile(zoom, x, y, key, file)
                 }
             } catch (_: Exception) {
                 missingTileKeys.add(key)
@@ -127,8 +157,40 @@ object OsmTileEngine {
         return null
     }
 
+    private fun handleMissingTile(zoom: Int, x: Int, y: Int, key: String, destFile: java.io.File) {
+        if (isNetworkConnected() && activeNetworkDownloads.size < 16 && activeNetworkDownloads.add(key)) {
+            networkExecutor.execute {
+                try {
+                    val ok = MapDownloadManager.downloadTile(zoom, x, y, destFile)
+                    if (ok) {
+                        val opts = BitmapFactory.Options().apply {
+                            inPreferredConfig = Bitmap.Config.RGB_565
+                        }
+                        val bmp = BitmapFactory.decodeFile(destFile.absolutePath, opts)
+                        if (bmp != null) {
+                            ramCache.put(key, bmp)
+                            onTileReadyListener?.invoke()
+                        } else {
+                            destFile.delete()
+                            missingTileKeys.add(key)
+                        }
+                    } else {
+                        missingTileKeys.add(key)
+                    }
+                } catch (_: Exception) {
+                    missingTileKeys.add(key)
+                } finally {
+                    activeNetworkDownloads.remove(key)
+                }
+            }
+        } else {
+            missingTileKeys.add(key)
+        }
+    }
+
     fun clearRamCache() {
         ramCache.evictAll()
         missingTileKeys.clear()
+        activeNetworkDownloads.clear()
     }
 }

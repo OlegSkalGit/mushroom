@@ -17,6 +17,10 @@ import java.util.Locale
 object RegionDownloadDialog {
 
     fun show(activity: Activity, onDownloadStarted: () -> Unit = {}) {
+        if (MapDownloadManager.isCurrentlyDownloading()) {
+            showActiveDownloadProgress(activity)
+            return
+        }
         val dbHelper = DatabaseHelper(activity)
         showCountrySelection(activity, dbHelper, onDownloadStarted)
     }
@@ -410,6 +414,24 @@ object RegionDownloadDialog {
         regions: List<MapRegion>,
         onDownloadStarted: () -> Unit
     ) {
+        onDownloadStarted()
+        MapDownloadManager.downloadRegions(
+            regions = regions,
+            onFinished = { success, skipped, failed ->
+                com.olegskal.mushroom.map.OsmTileEngine.clearMissingTileCache()
+                activity.runOnUiThread {
+                    Toast.makeText(
+                        activity,
+                        "Завантаження завершено: $success нових, $skipped в кеші, $failed помилок",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+        showActiveDownloadProgress(activity)
+    }
+
+    private fun showActiveDownloadProgress(activity: Activity) {
         val progressDialog = Dialog(activity).apply {
             setCancelable(false)
         }
@@ -425,7 +447,8 @@ object RegionDownloadDialog {
         }
 
         val statusTv = TextView(activity).apply {
-            text = "Підготовка списку тайлів..."
+            val info = MapDownloadManager.lastProgressInfo
+            text = if (info != null) "Масштаб: z${info.currentZoom} | Регіон: ${info.currentRegion}" else "Підготовка списку тайлів..."
             setTextColor(Color.LTGRAY)
             textSize = 13f
             setPadding(0, 0, 0, 8)
@@ -434,16 +457,24 @@ object RegionDownloadDialog {
         val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
             isIndeterminate = false
             max = 100
-            progress = 0
+            val info = MapDownloadManager.lastProgressInfo
+            progress = if (info != null && info.total > 0) (info.current * 100) / info.total else 0
         }
 
         val percentTv = TextView(activity).apply {
-            text = "0%"
+            val info = MapDownloadManager.lastProgressInfo
+            val pct = if (info != null && info.total > 0) (info.current * 100) / info.total else 0
+            text = if (info != null) "$pct% (${info.current} / ${info.total})" else "0%"
             setTextColor(Color.parseColor("#4CAF50"))
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
             gravity = Gravity.CENTER
             setPadding(0, 8, 0, 16)
+        }
+
+        val btnBackground = UiUtils.createStyledButton(activity, "Сховати у фон") {
+            progressDialog.dismiss()
+            Toast.makeText(activity, "Завантаження триває у фоні. Можна користуватися картою.", Toast.LENGTH_SHORT).show()
         }
 
         val btnCancel = UiUtils.createStyledButton(activity, "Зупинити") {
@@ -456,38 +487,31 @@ object RegionDownloadDialog {
         container.addView(statusTv)
         container.addView(progressBar)
         container.addView(percentTv)
+        container.addView(btnBackground)
         container.addView(btnCancel)
 
         progressDialog.setContentView(container)
         progressDialog.show()
 
-        onDownloadStarted()
-
-        MapDownloadManager.downloadRegions(
-            regions = regions,
-            onProgress = { current, total, curRegion ->
-                activity.runOnUiThread {
-                    if (progressDialog.isShowing) {
-                        val pct = if (total > 0) (current * 100) / total else 0
-                        progressBar.progress = pct
-                        percentTv.text = "$pct% ($current / $total)"
-                        statusTv.text = "Регіон: $curRegion"
-                    }
-                }
-            },
-            onFinished = { success, skipped, failed ->
-                com.olegskal.mushroom.map.OsmTileEngine.clearMissingTileCache()
-                activity.runOnUiThread {
-                    if (progressDialog.isShowing) {
-                        progressDialog.dismiss()
-                        Toast.makeText(
-                            activity,
-                            "Завантаження завершено: $success нових, $skipped в кеші, $failed помилок",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+        MapDownloadManager.onProgressUpdate = { info ->
+            activity.runOnUiThread {
+                if (progressDialog.isShowing) {
+                    val pct = if (info.total > 0) (info.current * 100) / info.total else 0
+                    progressBar.progress = pct
+                    percentTv.text = "$pct% (${info.current} / ${info.total})"
+                    statusTv.text = "Масштаб: z${info.currentZoom} | Регіон: ${info.currentRegion}"
                 }
             }
-        )
+        }
+
+        val originalFinished = MapDownloadManager.onDownloadCompleted
+        MapDownloadManager.onDownloadCompleted = { success, skipped, failed ->
+            originalFinished?.invoke(success, skipped, failed)
+            activity.runOnUiThread {
+                if (progressDialog.isShowing) {
+                    progressDialog.dismiss()
+                }
+            }
+        }
     }
 }
