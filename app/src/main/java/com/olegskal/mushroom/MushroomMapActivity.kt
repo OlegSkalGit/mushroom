@@ -45,10 +45,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     companion object {
         private const val REQ_CODE_IMPORT_GPX = 1010
-        val MIN_MAP_ZOOM = MapDownloadManager.DEFAULT_MIN_ZOOM.toFloat()
-        val MAX_MAP_ZOOM = MapDownloadManager.DEFAULT_MAX_ZOOM.toFloat()
-        val MIN_BASE_ZOOM = MapDownloadManager.DEFAULT_MIN_ZOOM
-        val MAX_BASE_ZOOM = MapDownloadManager.DEFAULT_MAX_ZOOM
+        const val MIN_MAP_ZOOM = 2.0f
+        const val MAX_MAP_ZOOM = 18.0f
+        const val MIN_BASE_ZOOM = 2
+        const val MAX_BASE_ZOOM = 18
     }
 
     private lateinit var mapView: MushroomMapView
@@ -267,6 +267,13 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         setContentView(rootLayout)
 
         OsmTileEngine.appContext = applicationContext
+        OsmTileEngine.onTileReadyListener = {
+            if (!isTileRedrawPending) {
+                isTileRedrawPending = true
+                uiHandler.postDelayed(tileRedrawRunnable, 35L)
+            }
+        }
+
         handleIncomingIntent(intent)
     }
 
@@ -556,13 +563,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
-        OsmTileEngine.onTileReadyListener = {
-            if (!isTileRedrawPending) {
-                isTileRedrawPending = true
-                uiHandler.postDelayed(tileRedrawRunnable, 35L)
-            }
-        }
-
         uiHandler.post(periodicRefreshRunnable)
     }
 
@@ -571,14 +571,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sensorManager.unregisterListener(this)
         uiHandler.removeCallbacks(periodicRefreshRunnable)
-        OsmTileEngine.onTileReadyListener = null
         MushroomTrackingService.metricsListener = null
         MushroomTrackingService.serviceStateListener = null
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        OsmTileEngine.onTileReadyListener = null
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
