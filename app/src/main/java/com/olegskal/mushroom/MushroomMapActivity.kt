@@ -1,5 +1,8 @@
 package com.olegskal.mushroom
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Dialog
@@ -51,7 +54,6 @@ class MushroomMapActivity : Activity() {
 
     private var currentMetrics: ProcessedLocationMetrics? = null
     private var isFollowLocation: Boolean = true
-    private var isHeadingUp: Boolean = false
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private val periodicRefreshRunnable = object : Runnable {
@@ -75,7 +77,6 @@ class MushroomMapActivity : Activity() {
         AppUpdateManager.checkAndDownloadUpdate(this)
 
         isFollowLocation = AppPrefs.getFollowUser(this)
-        isHeadingUp = AppPrefs.isHeadingUp(this)
 
         val rootLayout = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#121212"))
@@ -171,21 +172,10 @@ class MushroomMapActivity : Activity() {
 
         compassButton = CompassButton(this).apply {
             layoutParams = ctrlParams
-            setBearing(if (isHeadingUp) -(currentMetrics?.compassHeading ?: 0f) else 0f, isHeadingUp)
+            setBearing(-mapView.mapBearing)
             setOnClickListener {
-                if (isHeadingUp) {
-                    isHeadingUp = false
-                    AppPrefs.setHeadingUp(this@MushroomMapActivity, false)
-                    setBearing(0f, false)
-                    Toast.makeText(this@MushroomMapActivity, "Карту вирівняно на Північ", Toast.LENGTH_SHORT).show()
-                } else {
-                    isHeadingUp = true
-                    AppPrefs.setHeadingUp(this@MushroomMapActivity, true)
-                    val az = currentMetrics?.compassHeading ?: 0f
-                    setBearing(-az, true)
-                    Toast.makeText(this@MushroomMapActivity, "Режим компаса увімкнено", Toast.LENGTH_SHORT).show()
-                }
-                mapView.invalidate()
+                mapView.alignToNorth()
+                Toast.makeText(this@MushroomMapActivity, "Карту вирівняно на Північ", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -562,16 +552,13 @@ class MushroomMapActivity : Activity() {
         }
 
         if (::compassButton.isInitialized) {
-            compassButton.setBearing(if (isHeadingUp) -(currentMetrics?.compassHeading ?: 0f) else 0f, isHeadingUp)
+            compassButton.setBearing(-mapView.mapBearing)
         }
 
         MushroomTrackingService.metricsListener = { metrics ->
             runOnUiThread {
                 currentMetrics = metrics
                 mapView.updateLocationMetrics(metrics)
-                if (::compassButton.isInitialized) {
-                    compassButton.setBearing(if (isHeadingUp) -metrics.compassHeading else 0f, isHeadingUp)
-                }
                 updateLiveStats()
             }
         }
@@ -653,43 +640,107 @@ class MushroomMapActivity : Activity() {
             strokeWidth = 1f
         }
 
+        var mapBearing: Float = 0f
+
         // Gesture handling
         private var lastTouchX = 0f
         private var lastTouchY = 0f
         private var isDragging = false
-        private val scaleDetector: ScaleGestureDetector
+        private var isMultiTouch = false
+
+        private var prevDist = 0f
+        private var prevAngle = 0f
+        private var prevFocusX = 0f
+        private var prevFocusY = 0f
+        private var zoomAccumulator = 0f
 
         init {
-            scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                override fun onScale(detector: ScaleGestureDetector): Boolean {
-                    val factor = detector.scaleFactor
-                    if (factor > 1.25f && zoomLevel < 18) {
-                        zoomLevel++
-                        invalidate()
-                        return true
-                    } else if (factor < 0.8f && zoomLevel > 5) {
-                        zoomLevel--
-                        invalidate()
-                        return true
-                    }
-                    return false
+            zoomLevel = AppPrefs.getMapZoom(context)
+        }
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            val count = event.pointerCount
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastTouchX = event.x
+                    lastTouchY = event.y
+                    isDragging = false
+                    isMultiTouch = false
                 }
-            })
 
-            setOnTouchListener { _, event ->
-                scaleDetector.onTouchEvent(event)
-                if (scaleDetector.isInProgress) return@setOnTouchListener true
-
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        lastTouchX = event.x
-                        lastTouchY = event.y
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (count >= 2) {
+                        isMultiTouch = true
                         isDragging = false
+                        val x0 = event.getX(0)
+                        val y0 = event.getY(0)
+                        val x1 = event.getX(1)
+                        val y1 = event.getY(1)
+                        prevFocusX = (x0 + x1) / 2f
+                        prevFocusY = (y0 + y1) / 2f
+                        prevDist = hypot((x1 - x0).toDouble(), (y1 - y0).toDouble()).toFloat().coerceAtLeast(20f)
+                        prevAngle = Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
+                        zoomAccumulator = 0f
                     }
-                    MotionEvent.ACTION_MOVE -> {
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    if (count >= 2 && isMultiTouch) {
+                        val x0 = event.getX(0)
+                        val y0 = event.getY(0)
+                        val x1 = event.getX(1)
+                        val y1 = event.getY(1)
+                        val focusX = (x0 + x1) / 2f
+                        val focusY = (y0 + y1) / 2f
+                        val dist = hypot((x1 - x0).toDouble(), (y1 - y0).toDouble()).toFloat().coerceAtLeast(20f)
+                        val angle = Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
+
+                        isFollowLocation = false
+
+                        // 1. Two-finger Pan
+                        val dFocusX = focusX - prevFocusX
+                        val dFocusY = focusY - prevFocusY
+                        if (abs(dFocusX) > 2f || abs(dFocusY) > 2f) {
+                            panMap(dFocusX, dFocusY)
+                            prevFocusX = focusX
+                            prevFocusY = focusY
+                        }
+
+                        // 2. Harmonious Rotation
+                        var deltaAngle = angle - prevAngle
+                        while (deltaAngle < -180f) deltaAngle += 360f
+                        while (deltaAngle > 180f) deltaAngle -= 360f
+
+                        if (abs(deltaAngle) > 0.4f) {
+                            mapBearing = (mapBearing + deltaAngle) % 360f
+                            if (mapBearing < 0f) mapBearing += 360f
+                            prevAngle = angle
+                            compassButton.setBearing(-mapBearing)
+                        }
+
+                        // 3. Harmonious Pinch Zoom
+                        val deltaDist = dist - prevDist
+                        zoomAccumulator += deltaDist
+                        prevDist = dist
+
+                        val zoomThreshold = 90f * resources.displayMetrics.density
+                        if (zoomAccumulator > zoomThreshold && zoomLevel < 18) {
+                            zoomLevel++
+                            zoomAccumulator = 0f
+                            AppPrefs.setMapZoom(context, zoomLevel)
+                        } else if (zoomAccumulator < -zoomThreshold && zoomLevel > 5) {
+                            zoomLevel--
+                            zoomAccumulator = 0f
+                            AppPrefs.setMapZoom(context, zoomLevel)
+                        }
+
+                        invalidate()
+                    } else if (count == 1 && !isMultiTouch) {
                         val dx = event.x - lastTouchX
                         val dy = event.y - lastTouchY
-                        if (abs(dx) > 5 || abs(dy) > 5) {
+                        if (abs(dx) > 4 || abs(dy) > 4) {
                             isDragging = true
                             isFollowLocation = false
                             panMap(dx, dy)
@@ -697,16 +748,54 @@ class MushroomMapActivity : Activity() {
                             lastTouchY = event.y
                         }
                     }
-                    MotionEvent.ACTION_UP -> {
-                        if (!isDragging) {
-                            // Tap on map
+                }
+
+                MotionEvent.ACTION_POINTER_UP -> {
+                    if (count <= 2) {
+                        isMultiTouch = false
+                        val remIdx = if (event.actionIndex == 0) 1 else 0
+                        if (remIdx < count) {
+                            lastTouchX = event.getX(remIdx)
+                            lastTouchY = event.getY(remIdx)
                         }
+                        zoomAccumulator = 0f
                     }
                 }
-                true
-            }
 
-            zoomLevel = AppPrefs.getMapZoom(context)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    isDragging = false
+                    isMultiTouch = false
+                    zoomAccumulator = 0f
+                }
+            }
+            return true
+        }
+
+        fun alignToNorth() {
+            if (mapBearing == 0f) return
+            var diff = 0f - mapBearing
+            while (diff < -180f) diff += 360f
+            while (diff > 180f) diff -= 360f
+            val start = mapBearing
+            val end = start + diff
+
+            val animator = ValueAnimator.ofFloat(start, end).apply {
+                duration = 260L
+                addUpdateListener { va ->
+                    val v = va.animatedValue as Float
+                    mapBearing = (v % 360f + 360f) % 360f
+                    compassButton.setBearing(-mapBearing)
+                    invalidate()
+                }
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        mapBearing = 0f
+                        compassButton.setBearing(0f)
+                        invalidate()
+                    }
+                })
+            }
+            animator.start()
         }
 
         fun reloadMarkers() {
@@ -769,17 +858,14 @@ class MushroomMapActivity : Activity() {
 
         private fun panMap(dxPx: Float, dyPx: Float) {
             val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, zoomLevel)
-            var rad = 0.0
-            if (isHeadingUp && compassHeading != 0f) {
-                rad = Math.toRadians(-compassHeading.toDouble())
-            }
+            val rad = Math.toRadians(mapBearing.toDouble())
             val cosR = cos(rad)
             val sinR = sin(rad)
             val rotatedDx = dxPx * cosR - dyPx * sinR
             val rotatedDy = dxPx * sinR + dyPx * cosR
 
-            val newWorldX = centerWorld.first - rotatedDx
-            val newWorldY = centerWorld.second - rotatedDy
+            val newWorldX = centerWorld.first + rotatedDx
+            val newWorldY = centerWorld.second + rotatedDy
             val newCoords = OsmTileEngine.worldPixelToLatLon(newWorldX, newWorldY, zoomLevel)
             mapCenterLat = newCoords.first
             mapCenterLon = newCoords.second
@@ -807,8 +893,8 @@ class MushroomMapActivity : Activity() {
             val cy = h / 2f
 
             canvas.save()
-            if (isHeadingUp && compassHeading != 0f) {
-                canvas.rotate(-compassHeading, cx, cy)
+            if (mapBearing != 0f) {
+                canvas.rotate(-mapBearing, cx, cy)
             }
 
             // 1. Draw OSM Map Tiles
@@ -830,10 +916,11 @@ class MushroomMapActivity : Activity() {
             val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, zoomLevel)
             val tileSize = OsmTileEngine.TILE_SIZE
 
-            val startPx = centerWorld.first - cx
-            val startPy = centerWorld.second - cy
-            val endPx = centerWorld.first + cx
-            val endPy = centerWorld.second + cy
+            val maxRadius = hypot(cx.toDouble(), cy.toDouble()).toFloat()
+            val startPx = centerWorld.first - maxRadius
+            val startPy = centerWorld.second - maxRadius
+            val endPx = centerWorld.first + maxRadius
+            val endPy = centerWorld.second + maxRadius
 
             val minTileX = floor(startPx / tileSize).toInt()
             val maxTileX = ceil(endPx / tileSize).toInt()
@@ -940,8 +1027,13 @@ class MushroomMapActivity : Activity() {
                 canvas.drawCircle(sx, sy, accPx, accuracyStrokePaint)
             }
 
-            // Direction arrow if moving
-            val bearingToDraw = if (loc.hasBearing() && loc.speed > 0.5f) loc.bearing else trajectoryBearing
+            val bearingToDraw = if (loc.hasBearing() && loc.speed > 0.5f) {
+                loc.bearing
+            } else if (compassHeading != 0f) {
+                compassHeading
+            } else {
+                trajectoryBearing
+            }
             if (bearingToDraw != 0f) {
                 canvas.save()
                 canvas.rotate(bearingToDraw, sx, sy)
