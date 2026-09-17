@@ -38,10 +38,17 @@ data class TileTask(
 object MapDownloadManager {
 
     private const val TAG = "MapDownloadManager"
-    private const val OSM_TILE_URL = "https://tile.openstreetmap.org"
+    private val CYCLOSM_SERVERS = arrayOf(
+        "https://a.tile-cyclosm.openstreetmap.fr/cyclosm",
+        "https://b.tile-cyclosm.openstreetmap.fr/cyclosm",
+        "https://c.tile-cyclosm.openstreetmap.fr/cyclosm"
+    )
     private const val USER_AGENT = "Mushroom/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
-    private const val REFERER = "https://tile.openstreetmap.org/"
+    private const val REFERER = "https://www.cyclosm.org/"
     private const val WORKER_COUNT = 3
+
+    const val DEFAULT_MIN_ZOOM = 10
+    const val DEFAULT_MAX_ZOOM = 14
 
     private val dispatcherExecutor = Executors.newSingleThreadExecutor()
     private val workerExecutor = Executors.newFixedThreadPool(WORKER_COUNT)
@@ -101,7 +108,7 @@ object MapDownloadManager {
         )
     )
 
-    fun calculateTileCount(regions: List<MapRegion>, minZoom: Int = 10, maxZoom: Int = 13): Int {
+    fun calculateTileCount(regions: List<MapRegion>, minZoom: Int = DEFAULT_MIN_ZOOM, maxZoom: Int = DEFAULT_MAX_ZOOM): Int {
         val seen = HashSet<Long>()
         for (region in regions) {
             for (z in minZoom..maxZoom) {
@@ -131,8 +138,8 @@ object MapDownloadManager {
 
     fun downloadRegions(
         regions: List<MapRegion>,
-        minZoom: Int = 10,
-        maxZoom: Int = 13,
+        minZoom: Int = DEFAULT_MIN_ZOOM,
+        maxZoom: Int = DEFAULT_MAX_ZOOM,
         onProgress: (current: Int, total: Int, currentRegion: String) -> Unit,
         onFinished: (successCount: Int, skippedCount: Int, failCount: Int) -> Unit
     ) {
@@ -237,7 +244,8 @@ object MapDownloadManager {
         var conn: HttpURLConnection? = null
         var inputStream: InputStream? = null
         return try {
-            val url = URL("$OSM_TILE_URL/$z/$x/$y.png")
+            val serverIdx = kotlin.math.abs(x * 31 + y) % CYCLOSM_SERVERS.size
+            val url = URL("${CYCLOSM_SERVERS[serverIdx]}/$z/$x/$y.png")
             conn = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 6000
                 readTimeout = 9000
@@ -273,7 +281,7 @@ object MapDownloadManager {
         }
     }
 
-    fun getRegionDownloadStatus(region: MapRegion, minZoom: Int = 10, maxZoom: Int = 13): Pair<Int, Int> {
+    fun getRegionDownloadStatus(region: MapRegion, minZoom: Int = DEFAULT_MIN_ZOOM, maxZoom: Int = DEFAULT_MAX_ZOOM): Pair<Int, Int> {
         var total = 0
         var existing = 0
         for (z in minZoom..maxZoom) {

@@ -101,7 +101,7 @@ object RegionDownloadDialog {
                         var totalAll = 0
                         var existingAll = 0
                         for (r in cached) {
-                            val (ex, tot) = MapDownloadManager.getRegionDownloadStatus(r, 10, 13)
+                            val (ex, tot) = MapDownloadManager.getRegionDownloadStatus(r)
                             existingAll += ex
                             totalAll += tot
                         }
@@ -255,7 +255,7 @@ object RegionDownloadDialog {
 
         fun updateInfo() {
             val count = selectedRegions.size
-            val tiles = MapDownloadManager.calculateTileCount(selectedRegions.toList(), 10, 13)
+            val tiles = MapDownloadManager.calculateTileCount(selectedRegions.toList())
             infoTv.text = "Вибрано: $count регіонів (~$tiles тайлів)"
         }
 
@@ -372,7 +372,7 @@ object RegionDownloadDialog {
         Thread {
             val map = HashMap<String, Pair<Int, Int>>()
             for (r in regions) {
-                map[r.id] = MapDownloadManager.getRegionDownloadStatus(r, 10, 13)
+                map[r.id] = MapDownloadManager.getRegionDownloadStatus(r)
             }
             activity.runOnUiThread {
                 regionStatuses.putAll(map)
@@ -417,7 +417,7 @@ object RegionDownloadDialog {
         val container = UiUtils.createDarkDialogContainer(activity)
 
         val titleTv = TextView(activity).apply {
-            text = "Завантаження OSM карт..."
+            text = "Завантаження карт CyclOSM..."
             setTextColor(Color.WHITE)
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
@@ -465,8 +465,6 @@ object RegionDownloadDialog {
 
         MapDownloadManager.downloadRegions(
             regions = regions,
-            minZoom = 10,
-            maxZoom = 13,
             onProgress = { current, total, curRegion ->
                 activity.runOnUiThread {
                     if (progressDialog.isShowing) {

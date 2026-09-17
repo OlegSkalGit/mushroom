@@ -36,7 +36,7 @@ object AppPrefs {
                 put(KEY_DEBUG_MODE, p.getBoolean(KEY_DEBUG_MODE, false))
                 put(KEY_LOGGING_ENABLED, p.getBoolean(KEY_LOGGING_ENABLED, false))
                 put(KEY_LAST_UPDATE_CHECK, p.getLong(KEY_LAST_UPDATE_CHECK, 0L))
-                put(KEY_MAP_ZOOM, p.getInt(KEY_MAP_ZOOM, 14))
+                put(KEY_MAP_ZOOM, p.getInt(KEY_MAP_ZOOM, 12))
                 put(KEY_MAP_LAT, p.getFloat(KEY_MAP_LAT, 0f).toDouble())
                 put(KEY_MAP_LON, p.getFloat(KEY_MAP_LON, 0f).toDouble())
                 put(KEY_FOLLOW_USER, p.getBoolean(KEY_FOLLOW_USER, true))
@@ -104,7 +104,7 @@ object AppPrefs {
     }
 
     // Map state
-    fun getMapZoom(context: Context): Int = getPrefs(context).getInt(KEY_MAP_ZOOM, 14)
+    fun getMapZoom(context: Context): Int = getPrefs(context).getInt(KEY_MAP_ZOOM, 12)
     fun setMapZoom(context: Context, zoom: Int) {
         getPrefs(context).edit().putInt(KEY_MAP_ZOOM, zoom).apply()
     }

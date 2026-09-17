@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.view.*
 import android.widget.*
@@ -39,6 +40,10 @@ class MushroomMapActivity : Activity() {
 
     companion object {
         private const val REQ_CODE_IMPORT_GPX = 1010
+        const val MIN_MAP_ZOOM = 10.0f
+        const val MAX_MAP_ZOOM = 16.0f
+        const val MIN_BASE_ZOOM = 10
+        const val MAX_BASE_ZOOM = 14
     }
 
     private lateinit var mapView: MushroomMapView
@@ -535,7 +540,7 @@ class MushroomMapActivity : Activity() {
 
         var mapCenterLat: Double = 50.4501
         var mapCenterLon: Double = 30.5234
-        var zoomLevel: Int = 14
+        var zoomLevel: Float = 12.0f
 
         var currentLocation: Location? = null
         private var compassHeading: Float = 0f
@@ -594,6 +599,21 @@ class MushroomMapActivity : Activity() {
             style = Paint.Style.STROKE
             strokeWidth = 1f
         }
+        private val anchorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#8000E5FF")
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        private val anchorCenterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#B300E5FF")
+            style = Paint.Style.FILL
+        }
+        private val anchorLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#6600E5FF")
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+            pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+        }
 
         var mapBearing: Float = 0f
 
@@ -607,25 +627,60 @@ class MushroomMapActivity : Activity() {
         private var prevAngle = 0f
         private var prevFocusX = 0f
         private var prevFocusY = 0f
-        private var zoomAccumulator = 0f
+
+        // Double-tap & drag gesture (one-finger pan, zoom & rotate with fixed anchor)
+        private var lastTapUpTime = 0L
+        private var lastTapUpX = 0f
+        private var lastTapUpY = 0f
+        private var downTime = 0L
+        private var downX = 0f
+        private var downY = 0f
+        private var isDoubleTapDrag = false
+        private var anchorX = 0f
+        private var anchorY = 0f
 
         init {
-            zoomLevel = AppPrefs.getMapZoom(context)
+            val savedZoom = AppPrefs.getMapZoom(context).toFloat()
+            zoomLevel = savedZoom.coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM)
         }
 
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouchEvent(event: MotionEvent): Boolean {
             val count = event.pointerCount
+            val density = resources.displayMetrics.density
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    lastTouchX = event.x
-                    lastTouchY = event.y
-                    isDragging = false
-                    isMultiTouch = false
+                    val now = SystemClock.uptimeMillis()
+                    val tapDist = hypot((event.x - lastTapUpX).toDouble(), (event.y - lastTapUpY).toDouble()).toFloat()
+
+                    if (now - lastTapUpTime < 350L && tapDist < 80f * density) {
+                        isDoubleTapDrag = true
+                        isDragging = false
+                        isMultiTouch = false
+                        anchorX = lastTapUpX
+                        anchorY = lastTapUpY
+                        lastTouchX = event.x
+                        lastTouchY = event.y
+                        prevDist = hypot((event.x - anchorX).toDouble(), (event.y - anchorY).toDouble()).toFloat()
+                        prevAngle = Math.toDegrees(atan2((event.y - anchorY).toDouble(), (event.x - anchorX).toDouble())).toFloat()
+                        lastTapUpTime = 0L
+                    } else {
+                        isDoubleTapDrag = false
+                        lastTouchX = event.x
+                        lastTouchY = event.y
+                        isDragging = false
+                        isMultiTouch = false
+                    }
+                    downTime = now
+                    downX = event.x
+                    downY = event.y
                 }
 
                 MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (isDoubleTapDrag) {
+                        isDoubleTapDrag = false
+                    }
                     if (count >= 2) {
                         isMultiTouch = true
                         isDragging = false
@@ -637,12 +692,54 @@ class MushroomMapActivity : Activity() {
                         prevFocusY = (y0 + y1) / 2f
                         prevDist = hypot((x1 - x0).toDouble(), (y1 - y0).toDouble()).toFloat().coerceAtLeast(20f)
                         prevAngle = Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
-                        zoomAccumulator = 0f
                     }
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    if (count >= 2 && isMultiTouch) {
+                    if (isDoubleTapDrag) {
+                        isFollowLocation = false
+                        val curX = event.x
+                        val curY = event.y
+                        val dx = curX - lastTouchX
+                        val dy = curY - lastTouchY
+
+                        // 1. Pan with moving touch
+                        if (abs(dx) > 1f || abs(dy) > 1f) {
+                            panMap(dx, dy)
+                            lastTouchX = curX
+                            lastTouchY = curY
+                        }
+
+                        // 2. Zoom and Rotate relative to anchor
+                        val curDist = hypot((curX - anchorX).toDouble(), (curY - anchorY).toDouble()).toFloat()
+                        val minGestureDist = 20f * density
+
+                        if (curDist >= minGestureDist) {
+                            if (prevDist >= minGestureDist) {
+                                // Smooth zoom
+                                val factor = curDist / prevDist
+                                val zoomDelta = (ln(factor.toDouble()) / ln(2.0)).toFloat()
+                                zoomLevel = (zoomLevel + zoomDelta).coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM)
+
+                                // Rotation
+                                val curAngle = Math.toDegrees(atan2((curY - anchorY).toDouble(), (curX - anchorX).toDouble())).toFloat()
+                                var deltaAngle = curAngle - prevAngle
+                                while (deltaAngle < -180f) deltaAngle += 360f
+                                while (deltaAngle > 180f) deltaAngle -= 360f
+
+                                if (abs(deltaAngle) > 0.3f) {
+                                    mapBearing = (mapBearing - deltaAngle) % 360f
+                                    if (mapBearing < 0f) mapBearing += 360f
+                                    prevAngle = curAngle
+                                    compassButton.setBearing(-mapBearing)
+                                }
+                            } else {
+                                prevAngle = Math.toDegrees(atan2((curY - anchorY).toDouble(), (curX - anchorX).toDouble())).toFloat()
+                            }
+                            prevDist = curDist
+                        }
+                        invalidate()
+                    } else if (count >= 2 && isMultiTouch) {
                         val x0 = event.getX(0)
                         val y0 = event.getY(0)
                         val x1 = event.getX(1)
@@ -657,45 +754,37 @@ class MushroomMapActivity : Activity() {
                         // 1. Two-finger Pan
                         val dFocusX = focusX - prevFocusX
                         val dFocusY = focusY - prevFocusY
-                        if (abs(dFocusX) > 2f || abs(dFocusY) > 2f) {
+                        if (abs(dFocusX) > 1f || abs(dFocusY) > 1f) {
                             panMap(dFocusX, dFocusY)
                             prevFocusX = focusX
                             prevFocusY = focusY
                         }
 
-                        // 2. Harmonious Rotation
+                        // 2. Rotation
                         var deltaAngle = angle - prevAngle
                         while (deltaAngle < -180f) deltaAngle += 360f
                         while (deltaAngle > 180f) deltaAngle -= 360f
 
-                        if (abs(deltaAngle) > 0.4f) {
+                        if (abs(deltaAngle) > 0.3f) {
                             mapBearing = (mapBearing - deltaAngle) % 360f
                             if (mapBearing < 0f) mapBearing += 360f
                             prevAngle = angle
                             compassButton.setBearing(-mapBearing)
                         }
 
-                        // 3. Harmonious Pinch Zoom
-                        val deltaDist = dist - prevDist
-                        zoomAccumulator += deltaDist
-                        prevDist = dist
-
-                        val zoomThreshold = 90f * resources.displayMetrics.density
-                        if (zoomAccumulator > zoomThreshold && zoomLevel < 18) {
-                            zoomLevel++
-                            zoomAccumulator = 0f
-                            AppPrefs.setMapZoom(context, zoomLevel)
-                        } else if (zoomAccumulator < -zoomThreshold && zoomLevel > 5) {
-                            zoomLevel--
-                            zoomAccumulator = 0f
-                            AppPrefs.setMapZoom(context, zoomLevel)
+                        // 3. Smooth Continuous Pinch Zoom
+                        if (prevDist > 20f && dist > 20f) {
+                            val factor = dist / prevDist
+                            val zoomDelta = (ln(factor.toDouble()) / ln(2.0)).toFloat()
+                            zoomLevel = (zoomLevel + zoomDelta).coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM)
+                            prevDist = dist
                         }
 
                         invalidate()
-                    } else if (count == 1 && !isMultiTouch) {
+                    } else if (count == 1 && !isMultiTouch && !isDoubleTapDrag) {
                         val dx = event.x - lastTouchX
                         val dy = event.y - lastTouchY
-                        if (abs(dx) > 4 || abs(dy) > 4) {
+                        if (abs(dx) > 3f || abs(dy) > 3f) {
                             isDragging = true
                             isFollowLocation = false
                             panMap(dx, dy)
@@ -713,14 +802,37 @@ class MushroomMapActivity : Activity() {
                             lastTouchX = event.getX(remIdx)
                             lastTouchY = event.getY(remIdx)
                         }
-                        zoomAccumulator = 0f
+                        AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
                     }
                 }
 
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                MotionEvent.ACTION_UP -> {
+                    if (isDoubleTapDrag) {
+                        isDoubleTapDrag = false
+                        lastTapUpTime = 0L
+                        AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
+                        invalidate()
+                    } else {
+                        isDragging = false
+                        isMultiTouch = false
+                        val now = SystemClock.uptimeMillis()
+                        val tapDist = hypot((event.x - downX).toDouble(), (event.y - downY).toDouble()).toFloat()
+                        if (now - downTime < 300L && tapDist < 30f * density) {
+                            lastTapUpTime = now
+                            lastTapUpX = event.x
+                            lastTapUpY = event.y
+                        } else {
+                            lastTapUpTime = 0L
+                        }
+                        AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
+                    }
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
                     isDragging = false
                     isMultiTouch = false
-                    zoomAccumulator = 0f
+                    isDoubleTapDrag = false
+                    lastTapUpTime = 0L
                 }
             }
             return true
@@ -778,17 +890,17 @@ class MushroomMapActivity : Activity() {
         }
 
         fun zoomIn() {
-            if (zoomLevel < 18) {
-                zoomLevel++
-                AppPrefs.setMapZoom(context, zoomLevel)
+            if (zoomLevel < MAX_MAP_ZOOM) {
+                zoomLevel = (zoomLevel + 1.0f).coerceAtMost(MAX_MAP_ZOOM)
+                AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
                 invalidate()
             }
         }
 
         fun zoomOut() {
-            if (zoomLevel > 5) {
-                zoomLevel--
-                AppPrefs.setMapZoom(context, zoomLevel)
+            if (zoomLevel > MIN_MAP_ZOOM) {
+                zoomLevel = (zoomLevel - 1.0f).coerceAtLeast(MIN_MAP_ZOOM)
+                AppPrefs.setMapZoom(context, zoomLevel.roundToInt())
                 invalidate()
             }
         }
@@ -807,21 +919,24 @@ class MushroomMapActivity : Activity() {
             }
             mapCenterLat = (minLat + maxLat) / 2.0
             mapCenterLon = (minLon + maxLon) / 2.0
-            zoomLevel = 14
+            zoomLevel = 13.0f
+            AppPrefs.setMapZoom(context, 13)
             invalidate()
         }
 
         private fun panMap(dxPx: Float, dyPx: Float) {
-            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, zoomLevel)
+            val baseZoom = zoomLevel.toInt().coerceIn(MIN_BASE_ZOOM, MAX_BASE_ZOOM)
+            val scale = 2.0f.pow(zoomLevel - baseZoom)
+            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
             val rad = Math.toRadians(mapBearing.toDouble())
             val cosR = cos(rad)
             val sinR = sin(rad)
-            val rotatedDx = dxPx * cosR - dyPx * sinR
-            val rotatedDy = dxPx * sinR + dyPx * cosR
+            val rotatedDx = (dxPx * cosR - dyPx * sinR) / scale
+            val rotatedDy = (dxPx * sinR + dyPx * cosR) / scale
 
             val newWorldX = centerWorld.first - rotatedDx
             val newWorldY = centerWorld.second - rotatedDy
-            val newCoords = OsmTileEngine.worldPixelToLatLon(newWorldX, newWorldY, zoomLevel)
+            val newCoords = OsmTileEngine.worldPixelToLatLon(newWorldX, newWorldY, baseZoom)
             mapCenterLat = newCoords.first
             mapCenterLon = newCoords.second
             invalidate()
@@ -854,31 +969,44 @@ class MushroomMapActivity : Activity() {
             val cx = w / 2f
             val cy = h / 2f
 
+            val baseZoom = zoomLevel.toInt().coerceIn(MIN_BASE_ZOOM, MAX_BASE_ZOOM)
+            val scale = 2.0f.pow(zoomLevel - baseZoom)
+
             canvas.save()
             if (mapBearing != 0f) {
                 canvas.rotate(-mapBearing, cx, cy)
             }
+            if (scale != 1.0f) {
+                canvas.scale(scale, scale, cx, cy)
+            }
 
             // 1. Draw OSM Map Tiles
-            drawOsmTiles(canvas, cx, cy)
+            drawOsmTiles(canvas, cx, cy, baseZoom, scale)
 
             // 2. Draw Recorded Tracks
-            drawTracks(canvas, cx, cy)
+            drawTracks(canvas, cx, cy, baseZoom, scale)
 
             // 3. Draw Markers
-            drawMarkers(canvas, cx, cy)
+            drawMarkers(canvas, cx, cy, baseZoom, scale)
 
             // 4. Draw Current Position
-            drawUserLocation(canvas, cx, cy)
+            drawUserLocation(canvas, cx, cy, baseZoom, scale)
 
             canvas.restore()
+
+            // 5. Draw Double-tap & Drag Visual Pivot Lever
+            if (isDoubleTapDrag) {
+                canvas.drawLine(anchorX, anchorY, lastTouchX, lastTouchY, anchorLinePaint)
+                canvas.drawCircle(anchorX, anchorY, 18f, anchorPaint)
+                canvas.drawCircle(anchorX, anchorY, 5f, anchorCenterPaint)
+            }
         }
 
-        private fun drawOsmTiles(canvas: Canvas, cx: Float, cy: Float) {
-            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, zoomLevel)
+        private fun drawOsmTiles(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float) {
+            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
             val tileSize = OsmTileEngine.TILE_SIZE
 
-            val maxRadius = hypot(cx.toDouble(), cy.toDouble()).toFloat()
+            val maxRadius = (hypot(cx.toDouble(), cy.toDouble()) / scale).toFloat() + tileSize
             val startPx = centerWorld.first - maxRadius
             val startPy = centerWorld.second - maxRadius
             val endPx = centerWorld.first + maxRadius
@@ -889,7 +1017,7 @@ class MushroomMapActivity : Activity() {
             val minTileY = floor(startPy / tileSize).toInt()
             val maxTileY = ceil(endPy / tileSize).toInt()
 
-            val maxCoord = 1 shl zoomLevel
+            val maxCoord = 1 shl baseZoom
 
             for (tx in minTileX..maxTileX) {
                 val clampedTx = (tx % maxCoord + maxCoord) % maxCoord
@@ -899,7 +1027,7 @@ class MushroomMapActivity : Activity() {
                     val screenLeft = (tx * tileSize - centerWorld.first + cx).toFloat()
                     val screenTop = (ty * tileSize - centerWorld.second + cy).toFloat()
 
-                    val bmp = OsmTileEngine.getTile(zoomLevel, clampedTx, ty)
+                    val bmp = OsmTileEngine.getTile(baseZoom, clampedTx, ty)
                     if (bmp != null) {
                         canvas.drawBitmap(bmp, screenLeft, screenTop, null)
                     } else {
@@ -909,8 +1037,10 @@ class MushroomMapActivity : Activity() {
             }
         }
 
-        private fun drawTracks(canvas: Canvas, cx: Float, cy: Float) {
-            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, zoomLevel)
+        private fun drawTracks(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float) {
+            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
+            trackPaint.strokeWidth = 8f / scale
+            liveTrackPaint.strokeWidth = 9f / scale
 
             for (track in tracksList) {
                 if (!track.isVisible || track.points.size < 2) continue
@@ -919,7 +1049,7 @@ class MushroomMapActivity : Activity() {
                 var prevX = -1f
                 var prevY = -1f
                 for (p in track.points) {
-                    val wp = OsmTileEngine.latLonToWorldPixel(p.lat, p.lon, zoomLevel)
+                    val wp = OsmTileEngine.latLonToWorldPixel(p.lat, p.lon, baseZoom)
                     val sx = (wp.first - centerWorld.first + cx).toFloat()
                     val sy = (wp.second - centerWorld.second + cy).toFloat()
 
@@ -939,7 +1069,7 @@ class MushroomMapActivity : Activity() {
                     var prevX = -1f
                     var prevY = -1f
                     for (p in active.points) {
-                        val wp = OsmTileEngine.latLonToWorldPixel(p.lat, p.lon, zoomLevel)
+                        val wp = OsmTileEngine.latLonToWorldPixel(p.lat, p.lon, baseZoom)
                         val sx = (wp.first - centerWorld.first + cx).toFloat()
                         val sy = (wp.second - centerWorld.second + cy).toFloat()
 
@@ -953,40 +1083,59 @@ class MushroomMapActivity : Activity() {
             }
         }
 
-        private fun drawMarkers(canvas: Canvas, cx: Float, cy: Float) {
-            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, zoomLevel)
+        private fun drawMarkers(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float) {
+            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
+            val invScale = 1f / scale
 
             for (m in markersList) {
                 if (!m.isVisible) continue
-                val wp = OsmTileEngine.latLonToWorldPixel(m.lat, m.lon, zoomLevel)
+                val wp = OsmTileEngine.latLonToWorldPixel(m.lat, m.lon, baseZoom)
                 val sx = (wp.first - centerWorld.first + cx).toFloat()
                 val sy = (wp.second - centerWorld.second + cy).toFloat()
 
+                canvas.save()
+                canvas.translate(sx, sy)
+                if (invScale != 1f) {
+                    canvas.scale(invScale, invScale)
+                }
+                if (mapBearing != 0f) {
+                    canvas.rotate(mapBearing)
+                }
+
                 markerPinPaint.color = m.color
                 // Pin head circle
-                canvas.drawCircle(sx, sy - 18f, 14f, markerPinPaint)
-                canvas.drawCircle(sx, sy - 18f, 14f, userRingPaint)
+                canvas.drawCircle(0f, -18f, 14f, markerPinPaint)
+                canvas.drawCircle(0f, -18f, 14f, userRingPaint)
                 // Pin stem
-                canvas.drawLine(sx, sy - 4f, sx, sy, userRingPaint)
+                canvas.drawLine(0f, -4f, 0f, 0f, userRingPaint)
 
                 // Label
-                canvas.drawText(m.name, sx + 20f, sy - 8f, markerTextPaint)
+                canvas.drawText(m.name, 20f, -8f, markerTextPaint)
+
+                canvas.restore()
             }
         }
 
-        private fun drawUserLocation(canvas: Canvas, cx: Float, cy: Float) {
+        private fun drawUserLocation(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float) {
             val loc = currentLocation ?: return
-            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, zoomLevel)
-            val wp = OsmTileEngine.latLonToWorldPixel(loc.latitude, loc.longitude, zoomLevel)
+            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
+            val wp = OsmTileEngine.latLonToWorldPixel(loc.latitude, loc.longitude, baseZoom)
             val sx = (wp.first - centerWorld.first + cx).toFloat()
             val sy = (wp.second - centerWorld.second + cy).toFloat()
 
-            // Accuracy circle
+            // Accuracy circle (scales with geographic terrain)
             if (loc.hasAccuracy()) {
-                val metersPerPx = (156543.03392 * cos(Math.toRadians(loc.latitude))) / (1 shl zoomLevel)
+                val metersPerPx = (156543.03392 * cos(Math.toRadians(loc.latitude))) / (1 shl baseZoom)
                 val accPx = (loc.accuracy / metersPerPx).toFloat()
                 canvas.drawCircle(sx, sy, accPx, accuracyPaint)
                 canvas.drawCircle(sx, sy, accPx, accuracyStrokePaint)
+            }
+
+            canvas.save()
+            canvas.translate(sx, sy)
+            val invScale = 1f / scale
+            if (invScale != 1f) {
+                canvas.scale(invScale, invScale)
             }
 
             val bearingToDraw = if (loc.hasBearing() && loc.speed > 0.5f) {
@@ -998,12 +1147,12 @@ class MushroomMapActivity : Activity() {
             }
             if (bearingToDraw != 0f) {
                 canvas.save()
-                canvas.rotate(bearingToDraw, sx, sy)
+                canvas.rotate(bearingToDraw, 0f, 0f)
                 val arrowPath = Path().apply {
-                    moveTo(sx, sy - 34f)
-                    lineTo(sx + 14f, sy + 6f)
-                    lineTo(sx, sy - 2f)
-                    lineTo(sx - 14f, sy + 6f)
+                    moveTo(0f, -34f)
+                    lineTo(14f, 6f)
+                    lineTo(0f, -2f)
+                    lineTo(-14f, 6f)
                     close()
                 }
                 canvas.drawPath(arrowPath, headingArrowPaint)
@@ -1011,8 +1160,10 @@ class MushroomMapActivity : Activity() {
             }
 
             // Center blue user dot
-            canvas.drawCircle(sx, sy, 14f, userCenterPaint)
-            canvas.drawCircle(sx, sy, 14f, userRingPaint)
+            canvas.drawCircle(0f, 0f, 14f, userCenterPaint)
+            canvas.drawCircle(0f, 0f, 14f, userRingPaint)
+
+            canvas.restore()
         }
     }
 }
