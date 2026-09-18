@@ -1,7 +1,9 @@
 # ProGuard / R8 optimization rules for Mushroom Offline Navigator
 -keepclasseswithmembers class * extends android.database.sqlite.SQLiteOpenHelper {
      public <init>(...);
- }
+}
 
-# Microsoft ONNX Runtime
--keep class ai.onnxruntime.** { *; }
+# Keep JavascriptInterface for headless WebView bridge
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}

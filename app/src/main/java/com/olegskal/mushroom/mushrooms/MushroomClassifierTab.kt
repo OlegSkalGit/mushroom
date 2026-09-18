@@ -296,14 +296,11 @@ class MushroomClassifierTab(
         btnAnalyze.isEnabled = false
         resultsContainer.removeAllViews()
 
-        Thread {
-            val predictions = classifier.classify(bitmap, topK = 5)
-            mainHandler.post {
-                btnAnalyze.isEnabled = true
-                tvStatus.visibility = View.GONE
-                renderPredictions(predictions)
-            }
-        }.start()
+        classifier.classify(bitmap, topK = 5) { predictions ->
+            btnAnalyze.isEnabled = true
+            tvStatus.visibility = View.GONE
+            renderPredictions(predictions)
+        }
     }
 
     private fun renderPredictions(predictions: List<MushroomPrediction>) {

@@ -22,9 +22,6 @@ android {
         versionCode = getFormattedVersionCode()
         versionName = getFormattedVersionName()
         resourceConfigurations += setOf("en")
-        ndk {
-            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
-        }
     }
 
     signingConfigs {
@@ -59,7 +56,6 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
 }
 
 tasks.matching {
