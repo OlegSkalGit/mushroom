@@ -2,6 +2,9 @@ package com.olegskal.mushroom.mushrooms
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -9,7 +12,9 @@ import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
@@ -18,7 +23,8 @@ import com.olegskal.mushroom.ui.UiUtils
 class MushroomClassifierTab(
     private val activity: Activity,
     private var currentLang: String = "uk",
-    private val onOpenEncyclopediaDetails: (String) -> Unit
+    private val onOpenEncyclopediaDetails: (String) -> Unit,
+    private val onSearchInEncyclopedia: (String) -> Unit
 ) {
 
     companion object {
@@ -324,12 +330,46 @@ class MushroomClassifierTab(
             setTextColor(Color.WHITE)
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 8)
+            setPadding(0, 0, 0, 4)
         }
         resultsContainer.addView(headerTv)
 
+        val hintTv = TextView(activity).apply {
+            text = if (currentLang == "uk") "💡 Тап — опис. Подвійний тап — копіювати та шукати в енциклопедії." else "💡 Tap for details. Double tap to copy & search in encyclopedia."
+            setTextColor(Color.parseColor("#9CA3AF"))
+            textSize = 11.5f
+            setPadding(0, 0, 0, 10)
+        }
+        resultsContainer.addView(hintTv)
+
         predictions.forEachIndexed { index, item ->
             val isTop = index == 0
+
+            fun copyNameToClipboard() {
+                val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Mushroom Name", item.scientificName)
+                clipboard.setPrimaryClip(clip)
+            }
+
+            val gestureDetector = GestureDetector(activity, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    copyNameToClipboard()
+                    val msg = if (currentLang == "uk") "Скопійовано: ${item.scientificName}" else "Copied: ${item.scientificName}"
+                    Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+                    onOpenEncyclopediaDetails(item.scientificName)
+                    return true
+                }
+
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    copyNameToClipboard()
+                    val msg = if (currentLang == "uk") "Скопійовано: ${item.scientificName} → Енциклопедія" else "Copied: ${item.scientificName} → Encyclopedia"
+                    Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+                    onSearchInEncyclopedia(item.scientificName)
+                    return true
+                }
+
+                override fun onDown(e: MotionEvent): Boolean = true
+            })
 
             val card = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -338,6 +378,12 @@ class MushroomClassifierTab(
                 setPadding(pad, pad, pad, pad)
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     setMargins(0, 4, 0, 10)
+                }
+                isClickable = true
+                isFocusable = true
+                setOnTouchListener { _, event ->
+                    gestureDetector.onTouchEvent(event)
+                    true
                 }
             }
 
@@ -408,13 +454,16 @@ class MushroomClassifierTab(
             bottomRow.addView(spacer)
 
             val btnOpenCard = Button(activity).apply {
-                text = if (currentLang == "uk") "👉 В Енциклопедію" else "👉 In Encyclopedia"
+                text = if (currentLang == "uk") "🔍 Пошук ›" else "🔍 Search ›"
                 setTextColor(Color.parseColor("#10B981"))
                 setBackgroundColor(Color.TRANSPARENT)
                 textSize = 12f
                 setTypeface(null, Typeface.BOLD)
                 setOnClickListener {
-                    onOpenEncyclopediaDetails(item.scientificName)
+                    copyNameToClipboard()
+                    val msg = if (currentLang == "uk") "Скопійовано: ${item.scientificName} → Енциклопедія" else "Copied: ${item.scientificName} → Encyclopedia"
+                    Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+                    onSearchInEncyclopedia(item.scientificName)
                 }
             }
             bottomRow.addView(btnOpenCard)

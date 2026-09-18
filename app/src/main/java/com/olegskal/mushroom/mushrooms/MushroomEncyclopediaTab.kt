@@ -38,6 +38,7 @@ class MushroomEncyclopediaTab(
     private var currentPage = 1
     private var isLoading = false
     private var hasMore = true
+    private var searchGeneration = 0
     private val allLoadedTaxa = mutableListOf<MushroomTaxon>()
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -162,23 +163,32 @@ class MushroomEncyclopediaTab(
             val child = scrollView.getChildAt(0)
             if (child != null) {
                 val diff = child.bottom - (scrollView.height + scrollView.scrollY)
-                if (diff <= 600 && !isLoading && hasMore) {
+                if (diff <= 800 && !isLoading && hasMore) {
                     loadNextPage()
                 }
             }
         }
 
-        // 5. Search text watcher (debounce 400ms)
+        // 5. Search text watcher (debounce 350ms)
         searchEditText.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 searchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+                val query = s?.toString()?.trim() ?: ""
                 val runnable = Runnable {
-                    currentQuery = s?.toString()?.trim() ?: ""
-                    resetAndReload()
+                    if (query != currentQuery) {
+                        currentQuery = query
+                        if (currentQuery.isNotEmpty()) {
+                            if (currentFilter != "all") {
+                                currentFilter = "all"
+                                filterSpinner.setSelection(0, false)
+                            }
+                        }
+                        resetAndReload()
+                    }
                 }
                 searchDebounceRunnable = runnable
-                mainHandler.postDelayed(runnable, 400)
+                mainHandler.postDelayed(runnable, 350)
             }
             override fun afterTextChanged(s: Editable?) {}
         })
@@ -262,39 +272,50 @@ class MushroomEncyclopediaTab(
         applyFilter()
     }
 
+    fun setSearchQuery(query: String) {
+        val clean = query.trim()
+        searchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+        currentQuery = clean
+        currentFilter = "all"
+        filterSpinner.setSelection(0, false)
+        searchEditText.setText(clean)
+        searchEditText.setSelection(clean.length)
+        resetAndReload()
+    }
+
     private fun resetAndReload() {
+        searchGeneration++
         currentPage = 1
         allLoadedTaxa.clear()
         itemsContainer.removeAllViews()
         hasMore = true
+        isLoading = false
         loadNextPage()
     }
 
     private fun loadNextPage() {
         if (isLoading || !hasMore) return
         isLoading = true
+        val requestGen = searchGeneration
         statusTextView.visibility = View.VISIBLE
         statusTextView.text = if (currentLang == "uk") "Завантаження з iNaturalist..." else "Loading from iNaturalist..."
 
         val callback: (List<MushroomTaxon>, Boolean) -> Unit = { taxa, moreAvailable ->
-            isLoading = false
-            statusTextView.visibility = View.GONE
-            hasMore = moreAvailable
+            if (requestGen == searchGeneration) {
+                isLoading = false
+                statusTextView.visibility = View.GONE
+                hasMore = moreAvailable
 
-            if (taxa.isNotEmpty()) {
-                for (t in taxa) {
-                    if (!allLoadedTaxa.any { it.scientificName.equals(t.scientificName, ignoreCase = true) }) {
-                        allLoadedTaxa.add(t)
+                if (taxa.isNotEmpty()) {
+                    for (t in taxa) {
+                        if (!allLoadedTaxa.any { it.scientificName.equals(t.scientificName, ignoreCase = true) }) {
+                            allLoadedTaxa.add(t)
+                        }
                     }
+                    currentPage++
                 }
-                currentPage++
-            }
 
-            applyFilter()
-
-            // If filtered list is still small and more pages exist, automatically fetch next page to fill screen
-            if (itemsContainer.childCount < 8 && hasMore && !isLoading) {
-                mainHandler.postDelayed({ loadNextPage() }, 200)
+                applyFilter()
             }
         }
 
@@ -341,6 +362,10 @@ class MushroomEncyclopediaTab(
             for (taxon in matching) {
                 renderCard(taxon)
             }
+        }
+
+        if (matching.size < 12 && hasMore && !isLoading) {
+            mainHandler.postDelayed({ loadNextPage() }, 150)
         }
     }
 

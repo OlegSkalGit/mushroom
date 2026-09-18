@@ -132,21 +132,29 @@ class MushroomActivity : Activity() {
         }
 
         encyclopediaTab = MushroomEncyclopediaTab(this, currentLang)
-        classifierTab = MushroomClassifierTab(this, currentLang) { scientificName ->
-            MushroomApiClient.getTaxonDetails(0, scientificName, currentLang) { taxon ->
-                if (taxon != null) {
-                    MushroomDetailDialog.show(this@MushroomActivity, taxon, currentLang)
-                } else {
-                    val fallback = MushroomTaxon(
-                        id = 0,
-                        scientificName = scientificName,
-                        commonName = scientificName,
-                        defaultPhotoUrl = null
-                    )
-                    MushroomDetailDialog.show(this@MushroomActivity, fallback, currentLang)
+        classifierTab = MushroomClassifierTab(
+            activity = this,
+            currentLang = currentLang,
+            onOpenEncyclopediaDetails = { scientificName ->
+                MushroomApiClient.getTaxonDetails(0, scientificName, currentLang) { taxon ->
+                    if (taxon != null) {
+                        MushroomDetailDialog.show(this@MushroomActivity, taxon, currentLang)
+                    } else {
+                        val fallback = MushroomTaxon(
+                            id = 0,
+                            scientificName = scientificName,
+                            commonName = scientificName,
+                            defaultPhotoUrl = null
+                        )
+                        MushroomDetailDialog.show(this@MushroomActivity, fallback, currentLang)
+                    }
                 }
+            },
+            onSearchInEncyclopedia = { query ->
+                encyclopediaTab.setSearchQuery(query)
+                switchTab(0)
             }
-        }
+        )
 
         contentFrame.addView(encyclopediaTab.view)
         contentFrame.addView(classifierTab.view)

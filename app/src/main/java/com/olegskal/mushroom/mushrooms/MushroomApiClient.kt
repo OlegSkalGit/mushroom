@@ -22,9 +22,16 @@ data class MushroomTaxon(
     val defaultPhotoUrl: String?,
     val photoUrls: List<String> = emptyList(),
     val wikipediaSummary: String? = null,
+    val wikipediaUrl: String? = null,
     val edibility: String = "unknown",
     val hymenium: String = "gills",
-    val observationsCount: Int = 0
+    val observationsCount: Int = 0,
+    val rank: String = "species",
+    val family: String? = null,
+    val order: String? = null,
+    val genus: String? = null,
+    val englishCommonName: String? = null,
+    val conservationStatus: String? = null
 )
 
 object MushroomApiClient {
@@ -73,10 +80,11 @@ object MushroomApiClient {
     ) {
         executor.execute {
             val urlString = if (isUkraine) {
-                // Fungi/Agaricomycetes in Ukraine (place_id=8860, taxon_id=47170)
-                "https://api.inaturalist.org/v1/taxa?taxon_id=47170&place_id=8860&rank=species&is_active=true&order_by=observations_count&order=desc&has[]=photos&locale=$lang&per_page=$perPage&page=$page"
+                // Agaricomycetes in Ukraine (place_id=8860, taxon_id=50814)
+                "https://api.inaturalist.org/v1/observations/species_counts?taxon_id=50814&place_id=8860&locale=$lang&per_page=$perPage&page=$page"
             } else {
-                "https://api.inaturalist.org/v1/taxa?taxon_id=47170&rank=species&is_active=true&order_by=observations_count&order=desc&has[]=photos&locale=$lang&per_page=$perPage&page=$page"
+                // Worldwide popular Agaricomycetes (rank=species, taxon_id=50814)
+                "https://api.inaturalist.org/v1/taxa?taxon_id=50814&rank=species&is_active=true&order_by=observations_count&order=desc&has[]=photos&locale=$lang&per_page=$perPage&page=$page"
             }
             executeTaxaRequest(urlString, lang, onResult)
         }
@@ -109,7 +117,34 @@ object MushroomApiClient {
                     val resArr = root.optJSONArray("results")
                     if (resArr != null && resArr.length() > 0) {
                         val obj = resArr.getJSONObject(0)
-                        val taxon = parseTaxonObject(obj, lang)
+                        var taxon = parseTaxonObject(obj, lang)
+
+                        // If Wikipedia summary is missing in current language, fallback to English
+                        if (taxon.wikipediaSummary.isNullOrBlank()) {
+                            // 1. Try iNaturalist locale=en
+                            try {
+                                val enUrl = "https://api.inaturalist.org/v1/taxa/$resolvedTaxonId?locale=en"
+                                val enJson = fetchUrlString(enUrl)
+                                val enObj = JSONObject(enJson).optJSONArray("results")?.optJSONObject(0)
+                                val enSummary = enObj?.optString("wikipedia_summary", "")?.takeIf { it.isNotBlank() }
+                                if (enSummary != null) {
+                                    taxon = taxon.copy(wikipediaSummary = cleanHtml(enSummary))
+                                }
+                            } catch (ignored: Exception) {}
+
+                            // 2. If still blank, try Wikipedia REST API directly for English summary
+                            if (taxon.wikipediaSummary.isNullOrBlank()) {
+                                try {
+                                    val wikiRestUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/${URLEncoder.encode(taxon.scientificName, "UTF-8")}"
+                                    val wikiJson = fetchUrlString(wikiRestUrl)
+                                    val extract = JSONObject(wikiJson).optString("extract", "").takeIf { it.isNotBlank() }
+                                    if (extract != null) {
+                                        taxon = taxon.copy(wikipediaSummary = extract)
+                                    }
+                                } catch (ignored: Exception) {}
+                            }
+                        }
+
                         mainHandler.post { onResult(taxon) }
                         return@execute
                     }
@@ -129,7 +164,7 @@ object MushroomApiClient {
             val totalResults = root.optInt("total_results", 0)
             val perPage = root.optInt("per_page", 24)
             val page = root.optInt("page", 1)
-            val hasMore = (page * perPage) < totalResults
+            val hasMore = resultsArr.length() >= perPage && ((page * perPage) < totalResults || totalResults == 0)
 
             val list = mutableListOf<MushroomTaxon>()
             for (i in 0 until resultsArr.length()) {
@@ -156,10 +191,10 @@ object MushroomApiClient {
         val id = obj.optInt("id", 0)
         val scientificName = obj.optString("name", "Unknown species")
         val preferredCommon = obj.optString("preferred_common_name", "")
-        val englishCommon = obj.optString("english_common_name", "")
+        val englishCommon = obj.optString("english_common_name", "").takeIf { it.isNotBlank() }
         val common = when {
             preferredCommon.isNotEmpty() -> preferredCommon
-            englishCommon.isNotEmpty() -> englishCommon
+            !englishCommon.isNullOrEmpty() -> englishCommon
             else -> scientificName
         }
 
@@ -199,7 +234,37 @@ object MushroomApiClient {
         }
 
         val wikiSummary = obj.optString("wikipedia_summary", "").takeIf { it.isNotBlank() }
+        val wikiUrl = obj.optString("wikipedia_url", "").takeIf { it.isNotBlank() }
         val observationsCount = obj.optInt("observations_count", 0)
+        val rank = obj.optString("rank", "species")
+
+        // Parse taxonomic hierarchy from ancestors
+        var family: String? = null
+        var order: String? = null
+        var genus: String? = null
+        val ancestors = obj.optJSONArray("ancestors")
+        if (ancestors != null) {
+            for (i in 0 until ancestors.length()) {
+                val anc = ancestors.getJSONObject(i)
+                when (anc.optString("rank")) {
+                    "family" -> family = anc.optString("name")
+                    "order" -> order = anc.optString("name")
+                    "genus" -> genus = anc.optString("name")
+                }
+            }
+        }
+
+        // Parse conservation status
+        val conservationStatuses = obj.optJSONArray("conservation_statuses")
+        var conservationStatus: String? = null
+        if (conservationStatuses != null && conservationStatuses.length() > 0) {
+            val cs = conservationStatuses.getJSONObject(0)
+            val st = cs.optString("status")
+            val auth = cs.optString("authority")
+            if (st.isNotEmpty()) {
+                conservationStatus = if (auth.isNotEmpty()) "$st ($auth)" else st
+            }
+        }
 
         val meta = MycoKnowledge.resolveMetadata(scientificName)
 
@@ -210,9 +275,16 @@ object MushroomApiClient {
             defaultPhotoUrl = defaultPhotoUrl,
             photoUrls = photoUrls,
             wikipediaSummary = cleanHtml(wikiSummary),
+            wikipediaUrl = wikiUrl,
             edibility = meta.edibility,
             hymenium = meta.hymenium,
-            observationsCount = observationsCount
+            observationsCount = observationsCount,
+            rank = rank,
+            family = family,
+            order = order,
+            genus = genus,
+            englishCommonName = englishCommon,
+            conservationStatus = conservationStatus
         )
     }
 

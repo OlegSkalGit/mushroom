@@ -435,25 +435,30 @@ class MushroomClassifier(private val context: Context) {
                 .take(topK)
                 .map { idx ->
                     val raw = labels.getOrElse(idx) { "Unknown" }
+                    val isDeadly = raw.contains("(deadly)", ignoreCase = true)
                     val isPoisonous = raw.contains("(poisonous)", ignoreCase = true)
+                    val isCondEdible = raw.contains("(conditionally_edible)", ignoreCase = true)
+                    val isEdible = raw.contains("(edible)", ignoreCase = true)
+
                     val clean = raw
-                        .replace("(poisonous)", "")
-                        .replace("(edible)", "")
-                        .replace("(Mushrooms)", "")
-                        .trim()
+                        .replace(Regex("""\s*\([^)]*\)\s*"""), " ")
                         .replace("_", " ")
+                        .trim()
 
                     val meta = MycoKnowledge.resolveMetadata(clean)
-                    val edibility = if (isPoisonous) {
-                        if (meta.edibility == "deadly") "deadly" else "toxic"
-                    } else {
-                        meta.edibility
+                    val edibility = when {
+                        isDeadly -> "deadly"
+                        meta.edibility == "deadly" -> "deadly"
+                        isPoisonous -> if (meta.edibility == "deadly") "deadly" else "toxic"
+                        isCondEdible -> "cond-edible"
+                        isEdible -> if (meta.edibility != "unknown") meta.edibility else "edible"
+                        else -> meta.edibility
                     }
 
                     MushroomPrediction(
                         species = clean,
                         scientificName = clean,
-                        isPoisonous = isPoisonous,
+                        isPoisonous = isPoisonous || isDeadly,
                         confidence = probabilities[idx],
                         edibility = edibility,
                         rawLabel = raw

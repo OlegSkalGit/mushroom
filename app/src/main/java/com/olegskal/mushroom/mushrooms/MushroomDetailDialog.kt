@@ -301,11 +301,86 @@ object MushroomDetailDialog {
             content.addView(propsContainer)
         }
 
-        // 5. Wikipedia Summary
+        // 5. Scientific & Taxonomy Data (iNaturalist API)
+        val hasTaxonInfo = taxon.observationsCount > 0 || !taxon.family.isNullOrBlank() || !taxon.order.isNullOrBlank() || !taxon.englishCommonName.isNullOrBlank() || !taxon.conservationStatus.isNullOrBlank()
+        if (hasTaxonInfo) {
+            val taxContainer = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(Color.parseColor("#1B2A22"))
+                setPadding(16, 12, 16, 12)
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, 0, 0, 14)
+                }
+            }
+
+            val tvTaxTitle = TextView(activity).apply {
+                text = if (currentLang == "uk") "🔬 Наукова класифікація та спостереження:" else "🔬 Taxonomy & Scientific Data:"
+                setTextColor(Color.parseColor("#10B981"))
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setPadding(0, 0, 0, 6)
+            }
+            taxContainer.addView(tvTaxTitle)
+
+            fun addTaxRow(label: String, value: String) {
+                if (value.isBlank()) return
+                val row = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, 3, 0, 3)
+                }
+                val tvLabel = TextView(activity).apply {
+                    text = label
+                    setTextColor(Color.parseColor("#9CA3AF"))
+                    textSize = 12f
+                    setTypeface(null, Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams((110 * activity.resources.displayMetrics.density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+                }
+                val tvVal = TextView(activity).apply {
+                    text = value
+                    setTextColor(Color.WHITE)
+                    textSize = 12f
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                row.addView(tvLabel)
+                row.addView(tvVal)
+                taxContainer.addView(row)
+            }
+
+            val isUk = currentLang == "uk"
+            if (!taxon.englishCommonName.isNullOrBlank() && !taxon.englishCommonName.equals(taxon.commonName, ignoreCase = true)) {
+                addTaxRow(if (isUk) "Англ. назва:" else "English Name:", taxon.englishCommonName)
+            }
+            if (!taxon.family.isNullOrBlank()) {
+                addTaxRow(if (isUk) "Родина:" else "Family:", taxon.family)
+            }
+            if (!taxon.order.isNullOrBlank()) {
+                addTaxRow(if (isUk) "Порядок:" else "Order:", taxon.order)
+            }
+            if (!taxon.genus.isNullOrBlank()) {
+                addTaxRow(if (isUk) "Рід:" else "Genus:", taxon.genus)
+            }
+            if (taxon.observationsCount > 0) {
+                val formatted = "%,d".format(taxon.observationsCount).replace(',', ' ')
+                addTaxRow(if (isUk) "Спостережень:" else "Observations:", "$formatted у світі 👁️")
+            }
+            if (!taxon.conservationStatus.isNullOrBlank()) {
+                addTaxRow(if (isUk) "Охорона:" else "Conservation:", taxon.conservationStatus)
+            }
+
+            content.addView(taxContainer)
+        }
+
+        // 6. Wikipedia Summary (with Ukrainian / English language indicator)
         val summary = taxon.wikipediaSummary
         if (!summary.isNullOrBlank()) {
+            val hasCyrillic = summary.any { it in '\u0400'..'\u04FF' }
             val tvDescTitle = TextView(activity).apply {
-                text = if (currentLang == "uk") "📖 Опис:" else "📖 Overview:"
+                val title = if (currentLang == "uk") {
+                    if (hasCyrillic) "📖 Опис (Вікіпедія):" else "📖 Опис (English Wikipedia):"
+                } else {
+                    "📖 Overview (Wikipedia):"
+                }
+                text = title
                 setTextColor(Color.parseColor("#10B981"))
                 textSize = 14f
                 setTypeface(null, Typeface.BOLD)
@@ -322,13 +397,17 @@ object MushroomDetailDialog {
             content.addView(tvDesc)
         }
 
-        // 6. External Links Row
+        // 7. External Links Row
         val linksRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 6, 0, 12)
         }
         val btnInat = UiUtils.createStyledButton(activity, if (currentLang == "uk") "🌐 iNaturalist" else "🌐 iNaturalist") {
-            val url = "https://www.inaturalist.org/taxa/${taxon.id}"
+            val url = if (taxon.id > 0) {
+                "https://www.inaturalist.org/taxa/${taxon.id}"
+            } else {
+                "https://www.inaturalist.org/taxa?q=${Uri.encode(taxon.scientificName)}"
+            }
             try {
                 activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             } catch (ignored: Exception) {}
@@ -337,7 +416,8 @@ object MushroomDetailDialog {
             setMargins(0, 0, 8, 0)
         }
         val btnWiki = UiUtils.createStyledButton(activity, if (currentLang == "uk") "📖 Вікіпедія" else "📖 Wikipedia") {
-            val url = "https://${currentLang}.wikipedia.org/wiki/${Uri.encode(taxon.scientificName)}"
+            val url = taxon.wikipediaUrl?.takeIf { it.isNotBlank() }
+                ?: "https://${currentLang}.wikipedia.org/wiki/${Uri.encode(taxon.scientificName)}"
             try {
                 activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             } catch (ignored: Exception) {}
