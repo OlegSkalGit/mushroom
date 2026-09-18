@@ -59,13 +59,13 @@ class MushroomClassifier(private val context: Context) {
             ),
             ModelDownloadItem(
                 fileName = "ort.min.js",
-                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/runtime/ort.min.js",
+                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/ort.min.js",
                 fallbackUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js",
                 minSize = 100 * 1024L
             ),
             ModelDownloadItem(
                 fileName = "ort-wasm-simd.wasm",
-                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/runtime/ort-wasm-simd.wasm",
+                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/ort-wasm-simd.wasm",
                 fallbackUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-simd.wasm",
                 minSize = 2 * 1024 * 1024L
             )
