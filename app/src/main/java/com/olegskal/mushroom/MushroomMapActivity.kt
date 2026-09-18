@@ -209,8 +209,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             layoutParams = ctrlParams
             setBearing(-mapView.mapBearing)
             setOnClickListener {
-                mapView.alignToNorth()
-                Toast.makeText(this@MushroomMapActivity, "Карту вирівняно на Північ", Toast.LENGTH_SHORT).show()
+                if (mapView.alignToNorth()) {
+                    Toast.makeText(this@MushroomMapActivity, "Карту вирівняно на Північ", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
@@ -692,8 +693,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         if (now - lastCompassUiTime >= 33L) {
             lastCompassUiTime = now
             mapView.setCompassHeading(currentFilteredAzimuth)
-            val compassBearing = -(currentFilteredAzimuth - mapView.mapBearing)
-            compassButton.setBearing(compassBearing)
         }
     }
 
@@ -1144,15 +1143,25 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             return true
         }
 
-        fun alignToNorth() {
-            if (mapBearing == 0f) return
-            var diff = 0f - mapBearing
+        private var alignAnimator: ValueAnimator? = null
+
+        fun alignToNorth(): Boolean {
+            val normBearing = (mapBearing % 360f + 360f) % 360f
+            if (normBearing < 0.1f || normBearing > 359.9f) {
+                mapBearing = 0f
+                compassButton.setBearing(0f)
+                saveMapState()
+                invalidate()
+                return false
+            }
+            var diff = 0f - normBearing
             while (diff < -180f) diff += 360f
             while (diff > 180f) diff -= 360f
-            val start = mapBearing
+            val start = normBearing
             val end = start + diff
 
-            val animator = ValueAnimator.ofFloat(start, end).apply {
+            alignAnimator?.cancel()
+            alignAnimator = ValueAnimator.ofFloat(start, end).apply {
                 duration = 260L
                 addUpdateListener { va ->
                     val v = va.animatedValue as Float
@@ -1168,8 +1177,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         saveMapState()
                     }
                 })
+                start()
             }
-            animator.start()
+            return true
         }
 
         fun reloadMarkers() {

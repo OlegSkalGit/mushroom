@@ -89,7 +89,7 @@ class CompassButton(context: Context) : View(context) {
         isFocusable = true
     }
 
-    fun setBearing(angle: Float, active: Boolean = (angle % 360f != 0f)) {
+    fun setBearing(angle: Float, active: Boolean = (kotlin.math.abs(angle % 360f) > 0.5f)) {
         if (bearing != angle || isCompassActive != active) {
             bearing = angle
             isCompassActive = active
