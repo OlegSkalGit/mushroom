@@ -627,17 +627,12 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
     }
 
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        moveTaskToBack(true)
+    }
+
     override fun onDestroy() {
-        if (isFinishing) {
-            val s = MushroomTrackingService.instance
-            if (s?.isRecording == true) {
-                s.stopTrackRecording()
-            }
-            val stopIntent = Intent(this, MushroomTrackingService::class.java).apply {
-                action = MushroomTrackingService.ACTION_STOP_SERVICE
-            }
-            startService(stopIntent)
-        }
         super.onDestroy()
     }
 

@@ -397,7 +397,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
 
     private fun buildNotification(text: String): Notification {
         val launchIntent = Intent(this, MushroomMapActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             this, 0, launchIntent,
