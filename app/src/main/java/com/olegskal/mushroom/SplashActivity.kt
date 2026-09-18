@@ -88,7 +88,7 @@ class SplashActivity : Activity() {
             if (hasLocation) {
                 onBasicPermissionsGranted()
             } else {
-                Toast.makeText(applicationContext, "Для роботи навігатора потрібен доступ до GPS.", Toast.LENGTH_LONG).show()
+                Toast.makeText(applicationContext, "GPS location access is required for navigator to work.", Toast.LENGTH_LONG).show()
                 finish()
             }
         }
@@ -117,14 +117,14 @@ class SplashActivity : Activity() {
 
     private fun showExplanationDialog(needsBgLoc: Boolean, needsBattery: Boolean, needsAllFiles: Boolean) {
         AlertDialog.Builder(this)
-            .setTitle("Налаштування Mushroom")
+            .setTitle("Mushroom Settings")
             .setMessage(
-                "Для надійної роботи в лісі програмі потрібні:\n" +
-                        (if (needsBgLoc) "• Доступ до геолокації у фоні (\"Дозволяти завжди\") для запису треку з вимкненим екраном.\n" else "") +
-                        (if (needsBattery) "• Вимкнення оптимізації заряду для безперервного GPS.\n" else "") +
-                        (if (needsAllFiles) "• Доступ до сховища для зберігання карт, міток та налаштувань у папці /sdcard/mushroom (дані не видаляються при перевстановленні)." else "")
+                "For reliable operation in the woods, the app needs:\n" +
+                        (if (needsBgLoc) "• Background location access (\"Allow all the time\") to record tracks with the screen off.\n" else "") +
+                        (if (needsBattery) "• Disabling battery optimization for continuous GPS tracking.\n" else "") +
+                        (if (needsAllFiles) "• Storage access to save offline maps, markers, and settings in /sdcard/mushroom (data persists after reinstall)." else "")
             )
-            .setPositiveButton("Налаштувати") { _, _ ->
+            .setPositiveButton("Configure") { _, _ ->
                 awaitingSettings = true
                 if (needsAllFiles && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     try {
@@ -152,7 +152,7 @@ class SplashActivity : Activity() {
                     } catch (_: Exception) {}
                 }
             }
-            .setNegativeButton("Продовжити") { _, _ ->
+            .setNegativeButton("Continue") { _, _ ->
                 startMushroomServiceAndFinish()
             }
             .setCancelable(false)

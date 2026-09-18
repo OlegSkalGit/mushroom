@@ -124,15 +124,15 @@ object GeoDataExchange {
     fun shareMarker(activity: Activity, marker: MushroomMarker) {
         try {
             val text = "${marker.name} (${marker.type})\n" +
-                    "Координати: ${String.format(Locale.US, "%.5f, %.5f", marker.lat, marker.lon)}\n" +
+                    "Coordinates: ${String.format(Locale.US, "%.5f, %.5f", marker.lat, marker.lon)}\n" +
                     "https://maps.google.com/?q=${marker.lat},${marker.lon}"
 
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "Грибна мітка: ${marker.name}")
+                putExtra(Intent.EXTRA_SUBJECT, "Mushroom marker: ${marker.name}")
                 putExtra(Intent.EXTRA_TEXT, text)
             }
-            activity.startActivity(Intent.createChooser(intent, "Поділитися міткою"))
+            activity.startActivity(Intent.createChooser(intent, "Share Marker"))
             AppLogger.log("GeoDataExchange", "shareMarker", true, "Shared marker: ${marker.name}")
         } catch (e: Exception) {
             AppLogger.log("GeoDataExchange", "shareMarker", false, "Failed to share marker: ${e.message}")
@@ -155,11 +155,11 @@ object GeoDataExchange {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "application/gpx+xml"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "GPX трек: ${track.title}")
-                putExtra(Intent.EXTRA_TEXT, "Трек \"${track.title}\" (довжина: ${String.format(Locale.US, "%.2f", track.distanceMeters / 1000f)} км)")
+                putExtra(Intent.EXTRA_SUBJECT, "GPX Track: ${track.title}")
+                putExtra(Intent.EXTRA_TEXT, "Track \"${track.title}\" (length: ${String.format(Locale.US, "%.2f", track.distanceMeters / 1000f)} km)")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            activity.startActivity(Intent.createChooser(intent, "Поділитися треком GPX"))
+            activity.startActivity(Intent.createChooser(intent, "Share GPX Track"))
             AppLogger.log("GeoDataExchange", "shareTrackGpx", true, "Shared track: ${track.id} (${gpxFile.name})")
         } catch (e: Exception) {
             AppLogger.log("GeoDataExchange", "shareTrackGpx", false, "Failed to share GPX track: ${e.message}")
@@ -170,7 +170,7 @@ object GeoDataExchange {
      * 100% native lightweight GPX XML parser.
      * Extracts track points, timestamps, elevation, and builds a MushroomTrack.
      */
-    fun parseGpx(inputStream: InputStream, defaultTitle: String = "Імпортований трек"): MushroomTrack? {
+    fun parseGpx(inputStream: InputStream, defaultTitle: String = "Imported Track"): MushroomTrack? {
         val points = ArrayList<TrackPoint>()
         var trackName = defaultTitle
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {

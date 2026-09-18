@@ -28,73 +28,73 @@ object OverpassSyncManager {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val BUILTIN_COUNTRIES: List<MapCountry> = listOf(
-        MapCountry("Україна", "UA"),
-        MapCountry("Польща", "PL"),
-        MapCountry("Німеччина", "DE"),
-        MapCountry("Чехія", "CZ"),
-        MapCountry("Словаччина", "SK"),
-        MapCountry("Румунія", "RO"),
-        MapCountry("Угорщина", "HU"),
-        MapCountry("Молдова", "MD"),
-        MapCountry("Австрія", "AT"),
-        MapCountry("Італія", "IT"),
-        MapCountry("Франція", "FR"),
-        MapCountry("Іспанія", "ES"),
-        MapCountry("Португалія", "PT"),
-        MapCountry("Швейцарія", "CH"),
-        MapCountry("Велика Британія", "GB"),
-        MapCountry("Литва", "LT"),
-        MapCountry("Латвія", "LV"),
-        MapCountry("Естонія", "EE"),
-        MapCountry("Фінляндія", "FI"),
-        MapCountry("Швеція", "SE"),
-        MapCountry("Норвегія", "NO"),
-        MapCountry("Греція", "GR"),
-        MapCountry("Болгарія", "BG"),
-        MapCountry("Хорватія", "HR"),
-        MapCountry("Словенія", "SI")
+        MapCountry("Ukraine", "UA"),
+        MapCountry("Poland", "PL"),
+        MapCountry("Germany", "DE"),
+        MapCountry("Czech Republic", "CZ"),
+        MapCountry("Slovakia", "SK"),
+        MapCountry("Romania", "RO"),
+        MapCountry("Hungary", "HU"),
+        MapCountry("Moldova", "MD"),
+        MapCountry("Austria", "AT"),
+        MapCountry("Italy", "IT"),
+        MapCountry("France", "FR"),
+        MapCountry("Spain", "ES"),
+        MapCountry("Portugal", "PT"),
+        MapCountry("Switzerland", "CH"),
+        MapCountry("United Kingdom", "GB"),
+        MapCountry("Lithuania", "LT"),
+        MapCountry("Latvia", "LV"),
+        MapCountry("Estonia", "EE"),
+        MapCountry("Finland", "FI"),
+        MapCountry("Sweden", "SE"),
+        MapCountry("Norway", "NO"),
+        MapCountry("Greece", "GR"),
+        MapCountry("Bulgaria", "BG"),
+        MapCountry("Croatia", "HR"),
+        MapCountry("Slovenia", "SI")
     )
 
     val BUILTIN_UA_REGIONS: List<MapRegion> = listOf(
-        MapRegion("ua_kyiv", "Київська область", 50.1, 51.5, 29.2, 32.1),
-        MapRegion("ua_zhytomyr", "Житомирська область", 50.0, 51.7, 27.2, 29.8),
-        MapRegion("ua_chernihiv", "Чернігівська область", 50.3, 52.4, 30.5, 33.5),
-        MapRegion("ua_lviv", "Львівська область", 48.8, 50.6, 22.7, 25.4),
-        MapRegion("ua_zakarpattia", "Закарпатська область", 47.9, 49.1, 22.1, 24.7),
-        MapRegion("ua_ivano_frankivsk", "Івано-Франківська область", 47.7, 49.3, 23.6, 25.6),
-        MapRegion("ua_volyn", "Волинська область", 50.3, 52.0, 23.6, 26.1),
-        MapRegion("ua_rivne", "Рівненська область", 50.1, 52.0, 25.1, 27.5),
-        MapRegion("ua_ternopil", "Тернопільська область", 48.5, 50.3, 24.7, 26.5),
-        MapRegion("ua_khmelnytskyi", "Хмельницька область", 48.4, 50.6, 26.1, 27.9),
-        MapRegion("ua_vinnytsia", "Вінницька область", 48.1, 49.9, 27.4, 30.1),
-        MapRegion("ua_cherkasy", "Черкаська область", 48.5, 50.3, 30.9, 32.9),
-        MapRegion("ua_poltava", "Полтавська область", 48.7, 50.5, 32.1, 35.5),
-        MapRegion("ua_sumy", "Сумська область", 50.0, 52.4, 33.1, 35.7),
-        MapRegion("ua_chernivtsi", "Чернівецька область", 47.7, 48.7, 24.9, 27.5),
-        MapRegion("ua_dnipro", "Дніпропетровська область", 47.5, 49.2, 33.4, 36.9),
-        MapRegion("ua_kharkiv", "Харківська область", 48.5, 50.5, 34.9, 38.0),
-        MapRegion("ua_kirovohrad", "Кіровоградська область", 47.7, 49.2, 29.7, 33.6),
-        MapRegion("ua_odesa", "Одеська область", 45.2, 48.2, 28.2, 31.3),
-        MapRegion("ua_mykolaiv", "Миколаївська область", 46.4, 48.2, 30.7, 33.2),
-        MapRegion("ua_kherson", "Херсонська область", 45.9, 47.6, 31.5, 35.0),
-        MapRegion("ua_zaporizhia", "Запорізька область", 46.3, 48.2, 34.4, 37.3),
-        MapRegion("ua_donetsk", "Донецька область", 46.8, 49.2, 36.6, 39.2),
-        MapRegion("ua_luhansk", "Луганська область", 47.8, 50.1, 37.8, 40.2),
-        MapRegion("ua_crimea", "АР Крим", 44.3, 46.2, 32.4, 36.7)
+        MapRegion("ua_kyiv", "Kyiv Oblast", 50.1, 51.5, 29.2, 32.1),
+        MapRegion("ua_zhytomyr", "Zhytomyr Oblast", 50.0, 51.7, 27.2, 29.8),
+        MapRegion("ua_chernihiv", "Chernihiv Oblast", 50.3, 52.4, 30.5, 33.5),
+        MapRegion("ua_lviv", "Lviv Oblast", 48.8, 50.6, 22.7, 25.4),
+        MapRegion("ua_zakarpattia", "Zakarpattia Oblast", 47.9, 49.1, 22.1, 24.7),
+        MapRegion("ua_ivano_frankivsk", "Ivano-Frankivsk Oblast", 47.7, 49.3, 23.6, 25.6),
+        MapRegion("ua_volyn", "Volyn Oblast", 50.3, 52.0, 23.6, 26.1),
+        MapRegion("ua_rivne", "Rivne Oblast", 50.1, 52.0, 25.1, 27.5),
+        MapRegion("ua_ternopil", "Ternopil Oblast", 48.5, 50.3, 24.7, 26.5),
+        MapRegion("ua_khmelnytskyi", "Khmelnytskyi Oblast", 48.4, 50.6, 26.1, 27.9),
+        MapRegion("ua_vinnytsia", "Vinnytsia Oblast", 48.1, 49.9, 27.4, 30.1),
+        MapRegion("ua_cherkasy", "Cherkasy Oblast", 48.5, 50.3, 30.9, 32.9),
+        MapRegion("ua_poltava", "Poltava Oblast", 48.7, 50.5, 32.1, 35.5),
+        MapRegion("ua_sumy", "Sumy Oblast", 50.0, 52.4, 33.1, 35.7),
+        MapRegion("ua_chernivtsi", "Chernivtsi Oblast", 47.7, 48.7, 24.9, 27.5),
+        MapRegion("ua_dnipro", "Dnipropetrovsk Oblast", 47.5, 49.2, 33.4, 36.9),
+        MapRegion("ua_kharkiv", "Kharkiv Oblast", 48.5, 50.5, 34.9, 38.0),
+        MapRegion("ua_kirovohrad", "Kirovohrad Oblast", 47.7, 49.2, 29.7, 33.6),
+        MapRegion("ua_odesa", "Odesa Oblast", 45.2, 48.2, 28.2, 31.3),
+        MapRegion("ua_mykolaiv", "Mykolaiv Oblast", 46.4, 48.2, 30.7, 33.2),
+        MapRegion("ua_kherson", "Kherson Oblast", 45.9, 47.6, 31.5, 35.0),
+        MapRegion("ua_zaporizhia", "Zaporizhzhia Oblast", 46.3, 48.2, 34.4, 37.3),
+        MapRegion("ua_donetsk", "Donetsk Oblast", 46.8, 49.2, 36.6, 39.2),
+        MapRegion("ua_luhansk", "Luhansk Oblast", 47.8, 50.1, 37.8, 40.2),
+        MapRegion("ua_crimea", "Autonomous Republic of Crimea", 44.3, 46.2, 32.4, 36.7)
     )
 
     val BUILTIN_PL_REGIONS: List<MapRegion> = listOf(
-        MapRegion("pl_maz", "Мазовецьке (Mazowieckie)", 51.0, 53.5, 19.2, 23.1),
-        MapRegion("pl_mlp", "Малопольське (Małopolskie)", 49.1, 50.5, 19.1, 21.4),
-        MapRegion("pl_pkr", "Підкарпатське (Podkarpackie)", 49.0, 50.8, 21.1, 23.5),
-        MapRegion("pl_sl", "Сілезьке (Śląskie)", 49.4, 51.1, 18.2, 19.9),
-        MapRegion("pl_lub", "Люблінське (Lubelskie)", 50.2, 52.3, 21.6, 24.2),
-        MapRegion("pl_pdl", "Підляське (Podlaskie)", 52.2, 54.4, 21.5, 23.9),
-        MapRegion("pl_dls", "Нижньосілезьке (Dolnośląskie)", 50.1, 51.8, 14.8, 17.8),
-        MapRegion("pl_wlp", "Великопольське (Wielkopolskie)", 51.4, 53.7, 15.8, 19.1),
-        MapRegion("pl_zpm", "Західнопоморське (Zachodniopomorskie)", 52.6, 54.6, 14.1, 16.9),
-        MapRegion("pl_pom", "Поморське (Pomorskie)", 53.5, 54.9, 16.7, 19.6),
-        MapRegion("pl_wrm", "Вармінсько-Мазурське (Warmińsko-Mazurskie)", 53.1, 54.5, 19.2, 22.8)
+        MapRegion("pl_maz", "Masovian (Mazowieckie)", 51.0, 53.5, 19.2, 23.1),
+        MapRegion("pl_mlp", "Lesser Poland (Małopolskie)", 49.1, 50.5, 19.1, 21.4),
+        MapRegion("pl_pkr", "Subcarpathian (Podkarpackie)", 49.0, 50.8, 21.1, 23.5),
+        MapRegion("pl_sl", "Silesian (Śląskie)", 49.4, 51.1, 18.2, 19.9),
+        MapRegion("pl_lub", "Lublin (Lubelskie)", 50.2, 52.3, 21.6, 24.2),
+        MapRegion("pl_pdl", "Podlaskie", 52.2, 54.4, 21.5, 23.9),
+        MapRegion("pl_dls", "Lower Silesian (Dolnośląskie)", 50.1, 51.8, 14.8, 17.8),
+        MapRegion("pl_wlp", "Greater Poland (Wielkopolskie)", 51.4, 53.7, 15.8, 19.1),
+        MapRegion("pl_zpm", "West Pomeranian (Zachodniopomorskie)", 52.6, 54.6, 14.1, 16.9),
+        MapRegion("pl_pom", "Pomeranian (Pomorskie)", 53.5, 54.9, 16.7, 19.6),
+        MapRegion("pl_wrm", "Warmian-Masurian (Warmińsko-Mazurskie)", 53.1, 54.5, 19.2, 22.8)
     )
 
     fun fetchCountries(
@@ -255,10 +255,10 @@ object OverpassSyncManager {
                 val code = tags.optString("ISO3166-1").ifEmpty { tags.optString("ISO3166-1:alpha2") }.uppercase().trim()
                 if (code.length != 2) continue
 
-                val nameUk = tags.optString("name:uk")
                 val nameEn = tags.optString("name:en")
                 val nameLocal = tags.optString("name")
-                val name = nameUk.ifEmpty { nameEn.ifEmpty { nameLocal } }
+                val nameUk = tags.optString("name:uk")
+                val name = nameEn.ifEmpty { nameLocal.ifEmpty { nameUk } }
                 if (name.isNotEmpty()) {
                     val clean = name.replace(Regex("""\s*\(.*?\)\s*"""), "").trim()
                     if (!result.containsKey(code) || clean.length < result[code]!!.length) {
@@ -286,17 +286,17 @@ object OverpassSyncManager {
                 val bounds = el.optJSONObject("bounds") ?: continue
                 val tags = el.optJSONObject("tags") ?: continue
 
-                val nameUk = tags.optString("name:uk")
                 val nameEn = tags.optString("name:en")
                 val nameLocal = tags.optString("name")
+                val nameUk = tags.optString("name:uk")
 
-                var displayName = nameUk.ifEmpty { nameLocal.ifEmpty { nameEn } }.trim()
+                var displayName = nameEn.ifEmpty { nameLocal.ifEmpty { nameUk } }.trim()
                 if (displayName.isEmpty()) continue
 
-                if (nameUk.isNotEmpty() && nameLocal.isNotEmpty() && nameLocal != nameUk) {
+                if (nameEn.isNotEmpty() && nameLocal.isNotEmpty() && nameLocal != nameEn) {
                     val cleanLocal = nameLocal.replace(Regex("""\s*\(.*?\)\s*"""), "").trim()
                     if (cleanLocal.isNotEmpty() && !displayName.contains(cleanLocal)) {
-                        displayName = "$nameUk ($cleanLocal)"
+                        displayName = "$nameEn ($cleanLocal)"
                     }
                 }
 

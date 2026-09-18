@@ -108,7 +108,7 @@ data class MushroomTrack(
             }
             return MushroomTrack(
                 id = json.optLong("id", System.currentTimeMillis()),
-                title = json.optString("title", "Трек"),
+                title = json.optString("title", "Track"),
                 startTime = json.optLong("startTime", System.currentTimeMillis()),
                 endTime = json.optLong("endTime", System.currentTimeMillis()),
                 distanceMeters = json.optDouble("distanceMeters", 0.0).toFloat(),

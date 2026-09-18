@@ -31,12 +31,12 @@ object RegionDownloadDialog {
         onDownloadStarted: () -> Unit
     ) {
         val dialog = Dialog(activity)
-        dialog.setTitle("Вибір країни")
+        dialog.setTitle("Select Country")
 
         val container = UiUtils.createDarkDialogContainer(activity)
 
         val titleTv = TextView(activity).apply {
-            text = "🗺️ Завантаження карт: Виберіть країну"
+            text = "🗺️ Download Maps: Select Country"
             setTextColor(Color.WHITE)
             textSize = 17f
             setTypeface(null, Typeface.BOLD)
@@ -45,7 +45,7 @@ object RegionDownloadDialog {
         container.addView(titleTv)
 
         val searchInput = EditText(activity).apply {
-            hint = "🔍 Пошук країни..."
+            hint = "🔍 Search country..."
             setHintTextColor(Color.GRAY)
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#2A2A2A"))
@@ -74,7 +74,7 @@ object RegionDownloadDialog {
             listContainer.removeAllViews()
             if (list.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = if (fullCountryList.isEmpty()) "⏳ Отримання списку країн з OpenStreetMap..." else "Країн не знайдено"
+                    text = if (fullCountryList.isEmpty()) "⏳ Fetching country list from OpenStreetMap..." else "No countries found"
                     setTextColor(Color.LTGRAY)
                     textSize = 14f
                     setPadding(16, 24, 16, 24)
@@ -110,11 +110,11 @@ object RegionDownloadDialog {
                             totalAll += tot
                         }
                         if (totalAll > 0 && existingAll >= totalAll) {
-                            countryStatuses[c.code] = "  [✓ Завантажено повністю]"
+                            countryStatuses[c.code] = "  [✓ Fully downloaded]"
                             changed = true
                         } else if (existingAll > 0) {
                             val pct = (existingAll * 100) / totalAll
-                            countryStatuses[c.code] = "  [⏳ Не повністю ($pct%)]"
+                            countryStatuses[c.code] = "  [⏳ Incomplete ($pct%)]"
                             changed = true
                         }
                     }
@@ -165,7 +165,7 @@ object RegionDownloadDialog {
         scrollView.addView(listContainer)
         container.addView(scrollView)
 
-        val btnClose = UiUtils.createStyledButton(activity, "Закрити") {
+        val btnClose = UiUtils.createStyledButton(activity, "Close") {
             dialog.dismiss()
         }
         container.addView(UiUtils.createDialogDivider(activity))
@@ -190,7 +190,7 @@ object RegionDownloadDialog {
         val loadingDialog = Dialog(activity).apply { setCancelable(false) }
         val loadContainer = UiUtils.createDarkDialogContainer(activity)
         val loadTv = TextView(activity).apply {
-            text = "⏳ Отримання областей ${country.name} з OSM..."
+            text = "⏳ Fetching regions of ${country.name} from OSM..."
             setTextColor(Color.WHITE)
             textSize = 15f
             setPadding(0, 16, 0, 16)
@@ -207,7 +207,7 @@ object RegionDownloadDialog {
                 if (regions.isNotEmpty()) {
                     showRegionSelection(activity, country, regions, onDownloadStarted)
                 } else {
-                    Toast.makeText(activity, "Не вдалося отримати області для ${country.name}. Перевірте інтернет.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(activity, "Failed to fetch regions for ${country.name}. Check your internet connection.", Toast.LENGTH_LONG).show()
                     show(activity, onDownloadStarted)
                 }
             }
@@ -221,12 +221,12 @@ object RegionDownloadDialog {
         onDownloadStarted: () -> Unit
     ) {
         val dialog = Dialog(activity)
-        dialog.setTitle("Регіони: ${country.name}")
+        dialog.setTitle("Regions: ${country.name}")
 
         val container = UiUtils.createDarkDialogContainer(activity)
 
         val titleTv = TextView(activity).apply {
-            text = "🗺️ ${country.name}: виберіть області"
+            text = "🗺️ ${country.name}: select regions"
             setTextColor(Color.WHITE)
             textSize = 17f
             setTypeface(null, Typeface.BOLD)
@@ -236,7 +236,7 @@ object RegionDownloadDialog {
 
         val selectedRegions = HashSet<MapRegion>()
         val infoTv = TextView(activity).apply {
-            text = "Вибрано: 0 регіонів (0 тайлів)"
+            text = "Selected: 0 regions (0 tiles)"
             setTextColor(Color.parseColor("#4CAF50"))
             textSize = 13f
             setPadding(0, 0, 0, 8)
@@ -244,7 +244,7 @@ object RegionDownloadDialog {
         container.addView(infoTv)
 
         val searchInput = EditText(activity).apply {
-            hint = "🔍 Пошук області..."
+            hint = "🔍 Search region..."
             setHintTextColor(Color.GRAY)
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#2A2A2A"))
@@ -260,11 +260,11 @@ object RegionDownloadDialog {
         fun updateInfo() {
             val count = selectedRegions.size
             val tiles = MapDownloadManager.calculateTileCount(selectedRegions.toList())
-            infoTv.text = "Вибрано: $count регіонів (~$tiles тайлів)"
+            infoTv.text = "Selected: $count regions (~$tiles tiles)"
         }
 
         val btnSelectAll = Button(activity).apply {
-            text = "Вибрати всі / Зняти всі"
+            text = "Select All / Deselect All"
             setTextColor(Color.parseColor("#00E5FF"))
             setBackgroundColor(Color.parseColor("#2A2A2A"))
             textSize = 13f
@@ -288,7 +288,7 @@ object RegionDownloadDialog {
             listContainer.removeAllViews()
             if (list.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = "Областей не знайдено"
+                    text = "No regions found"
                     setTextColor(Color.LTGRAY)
                     textSize = 14f
                     setPadding(16, 24, 16, 24)
@@ -330,14 +330,14 @@ object RegionDownloadDialog {
                     } else {
                         val (existing, total) = stat
                         if (total > 0 && existing >= total) {
-                            text = "✓ Завантажено повністю"
+                            text = "✓ Fully downloaded"
                             setTextColor(Color.parseColor("#4CAF50"))
                         } else if (existing > 0) {
                             val pct = (existing * 100) / total
-                            text = "⏳ Не повністю ($pct%)"
+                            text = "⏳ Incomplete ($pct%)"
                             setTextColor(Color.parseColor("#FFB300"))
                         } else {
-                            text = "Не завантажено"
+                            text = "Not downloaded"
                             setTextColor(Color.GRAY)
                         }
                     }
@@ -387,16 +387,16 @@ object RegionDownloadDialog {
         scrollView.addView(listContainer)
         container.addView(scrollView)
 
-        val btnDownload = UiUtils.createStyledButton(activity, "Завантажити вибрані регіони") {
+        val btnDownload = UiUtils.createStyledButton(activity, "Download Selected Regions") {
             if (selectedRegions.isEmpty()) {
-                Toast.makeText(activity, "Виберіть хоча б одну область!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, "Please select at least one region!", Toast.LENGTH_SHORT).show()
                 return@createStyledButton
             }
             dialog.dismiss()
             startDownloadWithProgress(activity, selectedRegions.toList(), onDownloadStarted)
         }
 
-        val btnBack = UiUtils.createStyledButton(activity, "Назад до країн") {
+        val btnBack = UiUtils.createStyledButton(activity, "Back to Countries") {
             dialog.dismiss()
             show(activity, onDownloadStarted)
         }
@@ -422,7 +422,7 @@ object RegionDownloadDialog {
                 activity.runOnUiThread {
                     Toast.makeText(
                         activity,
-                        "Завантаження завершено: $success нових, $skipped в кеші, $failed помилок",
+                        "Download finished: $success new, $skipped in cache, $failed failed",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -439,7 +439,7 @@ object RegionDownloadDialog {
         val container = UiUtils.createDarkDialogContainer(activity)
 
         val titleTv = TextView(activity).apply {
-            text = "Завантаження карт CyclOSM..."
+            text = "Downloading CyclOSM maps..."
             setTextColor(Color.WHITE)
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
@@ -448,7 +448,7 @@ object RegionDownloadDialog {
 
         val statusTv = TextView(activity).apply {
             val info = MapDownloadManager.lastProgressInfo
-            text = if (info != null) "Масштаб: z${info.currentZoom} | Регіон: ${info.currentRegion}" else "Підготовка списку тайлів..."
+            text = if (info != null) "Zoom: z${info.currentZoom} | Region: ${info.currentRegion}" else "Preparing tile list..."
             setTextColor(Color.LTGRAY)
             textSize = 13f
             setPadding(0, 0, 0, 8)
@@ -472,15 +472,15 @@ object RegionDownloadDialog {
             setPadding(0, 8, 0, 16)
         }
 
-        val btnBackground = UiUtils.createStyledButton(activity, "Сховати у фон") {
+        val btnBackground = UiUtils.createStyledButton(activity, "Hide to background") {
             progressDialog.dismiss()
-            Toast.makeText(activity, "Завантаження триває у фоні. Можна користуватися картою.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, "Download continues in background. You can use the map.", Toast.LENGTH_SHORT).show()
         }
 
-        val btnCancel = UiUtils.createStyledButton(activity, "Зупинити") {
+        val btnCancel = UiUtils.createStyledButton(activity, "Stop") {
             MapDownloadManager.cancelDownload()
             progressDialog.dismiss()
-            Toast.makeText(activity, "Завантаження зупинено", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, "Download stopped", Toast.LENGTH_SHORT).show()
         }
 
         container.addView(titleTv)
@@ -499,7 +499,7 @@ object RegionDownloadDialog {
                     val pct = if (info.total > 0) (info.current * 100) / info.total else 0
                     progressBar.progress = pct
                     percentTv.text = "$pct% (${info.current} / ${info.total})"
-                    statusTv.text = "Масштаб: z${info.currentZoom} | Регіон: ${info.currentRegion}"
+                    statusTv.text = "Zoom: z${info.currentZoom} | Region: ${info.currentRegion}"
                 }
             }
         }

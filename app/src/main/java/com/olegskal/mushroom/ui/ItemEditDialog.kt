@@ -20,19 +20,19 @@ import java.util.Locale
 object ItemEditDialog {
 
     private val COLORS = intArrayOf(
-        0xFFFF9800.toInt(), // Помаранчевий
-        0xFFF44336.toInt(), // Червоний
-        0xFFFFEB3B.toInt(), // Жовтий
-        0xFF4CAF50.toInt(), // Зелений
-        0xFF00E5FF.toInt(), // Блакитний
-        0xFFE040FB.toInt()  // Фіолетовий
+        0xFFFF9800.toInt(), // Orange
+        0xFFF44336.toInt(), // Red
+        0xFFFFEB3B.toInt(), // Yellow
+        0xFF4CAF50.toInt(), // Green
+        0xFF00E5FF.toInt(), // Cyan
+        0xFFE040FB.toInt()  // Purple
     )
 
     private fun formatDate(): String {
         return SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date())
     }
 
-    // 1. Створення нової мітки
+    // 1. Create new marker
     fun showAddMarker(
         activity: Activity,
         dbHelper: DatabaseHelper,
@@ -43,19 +43,19 @@ object ItemEditDialog {
         initialType: String? = null,
         onMarkerAdded: (MushroomMarker) -> Unit
     ) {
-        val defaultName = initialName ?: "Мітка (${formatDate()})"
+        val defaultName = initialName ?: "Marker (${formatDate()})"
         showDialog(
             activity = activity,
-            dialogTitle = "🍄 Нова мітка",
+            dialogTitle = "🍄 New Marker",
             initialName = defaultName,
-            colorTitle = "Колір мітки:",
+            colorTitle = "Marker color:",
             initialColor = 0xFF4CAF50.toInt(),
-            saveButtonText = "Зберегти"
+            saveButtonText = "Save"
         ) { name, color ->
             val marker = MushroomMarker(
                 id = System.currentTimeMillis(),
                 name = name,
-                type = initialType ?: "Гриб",
+                type = initialType ?: "Mushroom",
                 lat = lat,
                 lon = lon,
                 altitude = altitude,
@@ -66,11 +66,11 @@ object ItemEditDialog {
             )
             dbHelper.insertMarker(marker)
             onMarkerAdded(marker)
-            Toast.makeText(activity, "Мітку \"$name\" збережено!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, "Marker \"$name\" saved!", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // 2. Редагування мітки
+    // 2. Edit marker
     fun showEditMarker(
         activity: Activity,
         dbHelper: DatabaseHelper,
@@ -79,39 +79,39 @@ object ItemEditDialog {
     ) {
         showDialog(
             activity = activity,
-            dialogTitle = "✏️ Редагування мітки",
+            dialogTitle = "✏️ Edit Marker",
             initialName = marker.name,
-            colorTitle = "Колір мітки:",
+            colorTitle = "Marker color:",
             initialColor = marker.color,
-            saveButtonText = "Зберегти"
+            saveButtonText = "Save"
         ) { name, color ->
             dbHelper.updateMarker(marker.id, name, color)
             marker.name = name
             marker.color = color
             onMarkerUpdated(marker)
-            Toast.makeText(activity, "Мітку \"$name\" оновлено!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, "Marker \"$name\" updated!", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // 3. Запуск запису нового треку
+    // 3. Start recording new track
     fun showCreateTrack(
         activity: Activity,
         onStartRecording: (title: String, color: Int) -> Unit
     ) {
-        val defaultTitle = "Трек (${formatDate()})"
+        val defaultTitle = "Track (${formatDate()})"
         showDialog(
             activity = activity,
-            dialogTitle = "🧭 Новий трек",
+            dialogTitle = "🧭 New Track",
             initialName = defaultTitle,
-            colorTitle = "Колір треку:",
+            colorTitle = "Track color:",
             initialColor = 0xFF4CAF50.toInt(),
-            saveButtonText = "Записати"
+            saveButtonText = "Record"
         ) { title, color ->
             onStartRecording(title, color)
         }
     }
 
-    // 4. Редагування треку
+    // 4. Edit track
     fun showEditTrack(
         activity: Activity,
         dbHelper: DatabaseHelper,
@@ -120,21 +120,21 @@ object ItemEditDialog {
     ) {
         showDialog(
             activity = activity,
-            dialogTitle = "✏️ Редагування треку",
+            dialogTitle = "✏️ Edit Track",
             initialName = track.title,
-            colorTitle = "Колір треку:",
+            colorTitle = "Track color:",
             initialColor = track.color,
-            saveButtonText = "Зберегти"
+            saveButtonText = "Save"
         ) { title, color ->
             dbHelper.updateTrackInfo(track.id, title, color)
             track.title = title
             track.color = color
             onTrackUpdated(track)
-            Toast.makeText(activity, "Трек \"$title\" оновлено!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, "Track \"$title\" updated!", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // Єдине уніфіковане діалогове вікно
+    // Unified edit dialog
     private fun showDialog(
         activity: Activity,
         dialogTitle: String,
@@ -227,14 +227,14 @@ object ItemEditDialog {
         }
 
         val btnSave = UiUtils.createStyledButton(activity, saveButtonText) {
-            val defaultFallback = if (colorTitle.contains("трек", ignoreCase = true)) "Трек" else "Мітка"
+            val defaultFallback = if (colorTitle.contains("track", ignoreCase = true)) "Track" else "Marker"
             val name = nameInput.text.toString().trim().ifEmpty { defaultFallback }
             onSave(name, selectedColor)
             dialog.dismiss()
         }
         btnSave.layoutParams = rowParams
 
-        val btnCancel = UiUtils.createStyledButton(activity, "Скасувати") {
+        val btnCancel = UiUtils.createStyledButton(activity, "Cancel") {
             dialog.dismiss()
         }
         btnCancel.layoutParams = rowParams

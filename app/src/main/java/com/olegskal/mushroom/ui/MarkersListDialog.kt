@@ -25,7 +25,7 @@ object MarkersListDialog {
         onVisibilityChanged: () -> Unit
     ) {
         val dialog = Dialog(activity)
-        dialog.setTitle("Список міток")
+        dialog.setTitle("Markers List")
 
         val container = UiUtils.createDarkDialogContainer(activity)
 
@@ -36,7 +36,7 @@ object MarkersListDialog {
         }
 
         val titleTv = TextView(activity).apply {
-            text = "🍄 Збережені мітки"
+            text = "🍄 Saved Markers"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -56,7 +56,7 @@ object MarkersListDialog {
         container.addView(headerRow)
 
         val btnAddMarker = Button(activity).apply {
-            text = "➕ Створити нову мітку"
+            text = "➕ Create New Marker"
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#2E7D32"))
             textSize = 15f
@@ -80,7 +80,7 @@ object MarkersListDialog {
         }
         container.addView(btnAddMarker)
 
-        val btnPasteClip = UiUtils.createStyledButton(activity, "📋 Вставити координати з буфера") {
+        val btnPasteClip = UiUtils.createStyledButton(activity, "📋 Paste Coordinates from Clipboard") {
             val clipText = com.olegskal.mushroom.util.GeoDataExchange.getClipboardText(activity)
             val coords = com.olegskal.mushroom.util.GeoDataExchange.parseCoordinates(clipText)
             if (coords != null) {
@@ -90,13 +90,13 @@ object MarkersListDialog {
                     dbHelper,
                     coords.first,
                     coords.second,
-                    initialName = "Отримана мітка",
-                    initialType = "📍 Знайдене місце"
+                    initialName = "Received Marker",
+                    initialType = "📍 Found Location"
                 ) {
                     onVisibilityChanged()
                 }
             } else {
-                Toast.makeText(activity, "У буфері не знайдено координат\n(формат: 50.4501, 30.5234 або посилання)", Toast.LENGTH_LONG).show()
+                Toast.makeText(activity, "No coordinates found in clipboard\n(format: 50.4501, 30.5234 or link)", Toast.LENGTH_LONG).show()
             }
         }
         val pasteParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -119,7 +119,7 @@ object MarkersListDialog {
 
             if (markers.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = "Немає збережених міток.\nНатисніть \"➕ Створити нову мітку\"."
+                    text = "No saved markers.\nTap \"➕ Create New Marker\"."
                     setTextColor(Color.GRAY)
                     textSize = 14f
                     gravity = Gravity.CENTER
@@ -172,9 +172,9 @@ object MarkersListDialog {
                     val bearingDeg = geo[1]
                     val direction = getBearingDirection(bearingDeg)
                     distStr = if (distM >= 1000f) {
-                        String.format(Locale.US, "%.1f км (%s)", distM / 1000f, direction)
+                        String.format(Locale.US, "%.1f km (%s)", distM / 1000f, direction)
                     } else {
-                        String.format(Locale.US, "%d м (%s)", distM.toInt(), direction)
+                        String.format(Locale.US, "%d m (%s)", distM.toInt(), direction)
                     }
                 }
 
@@ -220,14 +220,14 @@ object MarkersListDialog {
                     setPadding(8, 0, 8, 0)
                     setOnClickListener {
                         AlertDialog.Builder(activity)
-                            .setTitle("Видалити мітку?")
-                            .setMessage("Видалити \"${marker.name}\"?")
-                            .setPositiveButton("Видалити") { _, _ ->
+                            .setTitle("Delete Marker?")
+                            .setMessage("Delete \"${marker.name}\"?")
+                            .setPositiveButton("Delete") { _, _ ->
                                 dbHelper.deleteMarker(marker.id)
                                 onVisibilityChanged()
                                 populateMarkers()
                             }
-                            .setNegativeButton("Скасувати", null)
+                            .setNegativeButton("Cancel", null)
                             .show()
                     }
                 }
@@ -253,14 +253,14 @@ object MarkersListDialog {
     private fun getBearingDirection(bearing: Float): String {
         val b = if (bearing < 0) bearing + 360f else bearing
         return when {
-            b in 22.5..67.5 -> "Пн-Сх"
-            b in 67.5..112.5 -> "Сх"
-            b in 112.5..157.5 -> "Пд-Сх"
-            b in 157.5..202.5 -> "Пд"
-            b in 202.5..247.5 -> "Пд-Зх"
-            b in 247.5..292.5 -> "Зх"
-            b in 292.5..337.5 -> "Пн-Зх"
-            else -> "Пн"
+            b in 22.5..67.5 -> "NE"
+            b in 67.5..112.5 -> "E"
+            b in 112.5..157.5 -> "SE"
+            b in 157.5..202.5 -> "S"
+            b in 202.5..247.5 -> "SW"
+            b in 247.5..292.5 -> "W"
+            b in 292.5..337.5 -> "NW"
+            else -> "N"
         }
     }
 }

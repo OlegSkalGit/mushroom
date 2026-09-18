@@ -62,26 +62,26 @@ object GeoMath {
         val accInt = if (location.hasAccuracy()) location.accuracy.toInt() else 0
 
         val gpsStatusStr = when {
-            isGpsDisabled -> "GPS вимкнено в налаштуваннях"
-            isDeepSleep -> if (isMotionSensorActive) "Режим сну (датчик руху)" else "Режим сну (акселерометр)"
-            location.latitude == 0.0 && location.longitude == 0.0 -> "Пошук супутників..."
-            isAccuracyWeak -> "Слабкий сигнал (±${accInt}м)"
-            location.hasAccuracy() -> "GPS: OK (±${accInt}м)"
-            else -> "GPS: Активний"
+            isGpsDisabled -> "GPS disabled in settings"
+            isDeepSleep -> if (isMotionSensorActive) "Sleep mode (motion sensor)" else "Sleep mode (accelerometer)"
+            location.latitude == 0.0 && location.longitude == 0.0 -> "Searching for satellites..."
+            isAccuracyWeak -> "Weak signal (±${accInt}m)"
+            location.hasAccuracy() -> "GPS: OK (±${accInt}m)"
+            else -> "GPS: Active"
         }
 
         val defaultNotif = when {
-            isGpsDisabled -> "GPS вимкнено"
-            isDeepSleep -> "Грибник у режимі збереження заряду"
+            isGpsDisabled -> "GPS disabled"
+            isDeepSleep -> "Mushroom in power saving mode"
             isRecordingTrack -> {
-                val kmStr = String.format(java.util.Locale.US, "%.2f км", recordedDistanceMeters / 1000f)
+                val kmStr = String.format(java.util.Locale.US, "%.2f km", recordedDistanceMeters / 1000f)
                 val m = recordedDurationSec / 60
                 val s = recordedDurationSec % 60
                 val timeStr = String.format(java.util.Locale.US, "%02d:%02d", m, s)
-                "Запис треку: $kmStr | $timeStr"
+                "Recording track: $kmStr | $timeStr"
             }
-            isAccuracyWeak -> "Слабкий сигнал GPS (±${accInt}м)"
-            else -> "Грибник активний"
+            isAccuracyWeak -> "Weak GPS signal (±${accInt}m)"
+            else -> "Mushroom active"
         }
 
         return ProcessedLocationMetrics(

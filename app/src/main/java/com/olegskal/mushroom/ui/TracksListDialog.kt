@@ -22,7 +22,7 @@ object TracksListDialog {
         onVisibilityChanged: () -> Unit
     ) {
         val dialog = Dialog(activity)
-        dialog.setTitle("Список треків")
+        dialog.setTitle("Tracks List")
 
         val container = UiUtils.createDarkDialogContainer(activity)
 
@@ -33,7 +33,7 @@ object TracksListDialog {
         }
 
         val titleTv = TextView(activity).apply {
-            text = "🗺️ Записані треки"
+            text = "🗺️ Recorded Tracks"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -54,7 +54,7 @@ object TracksListDialog {
 
         val isRecording = com.olegskal.mushroom.service.MushroomTrackingService.instance?.isRecording == true
         val btnRecordTrack = Button(activity).apply {
-            text = if (isRecording) "⏹️ Зупинити запис треку" else "⏺️ Записати новий трек"
+            text = if (isRecording) "⏹️ Stop Recording Track" else "⏺️ Record New Track"
             setTextColor(Color.WHITE)
             setBackgroundColor(if (isRecording) Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
             textSize = 15f
@@ -79,7 +79,7 @@ object TracksListDialog {
         }
         container.addView(btnRecordTrack)
 
-        val btnImportGpx = UiUtils.createStyledButton(activity, "📂 Імпортувати GPX файл") {
+        val btnImportGpx = UiUtils.createStyledButton(activity, "📂 Import GPX File") {
             dialog.dismiss()
             (activity as? com.olegskal.mushroom.MushroomMapActivity)?.openGpxFilePicker()
         }
@@ -106,7 +106,7 @@ object TracksListDialog {
 
             if (tracks.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = "Немає збережених треків.\nНатисніть \"⏺️ Записати новий трек\"."
+                    text = "No saved tracks.\nTap \"⏺️ Record New Track\"."
                     setTextColor(Color.GRAY)
                     textSize = 14f
                     gravity = Gravity.CENTER
@@ -158,11 +158,11 @@ object TracksListDialog {
                 val h = track.durationSec / 3600
                 val m = (track.durationSec % 3600) / 60
                 val s = track.durationSec % 60
-                val timeStr = if (h > 0) String.format(Locale.US, "%d год %02d хв", h, m) else String.format(Locale.US, "%d хв %02d с", m, s)
+                val timeStr = if (h > 0) String.format(Locale.US, "%d h %02d min", h, m) else String.format(Locale.US, "%d min %02d s", m, s)
                 val dateStr = sdf.format(Date(track.startTime))
 
                 val subTv = TextView(activity).apply {
-                    text = String.format(Locale.US, "%.2f км • %s • %d точок", km, timeStr, track.points.size)
+                    text = String.format(Locale.US, "%.2f km • %s • %d points", km, timeStr, track.points.size)
                     setTextColor(track.color)
                     textSize = 12f
                 }
@@ -210,14 +210,14 @@ object TracksListDialog {
                     setPadding(8, 0, 8, 0)
                     setOnClickListener {
                         AlertDialog.Builder(activity)
-                            .setTitle("Видалити трек?")
-                            .setMessage("Видалити \"${track.title}\"?")
-                            .setPositiveButton("Видалити") { _, _ ->
+                            .setTitle("Delete Track?")
+                            .setMessage("Delete \"${track.title}\"?")
+                            .setPositiveButton("Delete") { _, _ ->
                                 dbHelper.deleteTrack(track.id)
                                 onVisibilityChanged()
                                 populateTracks()
                             }
-                            .setNegativeButton("Скасувати", null)
+                            .setNegativeButton("Cancel", null)
                             .show()
                     }
                 }

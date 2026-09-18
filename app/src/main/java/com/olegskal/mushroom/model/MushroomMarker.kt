@@ -5,7 +5,7 @@ import org.json.JSONObject
 data class MushroomMarker(
     val id: Long = System.currentTimeMillis(),
     var name: String,
-    var type: String, // e.g., "Білий гриб", "Лисичка", "Підосиковик", "Опеньки", "Маслюк", "Автомобіль", "Точка"
+    var type: String, // e.g., "Porcini", "Chanterelle", "Boletus", "Honey agaric", "Suillus", "Car", "Point"
     val lat: Double,
     val lon: Double,
     val altitude: Double = 0.0,
@@ -33,8 +33,8 @@ data class MushroomMarker(
         fun fromJson(json: JSONObject): MushroomMarker {
             return MushroomMarker(
                 id = json.optLong("id", System.currentTimeMillis()),
-                name = json.optString("name", "Мітка"),
-                type = json.optString("type", "Гриб"),
+                name = json.optString("name", "Marker"),
+                type = json.optString("type", "Mushroom"),
                 lat = json.optDouble("lat", 0.0),
                 lon = json.optDouble("lon", 0.0),
                 altitude = json.optDouble("altitude", 0.0),

@@ -212,8 +212,8 @@ object AppUpdateManager {
         onResult: ((String) -> Unit)?
     ) {
         mainHandler.post {
-            val title = "Доступне оновлення"
-            val message = "Вийшла нова версія $latestRemoteName\n(поточна: $installedVerStr).\n\nЗавантажити та оновити?"
+            val title = "Update Available"
+            val message = "A new version $latestRemoteName is available\n(current: $installedVerStr).\n\nDownload and update?"
 
             val downloadAction = {
                 executor.execute {
@@ -223,7 +223,7 @@ object AppUpdateManager {
 
             val laterAction = {
                 postponeUpdate(context.applicationContext)
-                val msg = "Оновлення відкладено."
+                val msg = "Update postponed."
                 onResult?.let { mainHandler.post { it(msg) } }
             }
 
@@ -232,11 +232,11 @@ object AppUpdateManager {
                 AlertDialog.Builder(activity)
                     .setTitle(title)
                     .setMessage(message)
-                    .setPositiveButton("Оновити") { dialog, _ ->
+                    .setPositiveButton("Update") { dialog, _ ->
                         dialog.dismiss()
                         downloadAction()
                     }
-                    .setNegativeButton("Пізніше") { dialog, _ ->
+                    .setNegativeButton("Later") { dialog, _ ->
                         dialog.dismiss()
                         laterAction()
                     }
@@ -365,8 +365,8 @@ object AppUpdateManager {
                 .setStyle(Notification.BigTextStyle().bigText(message))
                 .setPriority(Notification.PRIORITY_HIGH)
                 .setAutoCancel(true)
-                .addAction(android.R.drawable.ic_menu_save, "Оновити", pendingDownload)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Пізніше", pendingLater)
+                .addAction(android.R.drawable.ic_menu_save, "Update", pendingDownload)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Later", pendingLater)
                 .setContentIntent(pendingDownload)
                 .build()
 

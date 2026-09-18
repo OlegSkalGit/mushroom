@@ -108,7 +108,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         magneticSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification("Пошук супутників GPS..."))
+        startForeground(NOTIF_ID, buildNotification("Searching for GPS satellites..."))
 
         registerSensors()
         registerGpsUpdates()
@@ -184,7 +184,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
 
         val now = System.currentTimeMillis()
         val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
-        val title = customTitle?.trim()?.ifEmpty { null } ?: "Трек (${sdf.format(Date(now))})"
+        val title = customTitle?.trim()?.ifEmpty { null } ?: "Track (${sdf.format(Date(now))})"
         val color = customColor ?: 0xFF4CAF50.toInt()
 
         val track = MushroomTrack(
@@ -206,7 +206,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         }
 
         updateNotification()
-        Toast.makeText(this, "Запис треку розпочато", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Track recording started", Toast.LENGTH_SHORT).show()
         AppLogger.log("TrackingService", "startTrackRecording", true, "Started track ${track.id}")
     }
 
@@ -228,7 +228,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
 
         releaseWakeLock()
         updateNotification()
-        Toast.makeText(this, "Запис треку збережено", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Track recording saved", Toast.LENGTH_SHORT).show()
     }
 
     private fun acquireWakeLock() {
@@ -384,10 +384,10 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val ch = NotificationChannel(
                 CHANNEL_ID,
-                "Грибник: Фоновий трекінг",
+                "Mushroom: Background Tracking",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Постійне сповіщення про роботу навігації та запис треку"
+                description = "Persistent notification for navigation and track recording"
                 setShowBadge(false)
             }
             val nm = getSystemService(NotificationManager::class.java)
@@ -405,7 +405,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         )
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Mushroom - Навігатор грибника")
+            .setContentTitle("Mushroom Navigation")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_mushroom_notif)
             .setContentIntent(pendingIntent)
@@ -420,7 +420,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
                 this, 1, stopRecIntent,
                 ServiceUtils.PENDING_INTENT_IMMUTABLE_FLAGS
             )
-            builder.addAction(android.R.drawable.ic_media_pause, "Зупинити запис", pStopRec)
+            builder.addAction(android.R.drawable.ic_media_pause, "Stop Recording", pStopRec)
         }
 
         return builder.build()
@@ -432,9 +432,9 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
             val sec = (System.currentTimeMillis() - activeTrack!!.startTime) / 1000L
             val m = sec / 60
             val s = sec % 60
-            String.format(Locale.US, "Запис треку: %.2f км | %02d:%02d", km, m, s)
+            String.format(Locale.US, "Recording track: %.2f km | %02d:%02d", km, m, s)
         } else {
-            "Грибник: активний"
+            "Mushroom: Active"
         }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification(notifText))
