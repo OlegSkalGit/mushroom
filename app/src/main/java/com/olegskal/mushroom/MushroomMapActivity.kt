@@ -139,8 +139,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         val topInfoPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#99121212"))
-            val padH = (16 * resources.displayMetrics.density).toInt()
-            val padV = (12 * resources.displayMetrics.density).toInt()
+            val padH = (12 * resources.displayMetrics.density).toInt()
+            val padV = (8 * resources.displayMetrics.density).toInt()
             setPadding(padH, padV, padH, padV)
         }
 
@@ -149,7 +149,13 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val menuBtnSize = (44 * resources.displayMetrics.density).toInt()
+        val btnSize = (44 * resources.displayMetrics.density).toInt()
+        val btnMargin = (4 * resources.displayMetrics.density).toInt()
+        val ctrlParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
+            setMargins(btnMargin, 0, btnMargin, 0)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
         val btnMenu = Button(this).apply {
             text = "☰"
             setTextColor(Color.WHITE)
@@ -157,73 +163,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             textSize = 22f
             setTypeface(null, Typeface.BOLD)
             setPadding(0, 0, 0, 0)
-            layoutParams = LinearLayout.LayoutParams(menuBtnSize, menuBtnSize)
+            layoutParams = LinearLayout.LayoutParams(btnSize, btnSize)
             setOnClickListener {
                 showMainMenuDialog()
-            }
-        }
-
-        val titleTv = TextView(this).apply {
-            text = "🌲 Mushroom"
-            setTextColor(Color.parseColor("#4CAF50"))
-            textSize = 17f
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding((14 * resources.displayMetrics.density).toInt(), 0, 0, 0)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        topHeaderRow.addView(btnMenu)
-        topHeaderRow.addView(titleTv)
-        topInfoPanel.addView(topHeaderRow)
-
-        tvRecordingBadge = TextView(this).apply {
-            text = "⏺️ TRACK RECORDING: 0.00 km (00:00)"
-            setTextColor(Color.parseColor("#FF5252"))
-            textSize = 13f
-            setTypeface(null, Typeface.BOLD)
-            visibility = View.GONE
-            setPadding(0, 8, 0, 0)
-        }
-        topInfoPanel.addView(tvRecordingBadge)
-
-        rootLayout.addView(topInfoPanel, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP
-        ))
-
-        // Floating Control Buttons (Right Side: Zoom & Compass & Center)
-        val rightControls = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
-            setPadding(0, 0, 24, 0)
-        }
-
-        val btnSize = (48 * resources.displayMetrics.density).toInt()
-        val btnMargin = (4 * resources.displayMetrics.density).toInt()
-        val ctrlParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
-            setMargins(0, btnMargin, 0, btnMargin)
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-
-        compassButton = CompassButton(this).apply {
-            layoutParams = ctrlParams
-            setBearing(-mapView.mapBearing)
-            setOnClickListener {
-                if (mapView.alignToNorth()) {
-                    Toast.makeText(this@MushroomMapActivity, "Map aligned to North", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        btnCenter = CenterLocationButton(this).apply {
-            layoutParams = ctrlParams
-            contentDescription = "Center on Current Location"
-            setOnClickListener {
-                isFollowLocation = true
-                AppPrefs.setFollowUser(this@MushroomMapActivity, true)
-                mapView.centerOnCurrentLocation()
             }
         }
 
@@ -257,22 +199,51 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
-        rightControls.addView(compassButton)
-        rightControls.addView(btnCenter)
-        rightControls.addView(btnAddMarker)
-        rightControls.addView(btnRecordTrack)
-
-        val padR = (12 * resources.displayMetrics.density).toInt()
-        val topOffset = (68 * resources.displayMetrics.density).toInt()
-        val rightParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP or Gravity.END
-        ).apply {
-            topMargin = topOffset
-            rightMargin = padR
+        btnCenter = CenterLocationButton(this).apply {
+            layoutParams = ctrlParams
+            contentDescription = "Center on Current Location"
+            setOnClickListener {
+                isFollowLocation = true
+                AppPrefs.setFollowUser(this@MushroomMapActivity, true)
+                mapView.centerOnCurrentLocation()
+            }
         }
-        rootLayout.addView(rightControls, rightParams)
+
+        compassButton = CompassButton(this).apply {
+            layoutParams = ctrlParams
+            setBearing(-mapView.mapBearing)
+            setOnClickListener {
+                if (mapView.alignToNorth()) {
+                    Toast.makeText(this@MushroomMapActivity, "Map aligned to North", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        topHeaderRow.addView(btnMenu)
+        topHeaderRow.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+        })
+        topHeaderRow.addView(btnAddMarker)
+        topHeaderRow.addView(btnRecordTrack)
+        topHeaderRow.addView(btnCenter)
+        topHeaderRow.addView(compassButton)
+        topInfoPanel.addView(topHeaderRow)
+
+        tvRecordingBadge = TextView(this).apply {
+            text = "⏺️ TRACK RECORDING: 0.00 km (00:00)"
+            setTextColor(Color.parseColor("#FF5252"))
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            visibility = View.GONE
+            setPadding(0, 6, 0, 0)
+        }
+        topInfoPanel.addView(tvRecordingBadge)
+
+        rootLayout.addView(topInfoPanel, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP
+        ))
 
         setContentView(rootLayout)
 

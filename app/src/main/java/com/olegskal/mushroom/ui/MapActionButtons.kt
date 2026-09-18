@@ -40,7 +40,7 @@ class CenterLocationButton(context: Context) : View(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val density = resources.displayMetrics.density
-        val defaultSize = (48 * density).toInt()
+        val defaultSize = (44 * density).toInt()
         val w = resolveSize(defaultSize, widthMeasureSpec)
         val h = resolveSize(defaultSize, heightMeasureSpec)
         val size = min(w, h).coerceAtLeast(defaultSize)
@@ -164,7 +164,7 @@ class FlagMarkerButton(context: Context) : View(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val density = resources.displayMetrics.density
-        val defaultSize = (48 * density).toInt()
+        val defaultSize = (44 * density).toInt()
         val w = resolveSize(defaultSize, widthMeasureSpec)
         val h = resolveSize(defaultSize, heightMeasureSpec)
         val size = min(w, h).coerceAtLeast(defaultSize)
@@ -326,7 +326,7 @@ class TrackRecordButton(context: Context) : View(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val density = resources.displayMetrics.density
-        val defaultSize = (48 * density).toInt()
+        val defaultSize = (44 * density).toInt()
         val w = resolveSize(defaultSize, widthMeasureSpec)
         val h = resolveSize(defaultSize, heightMeasureSpec)
         val size = min(w, h).coerceAtLeast(defaultSize)
