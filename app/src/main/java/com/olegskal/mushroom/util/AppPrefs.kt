@@ -194,4 +194,24 @@ object AppPrefs {
     fun setActiveTrackId(context: Context, trackId: Long) {
         getPrefs(context).edit().putLong(KEY_ACTIVE_TRACK_ID, trackId).apply()
     }
+
+    // Mushrooms preferences
+    const val KEY_MUSHROOM_LANG = "mushroom_lang"
+    const val KEY_MUSHROOM_IS_UKRAINE = "mushroom_is_ukraine"
+    const val KEY_MUSHROOM_FILTER = "mushroom_filter"
+
+    fun getMushroomLang(context: Context): String = getPrefs(context).getString(KEY_MUSHROOM_LANG, "uk") ?: "uk"
+    fun setMushroomLang(context: Context, lang: String) {
+        getPrefs(context).edit().putString(KEY_MUSHROOM_LANG, lang).apply()
+    }
+
+    fun getMushroomIsUkraine(context: Context): Boolean = getPrefs(context).getBoolean(KEY_MUSHROOM_IS_UKRAINE, true)
+    fun setMushroomIsUkraine(context: Context, isUkraine: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_MUSHROOM_IS_UKRAINE, isUkraine).apply()
+    }
+
+    fun getMushroomFilter(context: Context): String = getPrefs(context).getString(KEY_MUSHROOM_FILTER, "all") ?: "all"
+    fun setMushroomFilter(context: Context, filter: String) {
+        getPrefs(context).edit().putString(KEY_MUSHROOM_FILTER, filter).apply()
+    }
 }

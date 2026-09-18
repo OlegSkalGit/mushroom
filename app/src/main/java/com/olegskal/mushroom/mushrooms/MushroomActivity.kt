@@ -32,6 +32,8 @@ class MushroomActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        currentLang = com.olegskal.mushroom.util.AppPrefs.getMushroomLang(this)
+
         // Initialize disk cache for images
         MushroomApiClient.initDiskCache(filesDir)
 
@@ -83,6 +85,7 @@ class MushroomActivity : Activity() {
             setOnClickListener {
                 currentLang = if (currentLang == "uk") "en" else "uk"
                 text = currentLang.uppercase()
+                com.olegskal.mushroom.util.AppPrefs.setMushroomLang(this@MushroomActivity, currentLang)
                 updateLanguage(currentLang)
             }
         }

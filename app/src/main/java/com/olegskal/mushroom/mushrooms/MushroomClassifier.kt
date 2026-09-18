@@ -32,7 +32,8 @@ class MushroomClassifier(private val context: Context) {
     private var isInitialized = false
 
     companion object {
-        const val MODEL_URL = "https://github.com/OlegSkalGit/mushroom/model.onnx"
+        const val MODEL_URL = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/model.onnx"
+        const val MODEL_FALLBACK_URL = "https://github.com/OlegSkalGit/mushroom/raw/main/model.onnx"
         const val MODEL_FILENAME = "model.onnx"
 
         fun getModelDirectory(): File {
@@ -45,10 +46,16 @@ class MushroomClassifier(private val context: Context) {
 
         fun getModelFile(context: Context): File {
             val primary = File(getModelDirectory(), MODEL_FILENAME)
-            if (primary.exists()) return primary
+            if (primary.exists() && primary.length() > 10 * 1024 * 1024) return primary
+
+            val extFiles = context.getExternalFilesDir(null)
+            if (extFiles != null) {
+                val extFile = File(extFiles, "model/$MODEL_FILENAME")
+                if (extFile.exists() && extFile.length() > 10 * 1024 * 1024) return extFile
+            }
 
             val internal = File(context.filesDir, "model/$MODEL_FILENAME")
-            if (internal.exists()) return internal
+            if (internal.exists() && internal.length() > 10 * 1024 * 1024) return internal
 
             return primary
         }
@@ -64,90 +71,109 @@ class MushroomClassifier(private val context: Context) {
             onComplete: (Boolean, String?) -> Unit
         ) {
             Thread {
-                var conn: HttpURLConnection? = null
-                var input: InputStream? = null
-                var output: FileOutputStream? = null
+                if (isModelDownloaded(context)) {
+                    onComplete(true, null)
+                    return@Thread
+                }
 
-                try {
-                    val targetDir = try {
-                        val sd = getModelDirectory()
-                        if (!sd.exists()) sd.mkdirs()
-                        if (sd.canWrite()) sd else File(context.filesDir, "model").apply { mkdirs() }
-                    } catch (e: Exception) {
-                        File(context.filesDir, "model").apply { mkdirs() }
-                    }
+                val targetDir = try {
+                    val sd = getModelDirectory()
+                    if (!sd.exists()) sd.mkdirs()
+                    if (sd.canWrite()) sd else File(context.filesDir, "model").apply { mkdirs() }
+                } catch (e: Exception) {
+                    File(context.filesDir, "model").apply { mkdirs() }
+                }
 
-                    val targetFile = File(targetDir, MODEL_FILENAME)
-                    val tempFile = File(targetDir, "$MODEL_FILENAME.tmp")
+                val targetFile = File(targetDir, MODEL_FILENAME)
+                val tempFile = File(targetDir, "$MODEL_FILENAME.tmp")
 
-                    var currentUrl = MODEL_URL
-                    var redirects = 0
-                    while (redirects < 5) {
-                        val url = URL(currentUrl)
-                        conn = url.openConnection() as HttpURLConnection
-                        conn.instanceFollowRedirects = false
-                        conn.connectTimeout = 15000
-                        conn.readTimeout = 30000
-                        conn.setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
-                        conn.connect()
+                val urlsToTry = listOf(MODEL_URL, MODEL_FALLBACK_URL)
+                var downloadSuccess = false
+                var lastError: String? = null
 
-                        val code = conn.responseCode
-                        if (code == HttpURLConnection.HTTP_MOVED_PERM ||
-                            code == HttpURLConnection.HTTP_MOVED_TEMP ||
-                            code == 307 || code == 308) {
-                            val newUrl = conn.getHeaderField("Location")
-                            conn.disconnect()
-                            currentUrl = newUrl
-                            redirects++
-                        } else if (code == 200) {
-                            break
-                        } else {
-                            throw Exception("HTTP error code: $code")
-                        }
-                    }
+                for (sourceUrl in urlsToTry) {
+                    var conn: HttpURLConnection? = null
+                    var input: InputStream? = null
+                    var output: FileOutputStream? = null
 
-                    val fileLength = conn!!.contentLength
-                    input = conn.inputStream
-                    output = FileOutputStream(tempFile)
+                    try {
+                        var currentUrl = sourceUrl
+                        var redirects = 0
 
-                    val data = ByteArray(8192)
-                    var total: Long = 0
-                    var count: Int
-                    var lastPercent = -1
+                        while (redirects < 5) {
+                            val url = URL(currentUrl)
+                            conn = url.openConnection() as HttpURLConnection
+                            conn.instanceFollowRedirects = false
+                            conn.connectTimeout = 15000
+                            conn.readTimeout = 30000
+                            conn.setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
+                            conn.connect()
 
-                    while (input.read(data).also { count = it } != -1) {
-                        total += count
-                        output.write(data, 0, count)
-
-                        if (fileLength > 0) {
-                            val percent = ((total * 100) / fileLength).toInt()
-                            if (percent != lastPercent) {
-                                lastPercent = percent
-                                onProgress(percent)
+                            val code = conn.responseCode
+                            if (code == HttpURLConnection.HTTP_MOVED_PERM ||
+                                code == HttpURLConnection.HTTP_MOVED_TEMP ||
+                                code == 307 || code == 308) {
+                                val newUrl = conn.getHeaderField("Location")
+                                conn.disconnect()
+                                currentUrl = newUrl
+                                redirects++
+                            } else if (code == 200) {
+                                break
+                            } else {
+                                throw Exception("HTTP error code: $code")
                             }
                         }
-                    }
 
-                    output.flush()
-                    output.close()
-                    output = null
-                    input.close()
-                    input = null
-                    conn.disconnect()
+                        val fileLength = conn!!.contentLengthLong
+                        input = conn.inputStream
+                        output = FileOutputStream(tempFile)
 
-                    if (tempFile.exists() && tempFile.length() > 0) {
-                        if (targetFile.exists()) targetFile.delete()
-                        tempFile.renameTo(targetFile)
-                        onComplete(true, null)
-                    } else {
-                        onComplete(false, "Downloaded file is empty")
+                        val data = ByteArray(16384)
+                        var total: Long = 0
+                        var count: Int
+                        var lastPercent = -1
+
+                        while (input.read(data).also { count = it } != -1) {
+                            total += count
+                            output.write(data, 0, count)
+
+                            if (fileLength > 0) {
+                                val percent = ((total * 100) / fileLength).toInt().coerceIn(0, 100)
+                                if (percent != lastPercent) {
+                                    lastPercent = percent
+                                    onProgress(percent)
+                                }
+                            }
+                        }
+
+                        output.flush()
+                        output.close()
+                        output = null
+                        input.close()
+                        input = null
+                        conn.disconnect()
+
+                        if (tempFile.exists() && tempFile.length() > 10 * 1024 * 1024) {
+                            if (targetFile.exists()) targetFile.delete()
+                            tempFile.renameTo(targetFile)
+                            downloadSuccess = true
+                            break
+                        } else {
+                            throw Exception("Downloaded file is incomplete (${tempFile.length()} bytes)")
+                        }
+                    } catch (e: Exception) {
+                        lastError = e.localizedMessage ?: e.toString()
+                    } finally {
+                        try { input?.close() } catch (ignored: Exception) {}
+                        try { output?.close() } catch (ignored: Exception) {}
+                        try { conn?.disconnect() } catch (ignored: Exception) {}
                     }
-                } catch (e: Exception) {
-                    onComplete(false, e.localizedMessage ?: e.toString())
-                } finally {
-                    try { input?.close() } catch (ignored: Exception) {}
-                    try { output?.close() } catch (ignored: Exception) {}
-                    try { conn?.disconnect() } catch (ignored: Exception) {}
+                }
+
+                if (downloadSuccess) {
+                    onComplete(true, null)
+                } else {
+                    onComplete(false, lastError ?: "Failed to download model")
                 }
             }.start()
         }

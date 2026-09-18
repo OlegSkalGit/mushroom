@@ -35,6 +35,7 @@ class MushroomClassifierTab(
     private val previewImageView: ImageView
     private val btnAnalyze: Button
     private val tvStatus: TextView
+    private val tvModelStatus: TextView
     private val resultsContainer: LinearLayout
     private val classifier = MushroomClassifier(activity)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -48,7 +49,7 @@ class MushroomClassifierTab(
         val actionsRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, 12)
+                setMargins(0, 0, 0, 8)
             }
         }
 
@@ -74,7 +75,17 @@ class MushroomClassifierTab(
         actionsRow.addView(btnGallery)
         view.addView(actionsRow)
 
-        // 2. Selected Photo Preview Card
+        // 2. Model Local Storage Status Indicator
+        tvModelStatus = TextView(activity).apply {
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 8)
+        }
+        view.addView(tvModelStatus)
+        updateModelStatusBadge()
+
+        // 3. Selected Photo Preview Card
         val previewHeight = (200 * density).toInt()
         val previewFrame = FrameLayout(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, previewHeight).apply {
@@ -99,7 +110,7 @@ class MushroomClassifierTab(
         previewFrame.addView(placeholderTv)
         view.addView(previewFrame)
 
-        // 3. Analyze Button
+        // 4. Analyze Button
         btnAnalyze = UiUtils.createStyledButton(activity, if (currentLang == "uk") "🔍 Визначити гриб" else "🔍 Identify Mushroom") {
             startClassificationFlow()
         }.apply {
@@ -112,7 +123,7 @@ class MushroomClassifierTab(
         }
         view.addView(btnAnalyze)
 
-        // 4. Status text
+        // 5. Status text
         tvStatus = TextView(activity).apply {
             setTextColor(Color.parseColor("#9CA3AF"))
             textSize = 13f
@@ -122,7 +133,7 @@ class MushroomClassifierTab(
         }
         view.addView(tvStatus)
 
-        // 5. Results Scroll Container
+        // 6. Results Scroll Container
         val scrollView = ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
@@ -133,9 +144,21 @@ class MushroomClassifierTab(
         view.addView(scrollView)
     }
 
+    fun updateModelStatusBadge() {
+        val isReady = MushroomClassifier.isModelDownloaded(activity)
+        if (isReady) {
+            tvModelStatus.text = if (currentLang == "uk") "✅ AI модель готова (локальне сховище)" else "✅ AI model ready (local storage)"
+            tvModelStatus.setTextColor(Color.parseColor("#10B981"))
+        } else {
+            tvModelStatus.text = if (currentLang == "uk") "⬇️ AI модель відсутня (~87 МБ для завантаження)" else "⬇️ AI model not found (~87 MB to download)"
+            tvModelStatus.setTextColor(Color.parseColor("#F59E0B"))
+        }
+    }
+
     fun setLanguage(lang: String) {
         currentLang = lang
         btnAnalyze.text = if (currentLang == "uk") "🔍 Визначити гриб" else "🔍 Identify Mushroom"
+        updateModelStatusBadge()
     }
 
     fun setInputBitmap(bitmap: Bitmap) {
@@ -143,6 +166,7 @@ class MushroomClassifierTab(
         previewImageView.setImageBitmap(bitmap)
         resultsContainer.removeAllViews()
         tvStatus.visibility = View.GONE
+        updateModelStatusBadge()
     }
 
     private fun dispatchCameraIntent() {
@@ -254,6 +278,7 @@ class MushroomClassifierTab(
                 mainHandler.post {
                     dialog.dismiss()
                     if (success) {
+                        updateModelStatusBadge()
                         Toast.makeText(activity, if (currentLang == "uk") "Модель успішно завантажена!" else "Model downloaded successfully!", Toast.LENGTH_SHORT).show()
                         onReady(true)
                     } else {

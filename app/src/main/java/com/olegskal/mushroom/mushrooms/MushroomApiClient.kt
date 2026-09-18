@@ -134,8 +134,11 @@ object MushroomApiClient {
             val list = mutableListOf<MushroomTaxon>()
             for (i in 0 until resultsArr.length()) {
                 val item = resultsArr.getJSONObject(i)
-                val taxon = parseTaxonObject(item, lang)
-                list.add(taxon)
+                val taxonObj = if (item.has("taxon")) item.getJSONObject("taxon") else item
+                val taxon = parseTaxonObject(taxonObj, lang)
+                if (taxon.scientificName != "Unknown species") {
+                    list.add(taxon)
+                }
             }
 
             mainHandler.post {
@@ -169,6 +172,15 @@ object MushroomApiClient {
                 med.isNotEmpty() -> med
                 sq.isNotEmpty() -> sq
                 else -> null
+            }
+        }
+        if (defaultPhotoUrl == null) {
+            val photosArr = obj.optJSONArray("photos")
+            if (photosArr != null && photosArr.length() > 0) {
+                val pObj = photosArr.getJSONObject(0)
+                val u = pObj.optString("medium_url").takeIf { it.isNotEmpty() }
+                    ?: pObj.optString("url").takeIf { it.isNotEmpty() }
+                defaultPhotoUrl = u
             }
         }
 
