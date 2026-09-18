@@ -375,6 +375,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         val db = writableDatabase
         db.delete(TABLE_TRACK_POINTS, "$COL_PT_TRACK_ID = ?", arrayOf(trackId.toString()))
         db.delete(TABLE_TRACKS, "$COL_TRACK_ID = ?", arrayOf(trackId.toString()))
+        MushroomStorageManager.deleteTrackFile(trackId)
         syncTracksToStorage()
     }
 

@@ -137,6 +137,23 @@ object MushroomStorageManager {
         }
     }
 
+    fun deleteTrackFile(trackId: Long): Boolean {
+        return try {
+            val gpxFile = File(tracksDir, "track_${trackId}.gpx")
+            if (gpxFile.exists()) {
+                val deleted = gpxFile.delete()
+                AppLogger.log(TAG, "deleteTrackFile", deleted, "Deleted track GPX: ${gpxFile.absolutePath}")
+                deleted
+            } else {
+                AppLogger.log(TAG, "deleteTrackFile", true, "GPX file not found: ${gpxFile.absolutePath}")
+                true
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "deleteTrackFile", false, "Error deleting GPX track $trackId: ${e.message}")
+            false
+        }
+    }
+
     // --- Settings ---
     private val settingsFile: File
         get() = File(settingsDir, "settings.json")
