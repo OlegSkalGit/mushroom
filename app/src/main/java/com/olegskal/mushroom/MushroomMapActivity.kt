@@ -57,7 +57,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     // UI overlays
     private lateinit var tvRecordingBadge: TextView
-    private lateinit var btnCenter: Button
+    private lateinit var btnCenter: CenterLocationButton
     private lateinit var compassButton: CompassButton
     private lateinit var btnAddMarker: FlagMarkerButton
     private lateinit var btnRecordTrack: TrackRecordButton
@@ -217,14 +217,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
-        btnCenter = Button(this).apply {
-            text = "⌖"
-            setTextColor(Color.parseColor("#00E5FF"))
-            setBackgroundColor(Color.parseColor("#DD2A2A2A"))
-            textSize = 22f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 0)
+        btnCenter = CenterLocationButton(this).apply {
             layoutParams = ctrlParams
+            contentDescription = "Center on Current Location"
             setOnClickListener {
                 isFollowLocation = true
                 AppPrefs.setFollowUser(this@MushroomMapActivity, true)

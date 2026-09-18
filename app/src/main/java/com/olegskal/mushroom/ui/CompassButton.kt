@@ -23,7 +23,7 @@ class CompassButton(context: Context) : View(context) {
 
     // Cached paints for zero allocation in onDraw
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#DD222222")
+        color = Color.parseColor("#4D222222")
         style = Paint.Style.FILL
     }
 
@@ -146,8 +146,8 @@ class CompassButton(context: Context) : View(context) {
             canvas.scale(0.92f, 0.92f, cx, cy)
         }
 
-        // 1. Dark Circular Background
-        bgPaint.color = if (isTouchPressed) Color.parseColor("#EE111111") else Color.parseColor("#DD222222")
+        // 1. Dark Circular Background (70% transparent)
+        bgPaint.color = if (isTouchPressed) Color.parseColor("#80111111") else Color.parseColor("#4D222222")
         canvas.drawCircle(cx, cy, radius, bgPaint)
 
         // 2. Active Mode Rim

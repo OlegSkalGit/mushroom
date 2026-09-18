@@ -10,6 +10,120 @@ import android.view.View
 import kotlin.math.min
 
 /**
+ * Floating action button for centering the map on the user's current GPS location.
+ * Features a circular body with an ultra-crisp cyan crosshair target icon.
+ */
+class CenterLocationButton(context: Context) : View(context) {
+
+    private var isTouchPressed: Boolean = false
+
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
+    private val targetPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#00E5FF") // Tactical Cyan
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val centerDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#00E5FF")
+        style = Paint.Style.FILL
+    }
+
+    init {
+        isClickable = true
+        isFocusable = true
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val density = resources.displayMetrics.density
+        val defaultSize = (48 * density).toInt()
+        val w = resolveSize(defaultSize, widthMeasureSpec)
+        val h = resolveSize(defaultSize, heightMeasureSpec)
+        val size = min(w, h).coerceAtLeast(defaultSize)
+        setMeasuredDimension(size, size)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                isTouchPressed = true
+                invalidate()
+            }
+            MotionEvent.ACTION_UP -> {
+                isTouchPressed = false
+                invalidate()
+                performClick()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isTouchPressed = false
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val cx = w / 2f
+        val cy = h / 2f
+        val density = resources.displayMetrics.density
+        val padding = 3f * density
+        val radius = min(cx, cy) - padding
+
+        canvas.save()
+        if (isTouchPressed) {
+            canvas.scale(0.92f, 0.92f, cx, cy)
+        }
+
+        // 70% transparent circular background
+        bgPaint.color = if (isTouchPressed) Color.parseColor("#80111111") else Color.parseColor("#4D222222")
+        canvas.drawCircle(cx, cy, radius, bgPaint)
+
+        // Subtle border
+        borderPaint.color = Color.parseColor("#33FFFFFF")
+        borderPaint.strokeWidth = 1.2f * density
+        canvas.drawCircle(cx, cy, radius, borderPaint)
+
+        // Crosshairs / Target icon
+        targetPaint.strokeWidth = 2.2f * density
+        val targetRadius = radius * 0.44f
+
+        // Center ring
+        canvas.drawCircle(cx, cy, targetRadius, targetPaint)
+
+        // Center pinpoint dot
+        canvas.drawCircle(cx, cy, 2.5f * density, centerDotPaint)
+
+        // 4 Crosshair ticks extending outside the ring
+        val tickInner = targetRadius
+        val tickOuter = radius * 0.68f
+
+        // Top tick
+        canvas.drawLine(cx, cy - tickInner, cx, cy - tickOuter, targetPaint)
+        // Bottom tick
+        canvas.drawLine(cx, cy + tickInner, cx, cy + tickOuter, targetPaint)
+        // Left tick
+        canvas.drawLine(cx - tickInner, cy, cx - tickOuter, cy, targetPaint)
+        // Right tick
+        canvas.drawLine(cx + tickInner, cy, cx + tickOuter, cy, targetPaint)
+
+        canvas.restore()
+    }
+}
+
+/**
  * Floating action button for adding a mushroom marker with a red flag icon.
  */
 class FlagMarkerButton(context: Context) : View(context) {
@@ -97,8 +211,8 @@ class FlagMarkerButton(context: Context) : View(context) {
             canvas.scale(0.92f, 0.92f, cx, cy)
         }
 
-        // Circular dark background
-        bgPaint.color = if (isTouchPressed) Color.parseColor("#EE111111") else Color.parseColor("#DD222222")
+        // 70% transparent circular background
+        bgPaint.color = if (isTouchPressed) Color.parseColor("#80111111") else Color.parseColor("#4D222222")
         canvas.drawCircle(cx, cy, radius, bgPaint)
 
         // Subtle border
@@ -259,13 +373,13 @@ class TrackRecordButton(context: Context) : View(context) {
             canvas.scale(0.92f, 0.92f, cx, cy)
         }
 
-        // Circular background (slightly tinted red when recording)
+        // 70% transparent circular background (tinted dark red when recording)
         if (isRecording) {
-            bgPaint.color = if (isTouchPressed) Color.parseColor("#EE2E1414") else Color.parseColor("#DD251010")
+            bgPaint.color = if (isTouchPressed) Color.parseColor("#88351212") else Color.parseColor("#55351212")
             borderPaint.color = Color.parseColor("#FF5252")
             borderPaint.strokeWidth = 2.4f * density
         } else {
-            bgPaint.color = if (isTouchPressed) Color.parseColor("#EE111111") else Color.parseColor("#DD222222")
+            bgPaint.color = if (isTouchPressed) Color.parseColor("#80111111") else Color.parseColor("#4D222222")
             borderPaint.color = Color.parseColor("#33FFFFFF")
             borderPaint.strokeWidth = 1.2f * density
         }
