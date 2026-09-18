@@ -32,6 +32,7 @@ object OsmTileEngine {
 
     private val loadingKeys = ConcurrentHashMap.newKeySet<String>()
     private val failedTileCooldown = ConcurrentHashMap<String, Long>()
+    private val nonExistentTiles = ConcurrentHashMap<String, Long>()
     private val activeNetworkDownloads = ConcurrentHashMap.newKeySet<String>()
     private val diskExecutor = Executors.newFixedThreadPool(4)
     private val networkExecutor = Executors.newFixedThreadPool(4)
@@ -66,6 +67,7 @@ object OsmTileEngine {
 
     fun clearMissingTileCache() {
         failedTileCooldown.clear()
+        nonExistentTiles.clear()
     }
 
     fun purgeBlockedTiles() {
@@ -114,9 +116,86 @@ object OsmTileEngine {
         return worldPixelToLatLon(wpX, wpY, zoom)
     }
 
+    data class ParentTileInfo(
+        val bitmap: Bitmap,
+        val zoomDiff: Int,
+        val subX: Int,
+        val subY: Int
+    )
+
     fun getTile(zoom: Int, x: Int, y: Int): Bitmap? = getTileBitmap(zoom, x, y)
 
     fun getTileFromMemory(zoom: Int, x: Int, y: Int): Bitmap? = ramCache.get("$zoom/$x/$y")
+
+    fun getOfflineTile(zoom: Int, x: Int, y: Int): Bitmap? {
+        val key = "$zoom/$x/$y"
+        ramCache.get(key)?.let { return it }
+
+        val now = System.currentTimeMillis()
+        val cooldown = nonExistentTiles[key]
+        if (cooldown != null) {
+            if (now < cooldown) return null else nonExistentTiles.remove(key)
+        }
+
+        if (loadingKeys.contains(key)) return null
+
+        loadingKeys.add(key)
+        diskExecutor.execute {
+            try {
+                val file = MushroomStorageManager.getTileFile(zoom, x, y)
+                if (file.exists() && file.length() > 0L && file.length() != 6987L) {
+                    val opts = BitmapFactory.Options().apply {
+                        inPreferredConfig = Bitmap.Config.RGB_565
+                    }
+                    val bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
+                    if (bmp != null) {
+                        ramCache.put(key, bmp)
+                        onTileReadyListener?.invoke()
+                    } else {
+                        file.delete()
+                        nonExistentTiles[key] = System.currentTimeMillis() + 30_000L
+                    }
+                } else {
+                    nonExistentTiles[key] = System.currentTimeMillis() + 30_000L
+                }
+            } catch (_: Exception) {
+                nonExistentTiles[key] = System.currentTimeMillis() + 30_000L
+            } finally {
+                loadingKeys.remove(key)
+            }
+        }
+        return null
+    }
+
+    fun findParentTile(zoom: Int, x: Int, y: Int, minZoom: Int = 2, maxSearchDepth: Int = 5): ParentTileInfo? {
+        val maxDiff = minOf(maxSearchDepth, zoom - minZoom)
+        for (d in 1..maxDiff) {
+            val pz = zoom - d
+            val px = x shr d
+            val py = y shr d
+            val cached = ramCache.get("$pz/$px/$py")
+            if (cached != null && !cached.isRecycled) {
+                val mask = (1 shl d) - 1
+                return ParentTileInfo(cached, d, x and mask, y and mask)
+            }
+        }
+        for (d in 1..maxDiff) {
+            val pz = zoom - d
+            val px = x shr d
+            val py = y shr d
+            val bmp = getOfflineTile(pz, px, py)
+            if (bmp != null && !bmp.isRecycled) {
+                val mask = (1 shl d) - 1
+                return ParentTileInfo(bmp, d, x and mask, y and mask)
+            }
+        }
+        return null
+    }
+
+    fun getChildTile(zoom: Int, x: Int, y: Int): Bitmap? {
+        val bmp = getOfflineTile(zoom, x, y)
+        return if (bmp != null && !bmp.isRecycled) bmp else null
+    }
 
     fun getTileBitmap(zoom: Int, x: Int, y: Int): Bitmap? {
         val key = "$zoom/$x/$y"
@@ -229,6 +308,7 @@ object OsmTileEngine {
     fun clearRamCache() {
         ramCache.evictAll()
         failedTileCooldown.clear()
+        nonExistentTiles.clear()
         activeNetworkDownloads.clear()
     }
 }

@@ -773,6 +773,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
         private val tileDstRect = RectF()
         private val tileSrcRect = Rect()
+        private val quadDstRect = RectF()
         private val anchorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#8000E5FF")
             style = Paint.Style.STROKE
@@ -1368,16 +1369,43 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         canvas.drawBitmap(bmp, null, tileDstRect, tileBitmapPaint)
                     } else {
                         var drawnFallback = false
-                        if (baseZoom > MIN_BASE_ZOOM) {
-                            val parentBmp = OsmTileEngine.getTileFromMemory(baseZoom - 1, clampedTx / 2, ty / 2)
-                            if (parentBmp != null) {
-                                val sLeft = if (clampedTx % 2 == 0) 0 else 128
-                                val sTop = if (ty % 2 == 0) 0 else 128
-                                tileSrcRect.set(sLeft, sTop, sLeft + 128, sTop + 128)
-                                canvas.drawBitmap(parentBmp, tileSrcRect, tileDstRect, tileBitmapPaint)
-                                drawnFallback = true
+
+                        // 1. Overscaling fallback: parent tile from lower zoom levels (scaled up)
+                        val parent = OsmTileEngine.findParentTile(baseZoom, clampedTx, ty, MIN_BASE_ZOOM)
+                        if (parent != null) {
+                            val subSize = parent.bitmap.width.toFloat() / (1 shl parent.zoomDiff)
+                            val sLeft = (parent.subX * subSize).toInt()
+                            val sTop = (parent.subY * subSize).toInt()
+                            val sRight = ((parent.subX + 1) * subSize).toInt().coerceAtMost(parent.bitmap.width)
+                            val sBottom = ((parent.subY + 1) * subSize).toInt().coerceAtMost(parent.bitmap.height)
+                            tileSrcRect.set(sLeft, sTop, sRight, sBottom)
+                            canvas.drawBitmap(parent.bitmap, tileSrcRect, tileDstRect, tileBitmapPaint)
+                            drawnFallback = true
+                        }
+
+                        // 2. Underscaling fallback: child tiles from higher zoom levels (quadrants)
+                        if (baseZoom < MAX_BASE_ZOOM) {
+                            val childZoom = baseZoom + 1
+                            val halfW = tileDstRect.width() / 2f
+                            val halfH = tileDstRect.height() / 2f
+                            for (cxIdx in 0..1) {
+                                for (cyIdx in 0..1) {
+                                    val childBmp = OsmTileEngine.getChildTile(
+                                        childZoom,
+                                        (clampedTx shl 1) + cxIdx,
+                                        (ty shl 1) + cyIdx
+                                    )
+                                    if (childBmp != null) {
+                                        val qLeft = tileDstRect.left + cxIdx * halfW
+                                        val qTop = tileDstRect.top + cyIdx * halfH
+                                        quadDstRect.set(qLeft, qTop, qLeft + halfW, qTop + halfH)
+                                        canvas.drawBitmap(childBmp, null, quadDstRect, tileBitmapPaint)
+                                        drawnFallback = true
+                                    }
+                                }
                             }
                         }
+
                         if (!drawnFallback) {
                             canvas.drawRect(screenLeft, screenTop, screenLeft + tileSize, screenTop + tileSize, tileGridPaint)
                         }

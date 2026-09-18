@@ -22,6 +22,7 @@ object MushroomStorageManager {
             if (!dir.exists()) {
                 dir.mkdirs()
             }
+            ensureNoMedia(dir)
             return dir
         }
 
@@ -40,6 +41,18 @@ object MushroomStorageManager {
     val settingsDir: File
         get() = File(baseDir, "settings").apply { if (!exists()) mkdirs() }
 
+    private fun ensureNoMedia(dir: File) {
+        try {
+            val nomedia = File(dir, ".nomedia")
+            if (!nomedia.exists()) {
+                nomedia.createNewFile()
+                AppLogger.log(TAG, "ensureNoMedia", true, "Created .nomedia file at: ${nomedia.absolutePath}")
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "ensureNoMedia", false, "Failed to create .nomedia: ${e.message}")
+        }
+    }
+
     fun initStorage() {
         try {
             baseDir
@@ -48,6 +61,7 @@ object MushroomStorageManager {
             markersDir
             tracksDir
             settingsDir
+            ensureNoMedia(baseDir)
             AppLogger.log(TAG, "initStorage", true, "Storage structure initialized at: ${baseDir.absolutePath}")
         } catch (e: Exception) {
             AppLogger.log(TAG, "initStorage", false, "Failed to initialize storage: ${e.message}")
