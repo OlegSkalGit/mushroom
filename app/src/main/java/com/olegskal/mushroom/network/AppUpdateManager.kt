@@ -66,21 +66,20 @@ object AppUpdateManager {
 
     fun checkAndDownloadUpdate(
         context: Context,
-        force: Boolean = false,
         onResult: ((String) -> Unit)? = null
     ) {
         val lastCheckMs = AppPrefs.getLastUpdateCheckMs(context)
         val now = System.currentTimeMillis()
 
-        if (!force && lastCheckMs != 0L && (now - lastCheckMs < CHECK_THROTTLE_MS)) {
-            val hoursLeft = (CHECK_THROTTLE_MS - (now - lastCheckMs)) / 3600000L
-            val msg = "Update check skipped (24h throttle active, next check in ~${hoursLeft}h)."
+        if (lastCheckMs != 0L && (now - lastCheckMs < CHECK_THROTTLE_MS)) {
+            val minutesLeft = (CHECK_THROTTLE_MS - (now - lastCheckMs)) / 60000L
+            val msg = "Update check skipped (throttle active, next check in ~${minutesLeft}m)."
             AppLogger.log("AppUpdateManager", "checkAndDownloadUpdate", true, msg)
             return
         }
 
         executor.execute {
-            performUpdateCheck(context, force, onResult)
+            performUpdateCheck(context, onResult)
         }
     }
 
@@ -118,7 +117,6 @@ object AppUpdateManager {
 
     private fun performUpdateCheck(
         context: Context,
-        force: Boolean,
         onResult: ((String) -> Unit)?
     ) {
         val appContext = context.applicationContext
@@ -182,16 +180,7 @@ object AppUpdateManager {
                 true,
                 "NEW VERSION DETECTED! Remote: $latestRemoteName ($latestRemoteVer) > Local: $installedVersionName ($localInstalledVer)"
             )
-
-            if (force) {
-                // Manual check: start update download immediately without asking
-                AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Manual check forced - starting update download immediately.")
-                startDownload(appContext, latestRemoteUrl, latestRemoteName, onResult)
-            } else {
-                // Automatic check: prompt user in English ("New version available (Current / New). Download? Later.")
-                AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Automatic check - prompting user for update approval.")
-                promptUserForUpdate(context, installedVersionName, latestRemoteName, latestRemoteUrl, onResult)
-            }
+            promptUserForUpdate(context, installedVersionName, latestRemoteName, latestRemoteUrl, onResult)
         } else {
             val upToDateMsg = "App is up to date (v$installedVersionName)"
             AppLogger.log(
@@ -300,13 +289,6 @@ object AppUpdateManager {
             ctx = ctx.baseContext
         }
         return null
-    }
-
-    fun performManualUpdateCheck(context: Context) {
-        Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
-        checkAndDownloadUpdate(context, force = true) { result ->
-            Toast.makeText(context, result, Toast.LENGTH_LONG).show()
-        }
     }
 
     private fun showUpdateNotification(
