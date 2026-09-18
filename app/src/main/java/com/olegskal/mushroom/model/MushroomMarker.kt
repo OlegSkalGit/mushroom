@@ -11,7 +11,7 @@ data class MushroomMarker(
     val altitude: Double = 0.0,
     val timestamp: Long = System.currentTimeMillis(),
     var note: String = "",
-    var color: Int = 0xFFFF9800.toInt(),
+    var color: Int = 0xFFF44336.toInt(),
     var isVisible: Boolean = true
 ) {
     fun toJson(): JSONObject {
@@ -40,7 +40,7 @@ data class MushroomMarker(
                 altitude = json.optDouble("altitude", 0.0),
                 timestamp = json.optLong("timestamp", System.currentTimeMillis()),
                 note = json.optString("note", ""),
-                color = json.optInt("color", 0xFFFF9800.toInt()),
+                color = json.optInt("color", 0xFFF44336.toInt()),
                 isVisible = json.optBoolean("isVisible", true)
             )
         }

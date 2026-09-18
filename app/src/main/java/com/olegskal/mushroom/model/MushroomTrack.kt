@@ -45,7 +45,7 @@ data class MushroomTrack(
     var distanceMeters: Float = 0f,
     var durationSec: Long = 0L,
     val points: MutableList<TrackPoint> = ArrayList(),
-    var color: Int = 0xFF4CAF50.toInt(),
+    var color: Int = 0xFF2196F3.toInt(),
     var isVisible: Boolean = true
 ) {
     fun toJson(): JSONObject {
@@ -114,7 +114,7 @@ data class MushroomTrack(
                 distanceMeters = json.optDouble("distanceMeters", 0.0).toFloat(),
                 durationSec = json.optLong("durationSec", 0L),
                 points = pts,
-                color = json.optInt("color", 0xFF4CAF50.toInt()),
+                color = json.optInt("color", 0xFF2196F3.toInt()),
                 isVisible = json.optBoolean("isVisible", true)
             )
         }

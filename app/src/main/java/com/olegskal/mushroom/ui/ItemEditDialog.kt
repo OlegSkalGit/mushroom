@@ -20,12 +20,13 @@ import java.util.Locale
 object ItemEditDialog {
 
     private val COLORS = intArrayOf(
-        0xFFFF9800.toInt(), // Orange
         0xFFF44336.toInt(), // Red
-        0xFFFFEB3B.toInt(), // Yellow
+        0xFF2196F3.toInt(), // Blue
         0xFF4CAF50.toInt(), // Green
+        0xFFFF9800.toInt(), // Orange
+        0xFFFFEB3B.toInt(), // Yellow
         0xFF00E5FF.toInt(), // Cyan
-        0xFFE040FB.toInt()  // Purple
+        0xFF9C27B0.toInt()  // Purple
     )
 
     private fun formatDate(): String {
@@ -49,7 +50,7 @@ object ItemEditDialog {
             dialogTitle = "🍄 New Marker",
             initialName = defaultName,
             colorTitle = "Marker color:",
-            initialColor = 0xFF4CAF50.toInt(),
+            initialColor = 0xFFF44336.toInt(),
             saveButtonText = "Save"
         ) { name, color ->
             val marker = MushroomMarker(
@@ -104,7 +105,7 @@ object ItemEditDialog {
             dialogTitle = "🧭 New Track",
             initialName = defaultTitle,
             colorTitle = "Track color:",
-            initialColor = 0xFF4CAF50.toInt(),
+            initialColor = 0xFF2196F3.toInt(),
             saveButtonText = "Record"
         ) { title, color ->
             onStartRecording(title, color)

@@ -59,6 +59,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private lateinit var tvRecordingBadge: TextView
     private lateinit var btnCenter: Button
     private lateinit var compassButton: CompassButton
+    private lateinit var btnAddMarker: FlagMarkerButton
+    private lateinit var btnRecordTrack: TrackRecordButton
 
     // Compass & motion sensors
     private lateinit var sensorManager: SensorManager
@@ -230,32 +232,40 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
-        val btnZoomIn = Button(this).apply {
-            text = "＋"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#DD2A2A2A"))
-            textSize = 20f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 0)
+        btnAddMarker = FlagMarkerButton(this).apply {
             layoutParams = ctrlParams
-            setOnClickListener { mapView.zoomIn() }
+            contentDescription = "Create Marker"
+            setOnClickListener {
+                val loc = mapView.currentLocation
+                val lat = if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) loc.latitude else mapView.mapCenterLat
+                val lon = if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) loc.longitude else mapView.mapCenterLon
+                val alt = loc?.altitude ?: 0.0
+                ItemEditDialog.showAddMarker(
+                    this@MushroomMapActivity,
+                    dbHelper,
+                    lat,
+                    lon,
+                    altitude = alt
+                ) {
+                    mapView.reloadMarkers()
+                }
+            }
         }
 
-        val btnZoomOut = Button(this).apply {
-            text = "－"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#DD2A2A2A"))
-            textSize = 20f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 0)
+        btnRecordTrack = TrackRecordButton(this).apply {
             layoutParams = ctrlParams
-            setOnClickListener { mapView.zoomOut() }
+            contentDescription = "Record Track"
+            val s = MushroomTrackingService.instance
+            setRecording(s?.isRecording == true)
+            setOnClickListener {
+                toggleTrackRecording()
+            }
         }
 
         rightControls.addView(compassButton)
         rightControls.addView(btnCenter)
-        rightControls.addView(btnZoomIn)
-        rightControls.addView(btnZoomOut)
+        rightControls.addView(btnAddMarker)
+        rightControls.addView(btnRecordTrack)
 
         val padR = (12 * resources.displayMetrics.density).toInt()
         val topOffset = (68 * resources.displayMetrics.density).toInt()
@@ -454,6 +464,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     }
 
     private fun updateRecordingUi(isRec: Boolean, distMeters: Float, durationSec: Long) {
+        if (::btnRecordTrack.isInitialized) {
+            btnRecordTrack.setRecording(isRec)
+        }
         if (isRec) {
             tvRecordingBadge.visibility = View.VISIBLE
             val km = distMeters / 1000f
@@ -468,6 +481,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private fun updateLiveStats() {
         val s = MushroomTrackingService.instance
         val isRec = s?.isRecording == true
+        if (::btnRecordTrack.isInitialized) {
+            btnRecordTrack.setRecording(isRec)
+        }
         if (isRec) {
             val dist = currentMetrics?.recordedDistanceMeters
                 ?: MushroomTrackingService.lastMetrics?.recordedDistanceMeters

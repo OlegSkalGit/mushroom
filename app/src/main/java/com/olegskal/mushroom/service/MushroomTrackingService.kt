@@ -166,7 +166,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
             }
             ACTION_START_RECORDING -> {
                 val title = intent.getStringExtra(EXTRA_TRACK_TITLE)
-                val color = if (intent.hasExtra(EXTRA_TRACK_COLOR)) intent.getIntExtra(EXTRA_TRACK_COLOR, 0xFF4CAF50.toInt()) else null
+                val color = if (intent.hasExtra(EXTRA_TRACK_COLOR)) intent.getIntExtra(EXTRA_TRACK_COLOR, 0xFF2196F3.toInt()) else null
                 startTrackRecording(title, color)
             }
             ACTION_STOP_RECORDING -> {
@@ -185,7 +185,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         val now = System.currentTimeMillis()
         val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
         val title = customTitle?.trim()?.ifEmpty { null } ?: "Track (${sdf.format(Date(now))})"
-        val color = customColor ?: 0xFF4CAF50.toInt()
+        val color = customColor ?: 0xFF2196F3.toInt()
 
         val track = MushroomTrack(
             id = now,

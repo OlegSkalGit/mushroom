@@ -40,7 +40,7 @@ The scripts automatically:
 ### 1. Offline OSM Maps (100% Native Canvas)
 - Custom native **Slippy Map** engine powered by Android `Canvas`.
 - Smooth panning and pinch-to-zoom gestures.
-- Action buttons for quick zoom, adding markers, recording tracks, and centering on current position (`📍 Center`).
+- Tactical floating action buttons: Add Marker (red flag icon), Record/Stop Track (blue polyline icon), and Center on location (`⌖`).
 - Multi-tier caching: RAM LruCache + disk tile persistence in `/sdcard/mushroom/maps/tiles/{z}/{x}/{y}.png`.
 - Full autonomy in dense forests without cellular connectivity.
 
@@ -52,7 +52,7 @@ The scripts automatically:
 - Background downloading with progress dialog and cancel support.
 
 ### 3. Mushroom Spot Markers (Waypoints)
-- **Add Marker** button: saves coordinates with custom name, color, type (Porcini, Chanterelle, Boletus, Honey agaric, Suillus, Car/Base, etc.), and optional notes.
+- **Add Marker** button (red flag): saves coordinates with custom name, red color by default, type (Porcini, Chanterelle, Boletus, Honey agaric, Suillus, Car/Base, etc.), and optional notes.
 - **Markers List**:
   - Displays precise distance (in meters/km) and compass direction (N, NE, E, SE, S, SW, W, NW) from your current position.
   - **Checkboxes**: toggle visibility of individual markers on the map.
@@ -61,7 +61,7 @@ The scripts automatically:
   - Long press on marker icon on map prompts for deletion.
 
 ### 4. Track Recording and Export
-- **Record Track** button: start/stop background recording of your foraging path.
+- **Record Track** button (blue polyline): start/stop background recording of your foraging path (blue track by default). Active recording state is highlighted with a red stop indicator.
 - GPS noise filtering: points are recorded only when displacement $\ge 2.5$ m and satellite accuracy $\le 35$ m (eliminating GPS drift webs while stationary).
 - Visual rendering of the active track with custom color.
 - **Tracks List**:
