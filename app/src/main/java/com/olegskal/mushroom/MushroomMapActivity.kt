@@ -535,9 +535,16 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             container.addView(btnBattery)
         }
 
+        // 5. Mushrooms
+        val btnMushrooms = UiUtils.createStyledButton(this, "🍄 Mushrooms", itemParams) {
+            dialog.dismiss()
+            startActivity(Intent(this@MushroomMapActivity, com.olegskal.mushroom.mushrooms.MushroomActivity::class.java))
+        }
+        container.addView(btnMushrooms)
+
         container.addView(UiUtils.createDialogDivider(this))
 
-        // 5. Exit
+        // 6. Exit
         val btnQuit = UiUtils.createStyledButton(this, "🚪 Exit", itemParams) {
             dialog.dismiss()
             val s = MushroomTrackingService.instance

@@ -93,6 +93,17 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".mushrooms.MushroomActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Transparent">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".service.MushroomTrackingService"
             android:exported="false"

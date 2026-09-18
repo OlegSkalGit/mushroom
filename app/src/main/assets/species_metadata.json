@@ -1,0 +1,3560 @@
+[
+  {
+    "index": 0,
+    "raw": "(poisonous) Rubroboletus_pulcherrimus",
+    "species": "Rubroboletus pulcherrimus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 1,
+    "raw": "(poisonous) Stropharia_aeruginosa",
+    "species": "Stropharia aeruginosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 2,
+    "raw": "(poisonous) Clitocybe_fragrans",
+    "species": "Clitocybe fragrans",
+    "edibility": "toxic"
+  },
+  {
+    "index": 3,
+    "raw": "(poisonous) jelly_tooth",
+    "species": "jelly tooth",
+    "edibility": "toxic"
+  },
+  {
+    "index": 4,
+    "raw": "(poisonous) Coprinopsis_romagnesiana",
+    "species": "Coprinopsis romagnesiana",
+    "edibility": "toxic"
+  },
+  {
+    "index": 5,
+    "raw": "(poisonous) Tricholoma_pardinum",
+    "species": "Tricholoma pardinum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 6,
+    "raw": "(poisonous) Amanita_frostiana",
+    "species": "Amanita frostiana",
+    "edibility": "toxic"
+  },
+  {
+    "index": 7,
+    "raw": "(poisonous) blackening_waxcap",
+    "species": "blackening waxcap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 8,
+    "raw": "(poisonous) Cudonia_circinans",
+    "species": "Cudonia circinans",
+    "edibility": "toxic"
+  },
+  {
+    "index": 9,
+    "raw": "(poisonous) Amanita_pseudoregalis",
+    "species": "Amanita pseudoregalis",
+    "edibility": "toxic"
+  },
+  {
+    "index": 10,
+    "raw": "(poisonous) Inocybe_lilacina",
+    "species": "Inocybe lilacina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 11,
+    "raw": "(poisonous) Hypholoma_lateritium",
+    "species": "Hypholoma lateritium",
+    "edibility": "toxic"
+  },
+  {
+    "index": 12,
+    "raw": "(poisonous) Entoloma_sinuatum",
+    "species": "Entoloma sinuatum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 13,
+    "raw": "(poisonous) Amanita_petalinivolva",
+    "species": "Amanita petalinivolva",
+    "edibility": "toxic"
+  },
+  {
+    "index": 14,
+    "raw": "(poisonous) Imperator_torosus",
+    "species": "Imperator torosus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 15,
+    "raw": "(poisonous) king_alfreds_cakes",
+    "species": "king alfreds cakes",
+    "edibility": "toxic"
+  },
+  {
+    "index": 16,
+    "raw": "(poisonous) Cortinarius_cinnabarinus",
+    "species": "Cortinarius cinnabarinus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 17,
+    "raw": "(poisonous) Helvella_lactea",
+    "species": "Helvella lactea",
+    "edibility": "toxic"
+  },
+  {
+    "index": 18,
+    "raw": "(poisonous) white_saddle",
+    "species": "white saddle",
+    "edibility": "toxic"
+  },
+  {
+    "index": 19,
+    "raw": "(poisonous) Cortinarius_limonius",
+    "species": "Cortinarius limonius",
+    "edibility": "toxic"
+  },
+  {
+    "index": 20,
+    "raw": "(poisonous) Amanita_gemmata",
+    "species": "Amanita gemmata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 21,
+    "raw": "(poisonous) Amanita_xanthocephala",
+    "species": "Amanita xanthocephala",
+    "edibility": "toxic"
+  },
+  {
+    "index": 22,
+    "raw": "(poisonous) warted_amanita",
+    "species": "warted amanita",
+    "edibility": "toxic"
+  },
+  {
+    "index": 23,
+    "raw": "(poisonous) Coprinopsis_alopecia",
+    "species": "Coprinopsis alopecia",
+    "edibility": "toxic"
+  },
+  {
+    "index": 24,
+    "raw": "(poisonous) Amanita_porphyria",
+    "species": "Amanita porphyria",
+    "edibility": "toxic"
+  },
+  {
+    "index": 25,
+    "raw": "(poisonous) Cortinarius_palustris",
+    "species": "Cortinarius palustris",
+    "edibility": "toxic"
+  },
+  {
+    "index": 26,
+    "raw": "(poisonous) spotted_toughshank",
+    "species": "spotted toughshank",
+    "edibility": "toxic"
+  },
+  {
+    "index": 27,
+    "raw": "(poisonous) Entoloma_albidum",
+    "species": "Entoloma albidum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 28,
+    "raw": "(poisonous) grey_spotted_amanita",
+    "species": "grey spotted amanita",
+    "edibility": "toxic"
+  },
+  {
+    "index": 29,
+    "raw": "(poisonous) Rubroboletus_satanas",
+    "species": "Rubroboletus satanas",
+    "edibility": "toxic"
+  },
+  {
+    "index": 30,
+    "raw": "(poisonous) Amanita_albocreata",
+    "species": "Amanita albocreata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 31,
+    "raw": "(poisonous) panthercap",
+    "species": "panthercap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 32,
+    "raw": "(poisonous) saffron_milkcap",
+    "species": "saffron milkcap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 33,
+    "raw": "(poisonous) Inocybe_hystrix",
+    "species": "Inocybe hystrix",
+    "edibility": "toxic"
+  },
+  {
+    "index": 34,
+    "raw": "(poisonous) deadly_webcap",
+    "species": "deadly webcap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 35,
+    "raw": "(poisonous) peppery_bolete",
+    "species": "peppery bolete",
+    "edibility": "toxic"
+  },
+  {
+    "index": 36,
+    "raw": "(poisonous) Coprinellus_micaceus",
+    "species": "Coprinellus micaceus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 37,
+    "raw": "(poisonous) Psilocybe_semilanceata",
+    "species": "Psilocybe semilanceata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 38,
+    "raw": "(poisonous) bovine_bolete",
+    "species": "bovine bolete",
+    "edibility": "toxic"
+  },
+  {
+    "index": 39,
+    "raw": "(poisonous) Panaeolus_cinctulus",
+    "species": "Panaeolus cinctulus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 40,
+    "raw": "(poisonous) Amanita_parvipantherina",
+    "species": "Amanita parvipantherina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 41,
+    "raw": "(poisonous) deadly_fibrecap",
+    "species": "deadly fibrecap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 42,
+    "raw": "(poisonous) Cortinarius_phoeniceus",
+    "species": "Cortinarius phoeniceus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 43,
+    "raw": "(poisonous) Amanita_farinosa",
+    "species": "Amanita farinosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 44,
+    "raw": "(poisonous) Hypholoma_marginatum",
+    "species": "Hypholoma marginatum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 45,
+    "raw": "(poisonous) orange_peel_fungus",
+    "species": "orange peel fungus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 46,
+    "raw": "(poisonous) Omphalotus_olearius",
+    "species": "Omphalotus olearius",
+    "edibility": "toxic"
+  },
+  {
+    "index": 47,
+    "raw": "(poisonous) ochre_brittlegill",
+    "species": "ochre brittlegill",
+    "edibility": "toxic"
+  },
+  {
+    "index": 48,
+    "raw": "(poisonous) Amanita_wellsii",
+    "species": "Amanita wellsii",
+    "edibility": "toxic"
+  },
+  {
+    "index": 49,
+    "raw": "(poisonous) old_man_of_the_woods",
+    "species": "old man of the woods",
+    "edibility": "toxic"
+  },
+  {
+    "index": 50,
+    "raw": "(poisonous) Tricholoma_equestre",
+    "species": "Tricholoma equestre",
+    "edibility": "toxic"
+  },
+  {
+    "index": 51,
+    "raw": "(poisonous) bruising_webcap",
+    "species": "bruising webcap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 52,
+    "raw": "(poisonous) Sarcosphaera_coronaria",
+    "species": "Sarcosphaera coronaria",
+    "edibility": "toxic"
+  },
+  {
+    "index": 53,
+    "raw": "(poisonous) Agrocybe_arenicola",
+    "species": "Agrocybe arenicola",
+    "edibility": "toxic"
+  },
+  {
+    "index": 54,
+    "raw": "(poisonous) white_false_death_cap",
+    "species": "white false death cap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 55,
+    "raw": "(poisonous) Rubroboletus_lupinus",
+    "species": "Rubroboletus lupinus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 56,
+    "raw": "(poisonous) Amanita_nehuta",
+    "species": "Amanita nehuta",
+    "edibility": "toxic"
+  },
+  {
+    "index": 57,
+    "raw": "(poisonous) Ramaria_pallida",
+    "species": "Ramaria pallida",
+    "edibility": "toxic"
+  },
+  {
+    "index": 58,
+    "raw": "(poisonous) Hebeloma_crustuliniforme",
+    "species": "Hebeloma crustuliniforme",
+    "edibility": "toxic"
+  },
+  {
+    "index": 59,
+    "raw": "(poisonous) Agaricus_menieri",
+    "species": "Agaricus menieri",
+    "edibility": "toxic"
+  },
+  {
+    "index": 60,
+    "raw": "(poisonous) Amanita_rubrovolvata",
+    "species": "Amanita rubrovolvata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 61,
+    "raw": "(poisonous) Echinoderma_asperum",
+    "species": "Echinoderma asperum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 62,
+    "raw": "(poisonous) Gyromitra_perlata",
+    "species": "Gyromitra perlata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 63,
+    "raw": "(poisonous) hairy_curtain_crust",
+    "species": "hairy curtain crust",
+    "edibility": "toxic"
+  },
+  {
+    "index": 64,
+    "raw": "(poisonous) Hebeloma_sinapizans",
+    "species": "Hebeloma sinapizans",
+    "edibility": "toxic"
+  },
+  {
+    "index": 65,
+    "raw": "(poisonous) Russula_olivacea",
+    "species": "Russula olivacea",
+    "edibility": "toxic"
+  },
+  {
+    "index": 66,
+    "raw": "(poisonous) Amanita_boudieri",
+    "species": "Amanita boudieri",
+    "edibility": "toxic"
+  },
+  {
+    "index": 67,
+    "raw": "(poisonous) blushing_rosette",
+    "species": "blushing rosette",
+    "edibility": "toxic"
+  },
+  {
+    "index": 68,
+    "raw": "(poisonous) blackening_polypore",
+    "species": "blackening polypore",
+    "edibility": "toxic"
+  },
+  {
+    "index": 69,
+    "raw": "(poisonous) bitter_beech_bolete",
+    "species": "bitter beech bolete",
+    "edibility": "toxic"
+  },
+  {
+    "index": 70,
+    "raw": "(poisonous) Gyromitra esculenta",
+    "species": "Gyromitra esculenta",
+    "edibility": "toxic"
+  },
+  {
+    "index": 71,
+    "raw": "(poisonous) Hypholoma_fasciculare",
+    "species": "Hypholoma fasciculare",
+    "edibility": "toxic"
+  },
+  {
+    "index": 72,
+    "raw": "(poisonous) Amanita_roseotincta",
+    "species": "Amanita roseotincta",
+    "edibility": "toxic"
+  },
+  {
+    "index": 73,
+    "raw": "(poisonous) jelly_ears",
+    "species": "jelly ears",
+    "edibility": "toxic"
+  },
+  {
+    "index": 74,
+    "raw": "(poisonous) the_sickener",
+    "species": "the sickener",
+    "edibility": "toxic"
+  },
+  {
+    "index": 75,
+    "raw": "(poisonous) Amanita_smithiana",
+    "species": "Amanita smithiana",
+    "edibility": "toxic"
+  },
+  {
+    "index": 76,
+    "raw": "(poisonous) Cortinarius_smithii",
+    "species": "Cortinarius smithii",
+    "edibility": "toxic"
+  },
+  {
+    "index": 77,
+    "raw": "(poisonous) black_morel",
+    "species": "black morel",
+    "edibility": "toxic"
+  },
+  {
+    "index": 78,
+    "raw": "(poisonous) Tricholoma_muscarium",
+    "species": "Tricholoma muscarium",
+    "edibility": "toxic"
+  },
+  {
+    "index": 79,
+    "raw": "(poisonous) inky_mushroom",
+    "species": "inky mushroom",
+    "edibility": "toxic"
+  },
+  {
+    "index": 80,
+    "raw": "(poisonous) Mycena_rosea",
+    "species": "Mycena rosea",
+    "edibility": "toxic"
+  },
+  {
+    "index": 81,
+    "raw": "(poisonous) penny_bun",
+    "species": "penny bun",
+    "edibility": "toxic"
+  },
+  {
+    "index": 82,
+    "raw": "(poisonous) suede_bolete",
+    "species": "suede bolete",
+    "edibility": "toxic"
+  },
+  {
+    "index": 83,
+    "raw": "(poisonous) Ramaria_neoformosa",
+    "species": "Ramaria neoformosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 84,
+    "raw": "(poisonous) Calocera_viscosa",
+    "species": "Calocera viscosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 85,
+    "raw": "(poisonous) Mycena_diosma",
+    "species": "Mycena diosma",
+    "edibility": "toxic"
+  },
+  {
+    "index": 86,
+    "raw": "(poisonous) Chlorophyllum_brunneum",
+    "species": "Chlorophyllum brunneum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 87,
+    "raw": "(poisonous) Cortinarius_cruentus",
+    "species": "Cortinarius cruentus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 88,
+    "raw": "(poisonous) Amanita_parcivolvata",
+    "species": "Amanita parcivolvata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 89,
+    "raw": "(poisonous) Cortinarius_cinnamomeoluteus",
+    "species": "Cortinarius cinnamomeoluteus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 90,
+    "raw": "(poisonous) Agaricus_hondensis",
+    "species": "Agaricus hondensis",
+    "edibility": "toxic"
+  },
+  {
+    "index": 91,
+    "raw": "(poisonous) Gyromitra gigas",
+    "species": "Gyromitra gigas",
+    "edibility": "toxic"
+  },
+  {
+    "index": 92,
+    "raw": "(poisonous) Agaricus_moelleri",
+    "species": "Agaricus moelleri",
+    "edibility": "toxic"
+  },
+  {
+    "index": 93,
+    "raw": "(poisonous) Amanita_velatipes",
+    "species": "Amanita velatipes",
+    "edibility": "toxic"
+  },
+  {
+    "index": 94,
+    "raw": "(poisonous) Helvella_lacunosa",
+    "species": "Helvella lacunosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 95,
+    "raw": "(poisonous) Imperator_rhodopurpureus",
+    "species": "Imperator rhodopurpureus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 96,
+    "raw": "(poisonous) scarlet_waxcap",
+    "species": "scarlet waxcap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 97,
+    "raw": "(poisonous) Echinoderma_calcicola",
+    "species": "Echinoderma calcicola",
+    "edibility": "toxic"
+  },
+  {
+    "index": 98,
+    "raw": "(poisonous) scarlet_elfcup",
+    "species": "scarlet elfcup",
+    "edibility": "toxic"
+  },
+  {
+    "index": 99,
+    "raw": "(poisonous) Ramaria_formosa",
+    "species": "Ramaria formosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 100,
+    "raw": "(poisonous) Agaricus_phaeolepidotus",
+    "species": "Agaricus phaeolepidotus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 101,
+    "raw": "(poisonous) Pholiotina_rugosa",
+    "species": "Pholiotina rugosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 102,
+    "raw": "(poisonous) Agaricus_placomyces",
+    "species": "Agaricus placomyces",
+    "edibility": "toxic"
+  },
+  {
+    "index": 103,
+    "raw": "(poisonous) Coprinopsis atramentaria",
+    "species": "Coprinopsis atramentaria",
+    "edibility": "toxic"
+  },
+  {
+    "index": 104,
+    "raw": "(poisonous) Amanita",
+    "species": "Amanita",
+    "edibility": "toxic"
+  },
+  {
+    "index": 105,
+    "raw": "(poisonous) Helvella_vespertina",
+    "species": "Helvella vespertina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 106,
+    "raw": "(poisonous) Amanita_ceciliae",
+    "species": "Amanita ceciliae",
+    "edibility": "toxic"
+  },
+  {
+    "index": 107,
+    "raw": "(poisonous) Omphalotus_illudens",
+    "species": "Omphalotus illudens",
+    "edibility": "toxic"
+  },
+  {
+    "index": 108,
+    "raw": "(poisonous) Russula_viscida",
+    "species": "Russula viscida",
+    "edibility": "toxic"
+  },
+  {
+    "index": 109,
+    "raw": "(poisonous) Amanita_neoovoidea",
+    "species": "Amanita neoovoidea",
+    "edibility": "toxic"
+  },
+  {
+    "index": 110,
+    "raw": "(poisonous) Conocybe_subovalis",
+    "species": "Conocybe subovalis",
+    "edibility": "toxic"
+  },
+  {
+    "index": 111,
+    "raw": "(poisonous) Helvella_dryophila",
+    "species": "Helvella dryophila",
+    "edibility": "toxic"
+  },
+  {
+    "index": 112,
+    "raw": "(poisonous) stinking_dapperling",
+    "species": "stinking dapperling",
+    "edibility": "toxic"
+  },
+  {
+    "index": 113,
+    "raw": "(poisonous) Calycina citrina",
+    "species": "Calycina citrina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 114,
+    "raw": "(poisonous) hedgehog_fungus",
+    "species": "hedgehog fungus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 115,
+    "raw": "(poisonous) Paralepistopsis_amoenolens",
+    "species": "Paralepistopsis amoenolens",
+    "edibility": "toxic"
+  },
+  {
+    "index": 116,
+    "raw": "(poisonous) Amanita muscaria",
+    "species": "Amanita muscaria",
+    "edibility": "toxic"
+  },
+  {
+    "index": 117,
+    "raw": "(poisonous) Choiromyces_venosus",
+    "species": "Choiromyces venosus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 118,
+    "raw": "(poisonous) Amanita_ibotengutake",
+    "species": "Amanita ibotengutake",
+    "edibility": "toxic"
+  },
+  {
+    "index": 119,
+    "raw": "(poisonous) Lactarius_torminosus",
+    "species": "Lactarius torminosus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 120,
+    "raw": "(poisonous) bronze_bolete",
+    "species": "bronze bolete",
+    "edibility": "toxic"
+  },
+  {
+    "index": 121,
+    "raw": "(poisonous) Inocybe_rimosa",
+    "species": "Inocybe rimosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 122,
+    "raw": "(poisonous) Amanita_citrina",
+    "species": "Amanita citrina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 123,
+    "raw": "(poisonous) Neonothopanus_nambi",
+    "species": "Neonothopanus nambi",
+    "edibility": "toxic"
+  },
+  {
+    "index": 124,
+    "raw": "(poisonous) trooping_funnel",
+    "species": "trooping funnel",
+    "edibility": "toxic"
+  },
+  {
+    "index": 125,
+    "raw": "(poisonous) yellow_false_truffle",
+    "species": "yellow false truffle",
+    "edibility": "toxic"
+  },
+  {
+    "index": 126,
+    "raw": "(poisonous) Amanita_heterochroma",
+    "species": "Amanita heterochroma",
+    "edibility": "toxic"
+  },
+  {
+    "index": 127,
+    "raw": "(poisonous) Cortinarius_callisteus",
+    "species": "Cortinarius callisteus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 128,
+    "raw": "(poisonous) blushing_bracket",
+    "species": "blushing bracket",
+    "edibility": "toxic"
+  },
+  {
+    "index": 129,
+    "raw": "(poisonous) lurid_bolete",
+    "species": "lurid bolete",
+    "edibility": "toxic"
+  },
+  {
+    "index": 130,
+    "raw": "(poisonous) Bjerkandera adusta",
+    "species": "Bjerkandera adusta",
+    "edibility": "toxic"
+  },
+  {
+    "index": 131,
+    "raw": "(poisonous) Tricholoma_filamentosum",
+    "species": "Tricholoma filamentosum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 132,
+    "raw": "(poisonous) Entoloma_rhodopolium",
+    "species": "Entoloma rhodopolium",
+    "edibility": "toxic"
+  },
+  {
+    "index": 133,
+    "raw": "(poisonous) oak_polypore",
+    "species": "oak polypore",
+    "edibility": "toxic"
+  },
+  {
+    "index": 134,
+    "raw": "(poisonous) Mycena_pura",
+    "species": "Mycena pura",
+    "edibility": "toxic"
+  },
+  {
+    "index": 135,
+    "raw": "(poisonous) larch_bolete",
+    "species": "larch bolete",
+    "edibility": "toxic"
+  },
+  {
+    "index": 136,
+    "raw": "(poisonous) Cortinarius_malicorius",
+    "species": "Cortinarius malicorius",
+    "edibility": "toxic"
+  },
+  {
+    "index": 137,
+    "raw": "(poisonous) Xanthoria parietina",
+    "species": "Xanthoria parietina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 138,
+    "raw": "(poisonous) Amanita_eliae",
+    "species": "Amanita eliae",
+    "edibility": "toxic"
+  },
+  {
+    "index": 139,
+    "raw": "(poisonous) Amanita citrina",
+    "species": "Amanita citrina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 140,
+    "raw": "(poisonous) Amanita_gioiosa",
+    "species": "Amanita gioiosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 141,
+    "raw": "(poisonous) yellow_stagshorn",
+    "species": "yellow stagshorn",
+    "edibility": "toxic"
+  },
+  {
+    "index": 142,
+    "raw": "(poisonous) yellow_stainer",
+    "species": "yellow stainer",
+    "edibility": "toxic"
+  },
+  {
+    "index": 143,
+    "raw": "(poisonous) Cortinarius_bolaris",
+    "species": "Cortinarius bolaris",
+    "edibility": "toxic"
+  },
+  {
+    "index": 144,
+    "raw": "(poisonous) Cortinarius_rubicundulus",
+    "species": "Cortinarius rubicundulus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 145,
+    "raw": "(poisonous) giant_puffball",
+    "species": "giant puffball",
+    "edibility": "toxic"
+  },
+  {
+    "index": 146,
+    "raw": "(poisonous) Ampulloclitocybe_clavipes",
+    "species": "Ampulloclitocybe clavipes",
+    "edibility": "toxic"
+  },
+  {
+    "index": 147,
+    "raw": "(poisonous) Amanita_regalis",
+    "species": "Amanita regalis",
+    "edibility": "toxic"
+  },
+  {
+    "index": 148,
+    "raw": "(poisonous) Inocybe_sublilacina",
+    "species": "Inocybe sublilacina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 149,
+    "raw": "(poisonous) parasol",
+    "species": "parasol",
+    "edibility": "toxic"
+  },
+  {
+    "index": 150,
+    "raw": "(poisonous) Helvella_crispa",
+    "species": "Helvella crispa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 151,
+    "raw": "(poisonous) Agaricus_xanthodermus",
+    "species": "Agaricus xanthodermus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 152,
+    "raw": "(poisonous) Omphalotus_nidiformis",
+    "species": "Omphalotus nidiformis",
+    "edibility": "toxic"
+  },
+  {
+    "index": 153,
+    "raw": "(poisonous) Clitocybe_cerussata",
+    "species": "Clitocybe cerussata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 154,
+    "raw": "(poisonous) Inocybe_lacera",
+    "species": "Inocybe lacera",
+    "edibility": "toxic"
+  },
+  {
+    "index": 155,
+    "raw": "(poisonous) Agaricus_californicus",
+    "species": "Agaricus californicus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 156,
+    "raw": "(poisonous) Rubroboletus_legaliae",
+    "species": "Rubroboletus legaliae",
+    "edibility": "toxic"
+  },
+  {
+    "index": 157,
+    "raw": "(poisonous) Turbinellus_kauffmanii",
+    "species": "Turbinellus kauffmanii",
+    "edibility": "toxic"
+  },
+  {
+    "index": 158,
+    "raw": "(poisonous) Clitocybe_dealbata",
+    "species": "Clitocybe dealbata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 159,
+    "raw": "(poisonous) turkey_tail",
+    "species": "turkey tail",
+    "edibility": "toxic"
+  },
+  {
+    "index": 160,
+    "raw": "(poisonous) Amanita_subfrostiana",
+    "species": "Amanita subfrostiana",
+    "edibility": "toxic"
+  },
+  {
+    "index": 161,
+    "raw": "(poisonous) Inocybe_geophylla",
+    "species": "Inocybe geophylla",
+    "edibility": "toxic"
+  },
+  {
+    "index": 162,
+    "raw": "(poisonous) false_deathcap",
+    "species": "false deathcap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 163,
+    "raw": "(poisonous) greencracked_brittlegill",
+    "species": "greencracked brittlegill",
+    "edibility": "toxic"
+  },
+  {
+    "index": 164,
+    "raw": "(poisonous) Armillaria_mellea",
+    "species": "Armillaria mellea",
+    "edibility": "toxic"
+  },
+  {
+    "index": 165,
+    "raw": "(poisonous) Marasmius_collinus",
+    "species": "Marasmius collinus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 166,
+    "raw": "(poisonous) Lactarius_chrysorrheus",
+    "species": "Lactarius chrysorrheus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 167,
+    "raw": "(poisonous) Omphalotus_olivascens",
+    "species": "Omphalotus olivascens",
+    "edibility": "toxic"
+  },
+  {
+    "index": 168,
+    "raw": "(poisonous) Lactarius_helvus",
+    "species": "Lactarius helvus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 169,
+    "raw": "(poisonous) yellow_foot_waxcap",
+    "species": "yellow foot waxcap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 170,
+    "raw": "(poisonous) blushing_wood_mushroom",
+    "species": "blushing wood mushroom",
+    "edibility": "toxic"
+  },
+  {
+    "index": 171,
+    "raw": "(poisonous) blackening_brittlegill",
+    "species": "blackening brittlegill",
+    "edibility": "toxic"
+  },
+  {
+    "index": 172,
+    "raw": "(poisonous) deathcap",
+    "species": "deathcap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 173,
+    "raw": "(poisonous) Amanita_pseudoporphyria",
+    "species": "Amanita pseudoporphyria",
+    "edibility": "toxic"
+  },
+  {
+    "index": 174,
+    "raw": "(poisonous) Hypholoma_radicosum",
+    "species": "Hypholoma radicosum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 175,
+    "raw": "(poisonous) Amanita rubescens",
+    "species": "Amanita rubescens",
+    "edibility": "toxic"
+  },
+  {
+    "index": 176,
+    "raw": "(poisonous) Amanita_echinocephala",
+    "species": "Amanita echinocephala",
+    "edibility": "toxic"
+  },
+  {
+    "index": 177,
+    "raw": "(poisonous) Amanita_aprica",
+    "species": "Amanita aprica",
+    "edibility": "toxic"
+  },
+  {
+    "index": 178,
+    "raw": "(poisonous) Omphalotus_japonicus",
+    "species": "Omphalotus japonicus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 179,
+    "raw": "(poisonous) Coprinopsis_atramentaria",
+    "species": "Coprinopsis atramentaria",
+    "edibility": "toxic"
+  },
+  {
+    "index": 180,
+    "raw": "(poisonous) Amanita_hongoi",
+    "species": "Amanita hongoi",
+    "edibility": "toxic"
+  },
+  {
+    "index": 181,
+    "raw": "(poisonous) Hapalopilus_nidulans",
+    "species": "Hapalopilus nidulans",
+    "edibility": "toxic"
+  },
+  {
+    "index": 182,
+    "raw": "(poisonous) Cortinarius_cinnamomeus",
+    "species": "Cortinarius cinnamomeus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 183,
+    "raw": "(poisonous) Suillus_granulatus",
+    "species": "Suillus granulatus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 184,
+    "raw": "(poisonous) Russula_subnigricans",
+    "species": "Russula subnigricans",
+    "edibility": "toxic"
+  },
+  {
+    "index": 185,
+    "raw": "(poisonous) Amanita_cokeri",
+    "species": "Amanita cokeri",
+    "edibility": "toxic"
+  },
+  {
+    "index": 186,
+    "raw": "(poisonous) Amanita_pantherina",
+    "species": "Amanita pantherina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 187,
+    "raw": "(poisonous) Amanita_abrupta",
+    "species": "Amanita abrupta",
+    "edibility": "toxic"
+  },
+  {
+    "index": 188,
+    "raw": "(poisonous) Lepiota_cristata",
+    "species": "Lepiota cristata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 189,
+    "raw": "(poisonous) Tricholoma_sulphureum",
+    "species": "Tricholoma sulphureum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 190,
+    "raw": "(poisonous) Inocybe_sambucina",
+    "species": "Inocybe sambucina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 191,
+    "raw": "(poisonous) Amanita_flavoconia",
+    "species": "Amanita flavoconia",
+    "edibility": "toxic"
+  },
+  {
+    "index": 192,
+    "raw": "(poisonous) brown_birch_bolete",
+    "species": "brown birch bolete",
+    "edibility": "toxic"
+  },
+  {
+    "index": 193,
+    "raw": "(poisonous) Inocybe_fibrosa",
+    "species": "Inocybe fibrosa",
+    "edibility": "toxic"
+  },
+  {
+    "index": 194,
+    "raw": "(poisonous) oak_mazegill",
+    "species": "oak mazegill",
+    "edibility": "toxic"
+  },
+  {
+    "index": 195,
+    "raw": "(poisonous) Turbinellus_floccosus",
+    "species": "Turbinellus floccosus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 196,
+    "raw": "(poisonous) Amanita_cothurnata",
+    "species": "Amanita cothurnata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 197,
+    "raw": "(poisonous) Scleroderma_citrinum",
+    "species": "Scleroderma citrinum",
+    "edibility": "toxic"
+  },
+  {
+    "index": 198,
+    "raw": "(poisonous) scarletina_bolete",
+    "species": "scarletina bolete",
+    "edibility": "toxic"
+  },
+  {
+    "index": 199,
+    "raw": "(poisonous) destroying_angel",
+    "species": "destroying angel",
+    "edibility": "toxic"
+  },
+  {
+    "index": 200,
+    "raw": "(poisonous) Amanita_pseudorubescens",
+    "species": "Amanita pseudorubescens",
+    "edibility": "toxic"
+  },
+  {
+    "index": 201,
+    "raw": "(poisonous) Amanita_flavorubescens",
+    "species": "Amanita flavorubescens",
+    "edibility": "toxic"
+  },
+  {
+    "index": 202,
+    "raw": "(poisonous) Cortinarius_mirandus",
+    "species": "Cortinarius mirandus",
+    "edibility": "toxic"
+  },
+  {
+    "index": 203,
+    "raw": "(poisonous) Amanita_gracilior",
+    "species": "Amanita gracilior",
+    "edibility": "toxic"
+  },
+  {
+    "index": 204,
+    "raw": "(poisonous) Chlorophyllum_molybdites",
+    "species": "Chlorophyllum molybdites",
+    "edibility": "toxic"
+  },
+  {
+    "index": 205,
+    "raw": "(poisonous) Amanita_viscidolutea",
+    "species": "Amanita viscidolutea",
+    "edibility": "toxic"
+  },
+  {
+    "index": 206,
+    "raw": "(poisonous) Gyromitra infula",
+    "species": "Gyromitra infula",
+    "edibility": "toxic"
+  },
+  {
+    "index": 207,
+    "raw": "(poisonous) Russula_emetica",
+    "species": "Russula emetica",
+    "edibility": "toxic"
+  },
+  {
+    "index": 208,
+    "raw": "(poisonous) Amanita_breckonii",
+    "species": "Amanita breckonii",
+    "edibility": "toxic"
+  },
+  {
+    "index": 209,
+    "raw": "(poisonous) Amanita pantherina",
+    "species": "Amanita pantherina",
+    "edibility": "toxic"
+  },
+  {
+    "index": 210,
+    "raw": "(poisonous) stinkhorn",
+    "species": "stinkhorn",
+    "edibility": "toxic"
+  },
+  {
+    "index": 211,
+    "raw": "(poisonous) Clitocybe_nebularis",
+    "species": "Clitocybe nebularis",
+    "edibility": "toxic"
+  },
+  {
+    "index": 212,
+    "raw": "(poisonous) Trogia_venenata",
+    "species": "Trogia venenata",
+    "edibility": "toxic"
+  },
+  {
+    "index": 213,
+    "raw": "(poisonous) liberty_cap",
+    "species": "liberty cap",
+    "edibility": "toxic"
+  },
+  {
+    "index": 214,
+    "raw": "(conditionally_edible) shaggy_scalycap",
+    "species": "(conditionally edible) shaggy scalycap",
+    "edibility": "edible"
+  },
+  {
+    "index": 215,
+    "raw": "(conditionally_edible) Imleria badia",
+    "species": "(conditionally edible) Imleria badia",
+    "edibility": "edible"
+  },
+  {
+    "index": 216,
+    "raw": "(conditionally_edible) Rhytisma acerinum",
+    "species": "(conditionally edible) Rhytisma acerinum",
+    "edibility": "edible"
+  },
+  {
+    "index": 217,
+    "raw": "(conditionally_edible) Clitocybe nebularis",
+    "species": "(conditionally edible) Clitocybe nebularis",
+    "edibility": "edible"
+  },
+  {
+    "index": 218,
+    "raw": "(conditionally_edible) Amanita_rubescens",
+    "species": "(conditionally edible) Amanita rubescens",
+    "edibility": "edible"
+  },
+  {
+    "index": 219,
+    "raw": "(conditionally_edible) Suillus luteus",
+    "species": "(conditionally edible) Suillus luteus",
+    "edibility": "edible"
+  },
+  {
+    "index": 220,
+    "raw": "(conditionally_edible) Nectria cinnabarina",
+    "species": "(conditionally edible) Nectria cinnabarina",
+    "edibility": "edible"
+  },
+  {
+    "index": 221,
+    "raw": "(conditionally_edible) orange_bolete",
+    "species": "(conditionally edible) orange bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 222,
+    "raw": "(conditionally_edible) egghead_mottlegill",
+    "species": "(conditionally edible) egghead mottlegill",
+    "edibility": "edible"
+  },
+  {
+    "index": 223,
+    "raw": "(conditionally_edible) crimson_waxcap",
+    "species": "(conditionally edible) crimson waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 224,
+    "raw": "(conditionally_edible) Leccinum versipelle",
+    "species": "(conditionally edible) Leccinum versipelle",
+    "edibility": "edible"
+  },
+  {
+    "index": 225,
+    "raw": "(conditionally_edible) weeping_widow",
+    "species": "(conditionally edible) weeping widow",
+    "edibility": "edible"
+  },
+  {
+    "index": 226,
+    "raw": "(conditionally_edible) pavement_mushroom",
+    "species": "(conditionally edible) pavement mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 227,
+    "raw": "(conditionally_edible) common_inkcap",
+    "species": "(conditionally edible) common inkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 228,
+    "raw": "(conditionally_edible) false_chanterelle",
+    "species": "(conditionally edible) false chanterelle",
+    "edibility": "edible"
+  },
+  {
+    "index": 229,
+    "raw": "(conditionally_edible) woolly_milkcap",
+    "species": "(conditionally edible) woolly milkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 230,
+    "raw": "(conditionally_edible) freckled_dapperling",
+    "species": "(conditionally edible) freckled dapperling",
+    "edibility": "edible"
+  },
+  {
+    "index": 231,
+    "raw": "(conditionally_edible) earthballs",
+    "species": "(conditionally edible) earthballs",
+    "edibility": "edible"
+  },
+  {
+    "index": 232,
+    "raw": "(conditionally_edible) Phellinus igniarius",
+    "species": "(conditionally edible) Phellinus igniarius",
+    "edibility": "edible"
+  },
+  {
+    "index": 233,
+    "raw": "(conditionally_edible) Stereum hirsutum",
+    "species": "(conditionally edible) Stereum hirsutum",
+    "edibility": "edible"
+  },
+  {
+    "index": 234,
+    "raw": "(conditionally_edible) white_domecap",
+    "species": "(conditionally edible) white domecap",
+    "edibility": "edible"
+  },
+  {
+    "index": 235,
+    "raw": "(conditionally_edible) Lactarius",
+    "species": "(conditionally edible) Lactarius",
+    "edibility": "edible"
+  },
+  {
+    "index": 236,
+    "raw": "(conditionally_edible) Trametes ochracea",
+    "species": "(conditionally edible) Trametes ochracea",
+    "edibility": "edible"
+  },
+  {
+    "index": 237,
+    "raw": "(conditionally_edible) Cantharellus cibarius",
+    "species": "(conditionally edible) Cantharellus cibarius",
+    "edibility": "edible"
+  },
+  {
+    "index": 238,
+    "raw": "(conditionally_edible) Calocera viscosa",
+    "species": "(conditionally edible) Calocera viscosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 239,
+    "raw": "(conditionally_edible) Pseudevernia furfuracea",
+    "species": "(conditionally edible) Pseudevernia furfuracea",
+    "edibility": "edible"
+  },
+  {
+    "index": 240,
+    "raw": "(conditionally_edible) giant_funnel",
+    "species": "(conditionally edible) giant funnel",
+    "edibility": "edible"
+  },
+  {
+    "index": 241,
+    "raw": "(conditionally_edible) Lepista_saeva",
+    "species": "(conditionally edible) Lepista saeva",
+    "edibility": "edible"
+  },
+  {
+    "index": 242,
+    "raw": "(conditionally_edible) tripe_fungus",
+    "species": "(conditionally edible) tripe fungus",
+    "edibility": "edible"
+  },
+  {
+    "index": 243,
+    "raw": "(conditionally_edible) shaggy_parasol",
+    "species": "(conditionally edible) shaggy parasol",
+    "edibility": "edible"
+  },
+  {
+    "index": 244,
+    "raw": "(conditionally_edible) Leccinum albostipitatum",
+    "species": "(conditionally edible) Leccinum albostipitatum",
+    "edibility": "edible"
+  },
+  {
+    "index": 245,
+    "raw": "(conditionally_edible) brown_rollrim",
+    "species": "(conditionally edible) brown rollrim",
+    "edibility": "edible"
+  },
+  {
+    "index": 246,
+    "raw": "(conditionally_edible) red_belted_bracket",
+    "species": "(conditionally edible) red belted bracket",
+    "edibility": "edible"
+  },
+  {
+    "index": 247,
+    "raw": "(conditionally_edible) Fomitopsis betulina",
+    "species": "(conditionally edible) Fomitopsis betulina",
+    "edibility": "edible"
+  },
+  {
+    "index": 248,
+    "raw": "(conditionally_edible) Trichaptum biforme",
+    "species": "(conditionally edible) Trichaptum biforme",
+    "edibility": "edible"
+  },
+  {
+    "index": 249,
+    "raw": "(conditionally_edible) poison_pie",
+    "species": "(conditionally edible) poison pie",
+    "edibility": "edible"
+  },
+  {
+    "index": 250,
+    "raw": "(conditionally_edible) fleecy_milkcap",
+    "species": "(conditionally edible) fleecy milkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 251,
+    "raw": "(conditionally_edible) Suillus grevillei",
+    "species": "(conditionally edible) Suillus grevillei",
+    "edibility": "edible"
+  },
+  {
+    "index": 252,
+    "raw": "(conditionally_edible) Evernia prunastri",
+    "species": "(conditionally edible) Evernia prunastri",
+    "edibility": "edible"
+  },
+  {
+    "index": 253,
+    "raw": "(conditionally_edible) Pholiota squarrosa",
+    "species": "(conditionally edible) Pholiota squarrosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 254,
+    "raw": "(conditionally_edible) vermillion_waxcap",
+    "species": "(conditionally edible) vermillion waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 255,
+    "raw": "(conditionally_edible) cinnamon_bracket",
+    "species": "(conditionally edible) cinnamon bracket",
+    "edibility": "edible"
+  },
+  {
+    "index": 256,
+    "raw": "(conditionally_edible) white_fibrecap",
+    "species": "(conditionally edible) white fibrecap",
+    "edibility": "edible"
+  },
+  {
+    "index": 257,
+    "raw": "(conditionally_edible) Trametes versicolor",
+    "species": "(conditionally edible) Trametes versicolor",
+    "edibility": "edible"
+  },
+  {
+    "index": 258,
+    "raw": "(conditionally_edible) slimy_waxcap",
+    "species": "(conditionally edible) slimy waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 259,
+    "raw": "(conditionally_edible) leccinum_albostipitatum",
+    "species": "(conditionally edible) leccinum albostipitatum",
+    "edibility": "edible"
+  },
+  {
+    "index": 260,
+    "raw": "(conditionally_edible) dusky_puffball",
+    "species": "(conditionally edible) dusky puffball",
+    "edibility": "edible"
+  },
+  {
+    "index": 261,
+    "raw": "(conditionally_edible) Paxillus involutus",
+    "species": "(conditionally edible) Paxillus involutus",
+    "edibility": "edible"
+  },
+  {
+    "index": 262,
+    "raw": "(conditionally_edible) Gyromitra_esculenta",
+    "species": "(conditionally edible) Gyromitra esculenta",
+    "edibility": "edible"
+  },
+  {
+    "index": 263,
+    "raw": "(conditionally_edible) hoof_fungus",
+    "species": "(conditionally edible) hoof fungus",
+    "edibility": "edible"
+  },
+  {
+    "index": 264,
+    "raw": "(conditionally_edible) sepia_bolete",
+    "species": "(conditionally edible) sepia bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 265,
+    "raw": "(conditionally_edible) Laetiporus sulphureus",
+    "species": "(conditionally edible) Laetiporus sulphureus",
+    "edibility": "edible"
+  },
+  {
+    "index": 266,
+    "raw": "(conditionally_edible) Sarcoscypha austriaca",
+    "species": "(conditionally edible) Sarcoscypha austriaca",
+    "edibility": "edible"
+  },
+  {
+    "index": 267,
+    "raw": "(conditionally_edible) scarlet_caterpillarclub",
+    "species": "(conditionally edible) scarlet caterpillarclub",
+    "edibility": "edible"
+  },
+  {
+    "index": 268,
+    "raw": "(conditionally_edible) Suillus",
+    "species": "(conditionally edible) Suillus",
+    "edibility": "edible"
+  },
+  {
+    "index": 269,
+    "raw": "(conditionally_edible) Sarcosoma globosum",
+    "species": "(conditionally edible) Sarcosoma globosum",
+    "edibility": "edible"
+  },
+  {
+    "index": 270,
+    "raw": "(conditionally_edible) Phlebia radiata",
+    "species": "(conditionally edible) Phlebia radiata",
+    "edibility": "edible"
+  },
+  {
+    "index": 271,
+    "raw": "(conditionally_edible) amethyst_deceiver",
+    "species": "(conditionally edible) amethyst deceiver",
+    "edibility": "edible"
+  },
+  {
+    "index": 272,
+    "raw": "(conditionally_edible) scaly_wood_mushroom",
+    "species": "(conditionally edible) scaly wood mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 273,
+    "raw": "(conditionally_edible) Chondrostereum purpureum",
+    "species": "(conditionally edible) Chondrostereum purpureum",
+    "edibility": "edible"
+  },
+  {
+    "index": 274,
+    "raw": "(conditionally_edible) tuberous_polypore",
+    "species": "(conditionally edible) tuberous polypore",
+    "edibility": "edible"
+  },
+  {
+    "index": 275,
+    "raw": "(conditionally_edible) orange_grisette",
+    "species": "(conditionally edible) orange grisette",
+    "edibility": "edible"
+  },
+  {
+    "index": 276,
+    "raw": "(conditionally_edible) Phaeophyscia orbicularis",
+    "species": "(conditionally edible) Phaeophyscia orbicularis",
+    "edibility": "edible"
+  },
+  {
+    "index": 277,
+    "raw": "(conditionally_edible) rooting_shank",
+    "species": "(conditionally edible) rooting shank",
+    "edibility": "edible"
+  },
+  {
+    "index": 278,
+    "raw": "(conditionally_edible) splitgill",
+    "species": "(conditionally edible) splitgill",
+    "edibility": "edible"
+  },
+  {
+    "index": 279,
+    "raw": "(conditionally_edible) geranium_brittlegill",
+    "species": "(conditionally edible) geranium brittlegill",
+    "edibility": "edible"
+  },
+  {
+    "index": 280,
+    "raw": "(conditionally_edible) Fomitopsis pinicola",
+    "species": "(conditionally edible) Fomitopsis pinicola",
+    "edibility": "edible"
+  },
+  {
+    "index": 281,
+    "raw": "(conditionally_edible) Coprinellus disseminatus",
+    "species": "(conditionally edible) Coprinellus disseminatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 282,
+    "raw": "(conditionally_edible) orange_birch_bolete",
+    "species": "(conditionally edible) orange birch bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 283,
+    "raw": "(conditionally_edible) Cladonia fimbriata",
+    "species": "(conditionally edible) Cladonia fimbriata",
+    "edibility": "edible"
+  },
+  {
+    "index": 284,
+    "raw": "(conditionally_edible) funeral_bell",
+    "species": "(conditionally edible) funeral bell",
+    "edibility": "edible"
+  },
+  {
+    "index": 285,
+    "raw": "(conditionally_edible) mosaic_puffball",
+    "species": "(conditionally edible) mosaic puffball",
+    "edibility": "edible"
+  },
+  {
+    "index": 286,
+    "raw": "(conditionally_edible) dog_stinkhorn",
+    "species": "(conditionally edible) dog stinkhorn",
+    "edibility": "edible"
+  },
+  {
+    "index": 287,
+    "raw": "(conditionally_edible) Verpa bohemica",
+    "species": "(conditionally edible) Verpa bohemica",
+    "edibility": "edible"
+  },
+  {
+    "index": 288,
+    "raw": "(conditionally_edible) butter_cap",
+    "species": "(conditionally edible) butter cap",
+    "edibility": "edible"
+  },
+  {
+    "index": 289,
+    "raw": "(conditionally_edible) Hygrophoropsis aurantiaca",
+    "species": "(conditionally edible) Hygrophoropsis aurantiaca",
+    "edibility": "edible"
+  },
+  {
+    "index": 290,
+    "raw": "(conditionally_edible) lilac_fibrecap",
+    "species": "(conditionally edible) lilac fibrecap",
+    "edibility": "edible"
+  },
+  {
+    "index": 291,
+    "raw": "(conditionally_edible) pink_waxcap",
+    "species": "(conditionally edible) pink waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 292,
+    "raw": "(conditionally_edible) Pholiota aurivella",
+    "species": "(conditionally edible) Pholiota aurivella",
+    "edibility": "edible"
+  },
+  {
+    "index": 293,
+    "raw": "(conditionally_edible) Cladonia stellaris",
+    "species": "(conditionally edible) Cladonia stellaris",
+    "edibility": "edible"
+  },
+  {
+    "index": 294,
+    "raw": "(conditionally_edible) Trametes hirsuta",
+    "species": "(conditionally edible) Trametes hirsuta",
+    "edibility": "edible"
+  },
+  {
+    "index": 295,
+    "raw": "(conditionally_edible) terracotta_hedgehog",
+    "species": "(conditionally edible) terracotta hedgehog",
+    "edibility": "edible"
+  },
+  {
+    "index": 296,
+    "raw": "(conditionally_edible) Cladonia rangiferina",
+    "species": "(conditionally edible) Cladonia rangiferina",
+    "edibility": "edible"
+  },
+  {
+    "index": 297,
+    "raw": "(conditionally_edible) winter_chanterelle",
+    "species": "(conditionally edible) winter chanterelle",
+    "edibility": "edible"
+  },
+  {
+    "index": 298,
+    "raw": "(conditionally_edible) shaggy_inkcap",
+    "species": "(conditionally edible) shaggy inkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 299,
+    "raw": "(conditionally_edible) slender_parasol",
+    "species": "(conditionally edible) slender parasol",
+    "edibility": "edible"
+  },
+  {
+    "index": 300,
+    "raw": "(conditionally_edible) wood_mushroom",
+    "species": "(conditionally edible) wood mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 301,
+    "raw": "(conditionally_edible) Inonotus obliquus",
+    "species": "(conditionally edible) Inonotus obliquus",
+    "edibility": "edible"
+  },
+  {
+    "index": 302,
+    "raw": "(conditionally_edible) rosy_bonnet",
+    "species": "(conditionally edible) rosy bonnet",
+    "edibility": "edible"
+  },
+  {
+    "index": 303,
+    "raw": "(conditionally_edible) splendid_waxcap",
+    "species": "(conditionally edible) splendid waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 304,
+    "raw": "(conditionally_edible) Cetraria islandica",
+    "species": "(conditionally edible) Cetraria islandica",
+    "edibility": "edible"
+  },
+  {
+    "index": 305,
+    "raw": "(Mushrooms) Lactarius",
+    "species": "(Mushrooms) Lactarius",
+    "edibility": "edible"
+  },
+  {
+    "index": 306,
+    "raw": "(Mushrooms) Russula",
+    "species": "(Mushrooms) Russula",
+    "edibility": "edible"
+  },
+  {
+    "index": 307,
+    "raw": "(Mushrooms) Suillus",
+    "species": "(Mushrooms) Suillus",
+    "edibility": "edible"
+  },
+  {
+    "index": 308,
+    "raw": "(Mushrooms) Amanita",
+    "species": "(Mushrooms) Amanita",
+    "edibility": "edible"
+  },
+  {
+    "index": 309,
+    "raw": "(Mushrooms) Cortinarius",
+    "species": "(Mushrooms) Cortinarius",
+    "edibility": "edible"
+  },
+  {
+    "index": 310,
+    "raw": "(Mushrooms) Boletus",
+    "species": "(Mushrooms) Boletus",
+    "edibility": "edible"
+  },
+  {
+    "index": 311,
+    "raw": "(Mushrooms) Hygrocybe",
+    "species": "(Mushrooms) Hygrocybe",
+    "edibility": "edible"
+  },
+  {
+    "index": 312,
+    "raw": "(Mushrooms) Entoloma",
+    "species": "(Mushrooms) Entoloma",
+    "edibility": "edible"
+  },
+  {
+    "index": 313,
+    "raw": "(Mushrooms) Agaricus",
+    "species": "(Mushrooms) Agaricus",
+    "edibility": "edible"
+  },
+  {
+    "index": 314,
+    "raw": "(conditionally_edible) jubilee_waxcap",
+    "species": "(conditionally edible) jubilee waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 315,
+    "raw": "(conditionally_edible) Suillus granulatus",
+    "species": "(conditionally edible) Suillus granulatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 316,
+    "raw": "(conditionally_edible) pale_oyster",
+    "species": "(conditionally edible) pale oyster",
+    "edibility": "edible"
+  },
+  {
+    "index": 317,
+    "raw": "(conditionally_edible) macro_mushroom",
+    "species": "(conditionally edible) macro mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 318,
+    "raw": "(conditionally_edible) root_rot",
+    "species": "(conditionally edible) root rot",
+    "edibility": "edible"
+  },
+  {
+    "index": 319,
+    "raw": "(conditionally_edible) thimble_morel",
+    "species": "(conditionally edible) thimble morel",
+    "edibility": "edible"
+  },
+  {
+    "index": 320,
+    "raw": "(conditionally_edible) grisettes",
+    "species": "(conditionally edible) grisettes",
+    "edibility": "edible"
+  },
+  {
+    "index": 321,
+    "raw": "(conditionally_edible) Tremella mesenterica",
+    "species": "(conditionally edible) Tremella mesenterica",
+    "edibility": "edible"
+  },
+  {
+    "index": 322,
+    "raw": "(conditionally_edible) Cortinarius",
+    "species": "(conditionally edible) Cortinarius",
+    "edibility": "edible"
+  },
+  {
+    "index": 323,
+    "raw": "(conditionally_edible) Verpa_bohemica",
+    "species": "(conditionally edible) Verpa bohemica",
+    "edibility": "edible"
+  },
+  {
+    "index": 324,
+    "raw": "(conditionally_edible) shaggy_bracket",
+    "species": "(conditionally edible) shaggy bracket",
+    "edibility": "edible"
+  },
+  {
+    "index": 325,
+    "raw": "(conditionally_edible) snakeskin_grisette",
+    "species": "(conditionally edible) snakeskin grisette",
+    "edibility": "edible"
+  },
+  {
+    "index": 326,
+    "raw": "(conditionally_edible) Boletus",
+    "species": "(conditionally edible) Boletus",
+    "edibility": "edible"
+  },
+  {
+    "index": 327,
+    "raw": "(conditionally_edible) semifree_morel",
+    "species": "(conditionally edible) semifree morel",
+    "edibility": "edible"
+  },
+  {
+    "index": 328,
+    "raw": "(conditionally_edible) Chlorociboria aeruginascens",
+    "species": "(conditionally edible) Chlorociboria aeruginascens",
+    "edibility": "edible"
+  },
+  {
+    "index": 329,
+    "raw": "(conditionally_edible) elfin_saddle",
+    "species": "(conditionally edible) elfin saddle",
+    "edibility": "edible"
+  },
+  {
+    "index": 330,
+    "raw": "(conditionally_edible) yellow_swamp_brittlegill",
+    "species": "(conditionally edible) yellow swamp brittlegill",
+    "edibility": "edible"
+  },
+  {
+    "index": 331,
+    "raw": "(conditionally_edible) Lycoperdon perlatum",
+    "species": "(conditionally edible) Lycoperdon perlatum",
+    "edibility": "edible"
+  },
+  {
+    "index": 332,
+    "raw": "(conditionally_edible) ruby_bolete",
+    "species": "(conditionally edible) ruby bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 333,
+    "raw": "(conditionally_edible) frosted_chanterelle",
+    "species": "(conditionally edible) frosted chanterelle",
+    "edibility": "edible"
+  },
+  {
+    "index": 334,
+    "raw": "(conditionally_edible) silverleaf_fungus",
+    "species": "(conditionally edible) silverleaf fungus",
+    "edibility": "edible"
+  },
+  {
+    "index": 335,
+    "raw": "(conditionally_edible) Lobaria pulmonaria",
+    "species": "(conditionally edible) Lobaria pulmonaria",
+    "edibility": "edible"
+  },
+  {
+    "index": 336,
+    "raw": "(conditionally_edible) medusa_mushroom",
+    "species": "(conditionally edible) medusa mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 337,
+    "raw": "(conditionally_edible) Armillaria borealis",
+    "species": "(conditionally edible) Armillaria borealis",
+    "edibility": "edible"
+  },
+  {
+    "index": 338,
+    "raw": "(conditionally_edible) Graphis scripta",
+    "species": "(conditionally edible) Graphis scripta",
+    "edibility": "edible"
+  },
+  {
+    "index": 339,
+    "raw": "(conditionally_edible) Physcia adscendens",
+    "species": "(conditionally edible) Physcia adscendens",
+    "edibility": "edible"
+  },
+  {
+    "index": 340,
+    "raw": "(conditionally_edible) Tricholomopsis rutilans",
+    "species": "(conditionally edible) Tricholomopsis rutilans",
+    "edibility": "edible"
+  },
+  {
+    "index": 341,
+    "raw": "(conditionally_edible) Lepista nuda",
+    "species": "(conditionally edible) Lepista nuda",
+    "edibility": "edible"
+  },
+  {
+    "index": 342,
+    "raw": "(conditionally_edible) Artomyces pyxidatus",
+    "species": "(conditionally edible) Artomyces pyxidatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 343,
+    "raw": "(conditionally_edible) Fomes fomentarius",
+    "species": "(conditionally edible) Fomes fomentarius",
+    "edibility": "edible"
+  },
+  {
+    "index": 344,
+    "raw": "(conditionally_edible) Urnula craterium",
+    "species": "(conditionally edible) Urnula craterium",
+    "edibility": "edible"
+  },
+  {
+    "index": 345,
+    "raw": "(conditionally_edible) spring_fieldcap",
+    "species": "(conditionally edible) spring fieldcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 346,
+    "raw": "(conditionally_edible) ascot_hat",
+    "species": "(conditionally edible) ascot hat",
+    "edibility": "edible"
+  },
+  {
+    "index": 347,
+    "raw": "(conditionally_edible) the_miller",
+    "species": "(conditionally edible) the miller",
+    "edibility": "edible"
+  },
+  {
+    "index": 348,
+    "raw": "(conditionally_edible) false_morel",
+    "species": "(conditionally edible) false morel",
+    "edibility": "edible"
+  },
+  {
+    "index": 349,
+    "raw": "(conditionally_edible) Parmelia sulcata",
+    "species": "(conditionally edible) Parmelia sulcata",
+    "edibility": "edible"
+  },
+  {
+    "index": 350,
+    "raw": "(conditionally_edible) charcoal_burner",
+    "species": "(conditionally edible) charcoal burner",
+    "edibility": "edible"
+  },
+  {
+    "index": 351,
+    "raw": "(conditionally_edible) Morchella_esculenta",
+    "species": "(conditionally edible) Morchella esculenta",
+    "edibility": "edible"
+  },
+  {
+    "index": 352,
+    "raw": "(conditionally_edible) fragrant_funnel",
+    "species": "(conditionally edible) fragrant funnel",
+    "edibility": "edible"
+  },
+  {
+    "index": 353,
+    "raw": "(conditionally_edible) fenugreek_milkcap",
+    "species": "(conditionally edible) fenugreek milkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 354,
+    "raw": "(conditionally_edible) Leccinum aurantiacum",
+    "species": "(conditionally edible) Leccinum aurantiacum",
+    "edibility": "edible"
+  },
+  {
+    "index": 355,
+    "raw": "(conditionally_edible) magpie_inkcap",
+    "species": "(conditionally edible) magpie inkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 356,
+    "raw": "(conditionally_edible) Macrolepiota procera",
+    "species": "(conditionally edible) Macrolepiota procera",
+    "edibility": "edible"
+  },
+  {
+    "index": 357,
+    "raw": "(conditionally_edible) Lactarius turpis",
+    "species": "(conditionally edible) Lactarius turpis",
+    "edibility": "edible"
+  },
+  {
+    "index": 358,
+    "raw": "(conditionally_edible) Peltigera aphthosa",
+    "species": "(conditionally edible) Peltigera aphthosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 359,
+    "raw": "(conditionally_edible) bitter_bolete",
+    "species": "(conditionally edible) bitter bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 360,
+    "raw": "(conditionally_edible) stubble_rosegill",
+    "species": "(conditionally edible) stubble rosegill",
+    "edibility": "edible"
+  },
+  {
+    "index": 361,
+    "raw": "(conditionally_edible) stump_puffball",
+    "species": "(conditionally edible) stump puffball",
+    "edibility": "edible"
+  },
+  {
+    "index": 362,
+    "raw": "(conditionally_edible) Phellinus tremulae",
+    "species": "(conditionally edible) Phellinus tremulae",
+    "edibility": "edible"
+  },
+  {
+    "index": 363,
+    "raw": "(conditionally_edible) amethyst_chanterelle",
+    "species": "(conditionally edible) amethyst chanterelle",
+    "edibility": "edible"
+  },
+  {
+    "index": 364,
+    "raw": "(conditionally_edible) Vulpicida pinastri",
+    "species": "(conditionally edible) Vulpicida pinastri",
+    "edibility": "edible"
+  },
+  {
+    "index": 365,
+    "raw": "(conditionally_edible) glistening_inkcap",
+    "species": "(conditionally edible) glistening inkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 366,
+    "raw": "(conditionally_edible) horn_of_plenty",
+    "species": "(conditionally edible) horn of plenty",
+    "edibility": "edible"
+  },
+  {
+    "index": 367,
+    "raw": "(conditionally_edible) Coprinopsis_atramentaria",
+    "species": "(conditionally edible) Coprinopsis atramentaria",
+    "edibility": "edible"
+  },
+  {
+    "index": 368,
+    "raw": "(conditionally_edible) sheathed_woodtuft",
+    "species": "(conditionally edible) sheathed woodtuft",
+    "edibility": "edible"
+  },
+  {
+    "index": 369,
+    "raw": "(conditionally_edible) truffles",
+    "species": "(conditionally edible) truffles",
+    "edibility": "edible"
+  },
+  {
+    "index": 370,
+    "raw": "(conditionally_edible) wood_blewit",
+    "species": "(conditionally edible) wood blewit",
+    "edibility": "edible"
+  },
+  {
+    "index": 371,
+    "raw": "(conditionally_edible) Evernia mesomorpha",
+    "species": "(conditionally edible) Evernia mesomorpha",
+    "edibility": "edible"
+  },
+  {
+    "index": 372,
+    "raw": "(conditionally_edible) rooting_bolete",
+    "species": "(conditionally edible) rooting bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 373,
+    "raw": "(conditionally_edible) dyers_mazegill",
+    "species": "(conditionally edible) dyers mazegill",
+    "edibility": "edible"
+  },
+  {
+    "index": 374,
+    "raw": "(conditionally_edible) Hypogymnia physodes",
+    "species": "(conditionally edible) Hypogymnia physodes",
+    "edibility": "edible"
+  },
+  {
+    "index": 375,
+    "raw": "(conditionally_edible) false_saffron_milkcap",
+    "species": "(conditionally edible) false saffron milkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 376,
+    "raw": "(conditionally_edible) Amanita_fulva",
+    "species": "(conditionally edible) Amanita fulva",
+    "edibility": "edible"
+  },
+  {
+    "index": 377,
+    "raw": "(conditionally_edible) Boletus reticulatus",
+    "species": "(conditionally edible) Boletus reticulatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 378,
+    "raw": "(conditionally_edible) powdery_brittlegill",
+    "species": "(conditionally edible) powdery brittlegill",
+    "edibility": "edible"
+  },
+  {
+    "index": 379,
+    "raw": "(conditionally_edible) Peltigera praetextata",
+    "species": "(conditionally edible) Peltigera praetextata",
+    "edibility": "edible"
+  },
+  {
+    "index": 380,
+    "raw": "(conditionally_edible) Boletus edulis",
+    "species": "(conditionally edible) Boletus edulis",
+    "edibility": "edible"
+  },
+  {
+    "index": 381,
+    "raw": "(conditionally_edible) Sarcomyxa serotina",
+    "species": "(conditionally edible) Sarcomyxa serotina",
+    "edibility": "edible"
+  },
+  {
+    "index": 382,
+    "raw": "(conditionally_edible) Ganoderma applanatum",
+    "species": "(conditionally edible) Ganoderma applanatum",
+    "edibility": "edible"
+  },
+  {
+    "index": 383,
+    "raw": "(conditionally_edible) pine_bolete",
+    "species": "(conditionally edible) pine bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 384,
+    "raw": "(conditionally_edible) Amanita_muscaria",
+    "species": "(conditionally edible) Amanita muscaria",
+    "edibility": "edible"
+  },
+  {
+    "index": 385,
+    "raw": "(conditionally_edible) white_dapperling",
+    "species": "(conditionally edible) white dapperling",
+    "edibility": "edible"
+  },
+  {
+    "index": 386,
+    "raw": "(conditionally_edible) Leccinum scabrum",
+    "species": "(conditionally edible) Leccinum scabrum",
+    "edibility": "edible"
+  },
+  {
+    "index": 387,
+    "raw": "(conditionally_edible) grey_knight",
+    "species": "(conditionally edible) grey knight",
+    "edibility": "edible"
+  },
+  {
+    "index": 388,
+    "raw": "(conditionally_edible) devils_bolete",
+    "species": "(conditionally edible) devils bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 389,
+    "raw": "(conditionally_edible) the_goblet",
+    "species": "(conditionally edible) the goblet",
+    "edibility": "edible"
+  },
+  {
+    "index": 390,
+    "raw": "(conditionally_edible) curry_milkcap",
+    "species": "(conditionally edible) curry milkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 391,
+    "raw": "(conditionally_edible) fools_funnel",
+    "species": "(conditionally edible) fools funnel",
+    "edibility": "edible"
+  },
+  {
+    "index": 392,
+    "raw": "(conditionally_edible) deer_shield",
+    "species": "(conditionally edible) deer shield",
+    "edibility": "edible"
+  },
+  {
+    "index": 393,
+    "raw": "(deadly) Paxillus_involutus",
+    "species": "(deadly) Paxillus involutus",
+    "edibility": "edible"
+  },
+  {
+    "index": 394,
+    "raw": "(deadly) Entoloma_sinuatum",
+    "species": "(deadly) Entoloma sinuatum",
+    "edibility": "edible"
+  },
+  {
+    "index": 395,
+    "raw": "(deadly) Lepiota_brunneoincarnata",
+    "species": "(deadly) Lepiota brunneoincarnata",
+    "edibility": "edible"
+  },
+  {
+    "index": 396,
+    "raw": "(deadly) Lepiota_castanea",
+    "species": "(deadly) Lepiota castanea",
+    "edibility": "edible"
+  },
+  {
+    "index": 397,
+    "raw": "(deadly) Amanita_magnivelaris",
+    "species": "(deadly) Amanita magnivelaris",
+    "edibility": "edible"
+  },
+  {
+    "index": 398,
+    "raw": "(deadly) Cortinarius_orellanus",
+    "species": "(deadly) Cortinarius orellanus",
+    "edibility": "edible"
+  },
+  {
+    "index": 399,
+    "raw": "(deadly) Tricholoma_equestre",
+    "species": "(deadly) Tricholoma equestre",
+    "edibility": "edible"
+  },
+  {
+    "index": 400,
+    "raw": "(deadly) Amanita_verna",
+    "species": "(deadly) Amanita verna",
+    "edibility": "edible"
+  },
+  {
+    "index": 401,
+    "raw": "(deadly) Cortinarius_rubellus",
+    "species": "(deadly) Cortinarius rubellus",
+    "edibility": "edible"
+  },
+  {
+    "index": 402,
+    "raw": "(deadly) Amanita_ocreata",
+    "species": "(deadly) Amanita ocreata",
+    "edibility": "edible"
+  },
+  {
+    "index": 403,
+    "raw": "(deadly) Cortinarius_splendens",
+    "species": "(deadly) Cortinarius splendens",
+    "edibility": "edible"
+  },
+  {
+    "index": 404,
+    "raw": "(deadly) Hypholoma_fasciculare",
+    "species": "(deadly) Hypholoma fasciculare",
+    "edibility": "edible"
+  },
+  {
+    "index": 405,
+    "raw": "(deadly) Amanita_smithiana",
+    "species": "(deadly) Amanita smithiana",
+    "edibility": "edible"
+  },
+  {
+    "index": 406,
+    "raw": "(deadly) Amanita_subpallidorosea",
+    "species": "(deadly) Amanita subpallidorosea",
+    "edibility": "edible"
+  },
+  {
+    "index": 407,
+    "raw": "(deadly) Amanita_fuliginea",
+    "species": "(deadly) Amanita fuliginea",
+    "edibility": "edible"
+  },
+  {
+    "index": 408,
+    "raw": "(deadly) Amanita_arocheae",
+    "species": "(deadly) Amanita arocheae",
+    "edibility": "edible"
+  },
+  {
+    "index": 409,
+    "raw": "(deadly) Lepiota_subincarnata",
+    "species": "(deadly) Lepiota subincarnata",
+    "edibility": "edible"
+  },
+  {
+    "index": 410,
+    "raw": "(deadly) Pholiotina_rugosa",
+    "species": "(deadly) Pholiotina rugosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 411,
+    "raw": "(deadly) Lepiota_helveola",
+    "species": "(deadly) Lepiota helveola",
+    "edibility": "edible"
+  },
+  {
+    "index": 412,
+    "raw": "(deadly) Omphalotus_illudens",
+    "species": "(deadly) Omphalotus illudens",
+    "edibility": "edible"
+  },
+  {
+    "index": 413,
+    "raw": "(deadly) Lepiota_brunneolilacea",
+    "species": "(deadly) Lepiota brunneolilacea",
+    "edibility": "edible"
+  },
+  {
+    "index": 414,
+    "raw": "(deadly) Lactarius_torminosus",
+    "species": "(deadly) Lactarius torminosus",
+    "edibility": "edible"
+  },
+  {
+    "index": 415,
+    "raw": "(deadly) Amanita_virosa",
+    "species": "(deadly) Amanita virosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 416,
+    "raw": "(deadly) Cortinarius_eartoxicus",
+    "species": "(deadly) Cortinarius eartoxicus",
+    "edibility": "edible"
+  },
+  {
+    "index": 417,
+    "raw": "(deadly) Amanita_sphaerobulbosa",
+    "species": "(deadly) Amanita sphaerobulbosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 418,
+    "raw": "(deadly) Clitocybe_rivulosa",
+    "species": "(deadly) Clitocybe rivulosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 419,
+    "raw": "(deadly) Pleurocybella_porrigens",
+    "species": "(deadly) Pleurocybella porrigens",
+    "edibility": "edible"
+  },
+  {
+    "index": 420,
+    "raw": "(deadly) Podostroma_cornu-damae",
+    "species": "(deadly) Podostroma cornu-damae",
+    "edibility": "edible"
+  },
+  {
+    "index": 421,
+    "raw": "(deadly) Boletus_pulcherrimus",
+    "species": "(deadly) Boletus pulcherrimus",
+    "edibility": "edible"
+  },
+  {
+    "index": 422,
+    "raw": "(deadly) Clitocybe_dealbata",
+    "species": "(deadly) Clitocybe dealbata",
+    "edibility": "edible"
+  },
+  {
+    "index": 423,
+    "raw": "(deadly) Galerina_sulciceps",
+    "species": "(deadly) Galerina sulciceps",
+    "edibility": "edible"
+  },
+  {
+    "index": 424,
+    "raw": "(deadly) Galerina_marginata",
+    "species": "(deadly) Galerina marginata",
+    "edibility": "edible"
+  },
+  {
+    "index": 425,
+    "raw": "(deadly) Omphalotus_japonicus",
+    "species": "(deadly) Omphalotus japonicus",
+    "edibility": "edible"
+  },
+  {
+    "index": 426,
+    "raw": "(deadly) Inosperma_erubescens",
+    "species": "(deadly) Inosperma erubescens",
+    "edibility": "edible"
+  },
+  {
+    "index": 427,
+    "raw": "(deadly) Amanita_phalloides",
+    "species": "(deadly) Amanita phalloides",
+    "edibility": "edible"
+  },
+  {
+    "index": 428,
+    "raw": "(deadly) Russula_subnigricans",
+    "species": "(deadly) Russula subnigricans",
+    "edibility": "edible"
+  },
+  {
+    "index": 429,
+    "raw": "(deadly) Amanita_exitialis",
+    "species": "(deadly) Amanita exitialis",
+    "edibility": "edible"
+  },
+  {
+    "index": 430,
+    "raw": "(deadly) Amanita_bisporigera",
+    "species": "(deadly) Amanita bisporigera",
+    "edibility": "edible"
+  },
+  {
+    "index": 431,
+    "raw": "(deadly) Amanita_subjunquillea",
+    "species": "(deadly) Amanita subjunquillea",
+    "edibility": "edible"
+  },
+  {
+    "index": 432,
+    "raw": "(deadly) Trogia_venenata",
+    "species": "(deadly) Trogia venenata",
+    "edibility": "edible"
+  },
+  {
+    "index": 433,
+    "raw": "(edible) Aleuria_aurantia",
+    "species": "Aleuria aurantia",
+    "edibility": "edible"
+  },
+  {
+    "index": 434,
+    "raw": "(edible) fairy_ring_champignons",
+    "species": "fairy ring champignons",
+    "edibility": "edible"
+  },
+  {
+    "index": 435,
+    "raw": "(edible) Cyclocybe_aegerita",
+    "species": "Cyclocybe aegerita",
+    "edibility": "edible"
+  },
+  {
+    "index": 436,
+    "raw": "(edible) snowy_waxcap",
+    "species": "snowy waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 437,
+    "raw": "(edible) Crucibulum laeve",
+    "species": "Crucibulum laeve",
+    "edibility": "edible"
+  },
+  {
+    "index": 438,
+    "raw": "(edible) Flammulina_velutipes",
+    "species": "Flammulina velutipes",
+    "edibility": "edible"
+  },
+  {
+    "index": 439,
+    "raw": "(edible) sulphur_tuft",
+    "species": "sulphur tuft",
+    "edibility": "edible"
+  },
+  {
+    "index": 440,
+    "raw": "(edible) meadow_waxcap",
+    "species": "meadow waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 441,
+    "raw": "(edible) common_bonnet",
+    "species": "common bonnet",
+    "edibility": "edible"
+  },
+  {
+    "index": 442,
+    "raw": "(edible) Grifola_frondosa",
+    "species": "Grifola frondosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 443,
+    "raw": "(edible) Hygrophorus_chrysodon",
+    "species": "Hygrophorus chrysodon",
+    "edibility": "edible"
+  },
+  {
+    "index": 444,
+    "raw": "(edible) Suillus_tomentosus",
+    "species": "Suillus tomentosus",
+    "edibility": "edible"
+  },
+  {
+    "index": 445,
+    "raw": "(edible) Lactarius_subdulcis",
+    "species": "Lactarius subdulcis",
+    "edibility": "edible"
+  },
+  {
+    "index": 446,
+    "raw": "(edible) Tuber_brumale",
+    "species": "Tuber brumale",
+    "edibility": "edible"
+  },
+  {
+    "index": 447,
+    "raw": "(edible) Tuber_indicum",
+    "species": "Tuber indicum",
+    "edibility": "edible"
+  },
+  {
+    "index": 448,
+    "raw": "(edible) golden_waxcap",
+    "species": "golden waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 449,
+    "raw": "(edible) field_mushroom",
+    "species": "field mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 450,
+    "raw": "(edible) Clavulinaceae",
+    "species": "Clavulinaceae",
+    "edibility": "edible"
+  },
+  {
+    "index": 451,
+    "raw": "(edible) honey_fungus",
+    "species": "honey fungus",
+    "edibility": "edible"
+  },
+  {
+    "index": 452,
+    "raw": "(edible) lions_mane",
+    "species": "lions mane",
+    "edibility": "edible"
+  },
+  {
+    "index": 453,
+    "raw": "(edible) Kalaharituber_pfeilii",
+    "species": "Kalaharituber pfeilii",
+    "edibility": "edible"
+  },
+  {
+    "index": 454,
+    "raw": "(edible) Flammulina velutipes",
+    "species": "Flammulina velutipes",
+    "edibility": "edible"
+  },
+  {
+    "index": 455,
+    "raw": "(edible) common_morel",
+    "species": "common morel",
+    "edibility": "edible"
+  },
+  {
+    "index": 456,
+    "raw": "(edible) Suillus_bovinus",
+    "species": "Suillus bovinus",
+    "edibility": "edible"
+  },
+  {
+    "index": 457,
+    "raw": "(edible) Lentinula_edodes",
+    "species": "Lentinula edodes",
+    "edibility": "edible"
+  },
+  {
+    "index": 458,
+    "raw": "(edible) Coprinellus micaceus",
+    "species": "Coprinellus micaceus",
+    "edibility": "edible"
+  },
+  {
+    "index": 459,
+    "raw": "(edible) woodland_inkcap",
+    "species": "woodland inkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 460,
+    "raw": "(edible) Cortinarius_caperatus",
+    "species": "Cortinarius caperatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 461,
+    "raw": "(edible) Rhizopogon_luteolus",
+    "species": "Rhizopogon luteolus",
+    "edibility": "edible"
+  },
+  {
+    "index": 462,
+    "raw": "(edible) bearded_milkcap",
+    "species": "bearded milkcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 463,
+    "raw": "(edible) Craterellus_tubaeformis",
+    "species": "Craterellus tubaeformis",
+    "edibility": "edible"
+  },
+  {
+    "index": 464,
+    "raw": "(edible) Marasmius_oreades",
+    "species": "Marasmius oreades",
+    "edibility": "edible"
+  },
+  {
+    "index": 465,
+    "raw": "(edible) Macrolepiota_procera",
+    "species": "Macrolepiota procera",
+    "edibility": "edible"
+  },
+  {
+    "index": 466,
+    "raw": "(edible) Cyttaria_espinosae",
+    "species": "Cyttaria espinosae",
+    "edibility": "edible"
+  },
+  {
+    "index": 467,
+    "raw": "(edible) Hypholoma fasciculare",
+    "species": "Hypholoma fasciculare",
+    "edibility": "edible"
+  },
+  {
+    "index": 468,
+    "raw": "(edible) field_blewit",
+    "species": "field blewit",
+    "edibility": "edible"
+  },
+  {
+    "index": 469,
+    "raw": "(edible) Calbovista_subsculpta",
+    "species": "Calbovista subsculpta",
+    "edibility": "edible"
+  },
+  {
+    "index": 470,
+    "raw": "(edible) Calvatia_utriformis",
+    "species": "Calvatia utriformis",
+    "edibility": "edible"
+  },
+  {
+    "index": 471,
+    "raw": "(edible) almond_mushroom",
+    "species": "almond mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 472,
+    "raw": "(edible) Tuber_borchii",
+    "species": "Tuber borchii",
+    "edibility": "edible"
+  },
+  {
+    "index": 473,
+    "raw": "(edible) Suillus_luteus",
+    "species": "Suillus luteus",
+    "edibility": "edible"
+  },
+  {
+    "index": 474,
+    "raw": "(edible) poplar_fieldcap",
+    "species": "poplar fieldcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 475,
+    "raw": "(edible) Auricularia_auricula-judae",
+    "species": "Auricularia auricula-judae",
+    "edibility": "edible"
+  },
+  {
+    "index": 476,
+    "raw": "(edible) Lactarius_deliciosus",
+    "species": "Lactarius deliciosus",
+    "edibility": "edible"
+  },
+  {
+    "index": 477,
+    "raw": "(edible) Lactarius torminosus",
+    "species": "Lactarius torminosus",
+    "edibility": "edible"
+  },
+  {
+    "index": 478,
+    "raw": "(edible) Daedaleopsis confragosa",
+    "species": "Daedaleopsis confragosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 479,
+    "raw": "(edible) Schizophyllum commune",
+    "species": "Schizophyllum commune",
+    "edibility": "edible"
+  },
+  {
+    "index": 480,
+    "raw": "(edible) Russula",
+    "species": "Russula",
+    "edibility": "edible"
+  },
+  {
+    "index": 481,
+    "raw": "(edible) Agaricus_arvensis",
+    "species": "Agaricus arvensis",
+    "edibility": "edible"
+  },
+  {
+    "index": 482,
+    "raw": "(edible) Daedaleopsis tricolor",
+    "species": "Daedaleopsis tricolor",
+    "edibility": "edible"
+  },
+  {
+    "index": 483,
+    "raw": "(edible) beefsteak_fungus",
+    "species": "beefsteak fungus",
+    "edibility": "edible"
+  },
+  {
+    "index": 484,
+    "raw": "(edible) blue_roundhead",
+    "species": "blue roundhead",
+    "edibility": "edible"
+  },
+  {
+    "index": 485,
+    "raw": "(edible) Panellus stipticus",
+    "species": "Panellus stipticus",
+    "edibility": "edible"
+  },
+  {
+    "index": 486,
+    "raw": "(edible) bay_bolete",
+    "species": "bay bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 487,
+    "raw": "(edible) Tuber_mesentericum",
+    "species": "Tuber mesentericum",
+    "edibility": "edible"
+  },
+  {
+    "index": 488,
+    "raw": "(edible) tawny_funnel",
+    "species": "tawny funnel",
+    "edibility": "edible"
+  },
+  {
+    "index": 489,
+    "raw": "(edible) Phallus_indusiatus",
+    "species": "Phallus indusiatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 490,
+    "raw": "(edible) Polyporus_squamosus",
+    "species": "Polyporus squamosus",
+    "edibility": "edible"
+  },
+  {
+    "index": 491,
+    "raw": "(edible) Stropharia_rugosoannulata",
+    "species": "Stropharia rugosoannulata",
+    "edibility": "edible"
+  },
+  {
+    "index": 492,
+    "raw": "(edible) Clitocybe_nuda",
+    "species": "Clitocybe nuda",
+    "edibility": "edible"
+  },
+  {
+    "index": 493,
+    "raw": "(edible) plums_and_custard",
+    "species": "plums and custard",
+    "edibility": "edible"
+  },
+  {
+    "index": 494,
+    "raw": "(edible) Lactarius deliciosus",
+    "species": "Lactarius deliciosus",
+    "edibility": "edible"
+  },
+  {
+    "index": 495,
+    "raw": "(edible) morel",
+    "species": "morel",
+    "edibility": "edible"
+  },
+  {
+    "index": 496,
+    "raw": "(edible) Lactarius_salmonicolor",
+    "species": "Lactarius salmonicolor",
+    "edibility": "edible"
+  },
+  {
+    "index": 497,
+    "raw": "(edible) the_deceiver",
+    "species": "the deceiver",
+    "edibility": "edible"
+  },
+  {
+    "index": 498,
+    "raw": "(edible) Cortinarius_variicolor",
+    "species": "Cortinarius variicolor",
+    "edibility": "edible"
+  },
+  {
+    "index": 499,
+    "raw": "(edible) purple_brittlegill",
+    "species": "purple brittlegill",
+    "edibility": "edible"
+  },
+  {
+    "index": 500,
+    "raw": "(edible) Hericium_erinaceus",
+    "species": "Hericium erinaceus",
+    "edibility": "edible"
+  },
+  {
+    "index": 501,
+    "raw": "(edible) Coltricia perennis",
+    "species": "Coltricia perennis",
+    "edibility": "edible"
+  },
+  {
+    "index": 502,
+    "raw": "(edible) Leccinum_scabrum",
+    "species": "Leccinum scabrum",
+    "edibility": "edible"
+  },
+  {
+    "index": 503,
+    "raw": "(edible) cauliflower_fungus",
+    "species": "cauliflower fungus",
+    "edibility": "edible"
+  },
+  {
+    "index": 504,
+    "raw": "(edible) Tricholoma_matsutake",
+    "species": "Tricholoma matsutake",
+    "edibility": "edible"
+  },
+  {
+    "index": 505,
+    "raw": "(edible) tawny_grisette",
+    "species": "tawny grisette",
+    "edibility": "edible"
+  },
+  {
+    "index": 506,
+    "raw": "(edible) Agaricus_silvaticus",
+    "species": "Agaricus silvaticus",
+    "edibility": "edible"
+  },
+  {
+    "index": 507,
+    "raw": "(edible) clustered_domecap",
+    "species": "clustered domecap",
+    "edibility": "edible"
+  },
+  {
+    "index": 508,
+    "raw": "(edible) Coprinus comatus",
+    "species": "Coprinus comatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 509,
+    "raw": "(edible) common_puffball",
+    "species": "common puffball",
+    "edibility": "edible"
+  },
+  {
+    "index": 510,
+    "raw": "(edible) Cerioporus squamosus",
+    "species": "Cerioporus squamosus",
+    "edibility": "edible"
+  },
+  {
+    "index": 511,
+    "raw": "(edible) cedarwood_waxcap",
+    "species": "cedarwood waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 512,
+    "raw": "(edible) Boletus_edulis",
+    "species": "Boletus edulis",
+    "edibility": "edible"
+  },
+  {
+    "index": 513,
+    "raw": "(edible) parrot_waxcap",
+    "species": "parrot waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 514,
+    "raw": "(edible) Agaricus_bisporus",
+    "species": "Agaricus bisporus",
+    "edibility": "edible"
+  },
+  {
+    "index": 515,
+    "raw": "(edible) golden_scalycap",
+    "species": "golden scalycap",
+    "edibility": "edible"
+  },
+  {
+    "index": 516,
+    "raw": "(edible) Clavariaceae",
+    "species": "Clavariaceae",
+    "edibility": "edible"
+  },
+  {
+    "index": 517,
+    "raw": "(edible) Polyporus_mylittae",
+    "species": "Polyporus mylittae",
+    "edibility": "edible"
+  },
+  {
+    "index": 518,
+    "raw": "(edible) Hypholoma lateritium",
+    "species": "Hypholoma lateritium",
+    "edibility": "edible"
+  },
+  {
+    "index": 519,
+    "raw": "(edible) Calvatia_gigantea",
+    "species": "Calvatia gigantea",
+    "edibility": "edible"
+  },
+  {
+    "index": 520,
+    "raw": "(edible) Volvariella_volvacea",
+    "species": "Volvariella volvacea",
+    "edibility": "edible"
+  },
+  {
+    "index": 521,
+    "raw": "(edible) Chroogomphus",
+    "species": "Chroogomphus",
+    "edibility": "edible"
+  },
+  {
+    "index": 522,
+    "raw": "(edible) Craterellus_cornucopioides",
+    "species": "Craterellus cornucopioides",
+    "edibility": "edible"
+  },
+  {
+    "index": 523,
+    "raw": "(edible) the_blusher",
+    "species": "the blusher",
+    "edibility": "edible"
+  },
+  {
+    "index": 524,
+    "raw": "(edible) chicken_of_the_woods",
+    "species": "chicken of the woods",
+    "edibility": "edible"
+  },
+  {
+    "index": 525,
+    "raw": "(edible) fly_agaric",
+    "species": "fly agaric",
+    "edibility": "edible"
+  },
+  {
+    "index": 526,
+    "raw": "(edible) birch_woodwart",
+    "species": "birch woodwart",
+    "edibility": "edible"
+  },
+  {
+    "index": 527,
+    "raw": "(edible) clouded_agaric",
+    "species": "clouded agaric",
+    "edibility": "edible"
+  },
+  {
+    "index": 528,
+    "raw": "(edible) hen_of_the_woods",
+    "species": "hen of the woods",
+    "edibility": "edible"
+  },
+  {
+    "index": 529,
+    "raw": "(edible) common_rustgill",
+    "species": "common rustgill",
+    "edibility": "edible"
+  },
+  {
+    "index": 530,
+    "raw": "(edible) Lactarius_deterrimus",
+    "species": "Lactarius deterrimus",
+    "edibility": "edible"
+  },
+  {
+    "index": 531,
+    "raw": "(edible) Pleurotus",
+    "species": "Pleurotus",
+    "edibility": "edible"
+  },
+  {
+    "index": 532,
+    "raw": "(edible) chanterelle",
+    "species": "chanterelle",
+    "edibility": "edible"
+  },
+  {
+    "index": 533,
+    "raw": "(edible) Hygrocybe",
+    "species": "Hygrocybe",
+    "edibility": "edible"
+  },
+  {
+    "index": 534,
+    "raw": "(edible) Laetiporus_sulphureus",
+    "species": "Laetiporus sulphureus",
+    "edibility": "edible"
+  },
+  {
+    "index": 535,
+    "raw": "(edible) Fistulina_hepatica",
+    "species": "Fistulina hepatica",
+    "edibility": "edible"
+  },
+  {
+    "index": 536,
+    "raw": "(edible) golden_bootleg",
+    "species": "golden bootleg",
+    "edibility": "edible"
+  },
+  {
+    "index": 537,
+    "raw": "(edible) Tuber_aestivum",
+    "species": "Tuber aestivum",
+    "edibility": "edible"
+  },
+  {
+    "index": 538,
+    "raw": "(edible) summer_bolete",
+    "species": "summer bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 539,
+    "raw": "(edible) lilac_bonnet",
+    "species": "lilac bonnet",
+    "edibility": "edible"
+  },
+  {
+    "index": 540,
+    "raw": "(edible) oyster_mushroom",
+    "species": "oyster mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 541,
+    "raw": "(edible) aniseed_funnel",
+    "species": "aniseed funnel",
+    "edibility": "edible"
+  },
+  {
+    "index": 542,
+    "raw": "(edible) heath_waxcap",
+    "species": "heath waxcap",
+    "edibility": "edible"
+  },
+  {
+    "index": 543,
+    "raw": "(edible) oak_bolete",
+    "species": "oak bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 544,
+    "raw": "(edible) Tuber_macrosporum",
+    "species": "Tuber macrosporum",
+    "edibility": "edible"
+  },
+  {
+    "index": 545,
+    "raw": "(edible) cucumber_cap",
+    "species": "cucumber cap",
+    "edibility": "edible"
+  },
+  {
+    "index": 546,
+    "raw": "(edible) red_cracking_bolete",
+    "species": "red cracking bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 547,
+    "raw": "(edible) Lactarius_volemus",
+    "species": "Lactarius volemus",
+    "edibility": "edible"
+  },
+  {
+    "index": 548,
+    "raw": "(edible) Sparassis_crispa",
+    "species": "Sparassis crispa",
+    "edibility": "edible"
+  },
+  {
+    "index": 549,
+    "raw": "(edible) Pseudohydnum_gelatinosum",
+    "species": "Pseudohydnum gelatinosum",
+    "edibility": "edible"
+  },
+  {
+    "index": 550,
+    "raw": "(edible) st_georges_mushroom",
+    "species": "st georges mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 551,
+    "raw": "(edible) the_prince",
+    "species": "the prince",
+    "edibility": "edible"
+  },
+  {
+    "index": 552,
+    "raw": "(edible) Apioperdon pyriforme",
+    "species": "Apioperdon pyriforme",
+    "edibility": "edible"
+  },
+  {
+    "index": 553,
+    "raw": "(edible) Entoloma",
+    "species": "Entoloma",
+    "edibility": "edible"
+  },
+  {
+    "index": 554,
+    "raw": "(edible) Coprinus_comatus",
+    "species": "Coprinus comatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 555,
+    "raw": "(edible) silky_rosegill",
+    "species": "silky rosegill",
+    "edibility": "edible"
+  },
+  {
+    "index": 556,
+    "raw": "(edible) Armillaria_mellea",
+    "species": "Armillaria mellea",
+    "edibility": "edible"
+  },
+  {
+    "index": 557,
+    "raw": "(edible) Platismatia glauca",
+    "species": "Platismatia glauca",
+    "edibility": "edible"
+  },
+  {
+    "index": 558,
+    "raw": "(edible) Pleurotus ostreatus",
+    "species": "Pleurotus ostreatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 559,
+    "raw": "(edible) slippery_jack",
+    "species": "slippery jack",
+    "edibility": "edible"
+  },
+  {
+    "index": 560,
+    "raw": "(edible) smoky_bracket",
+    "species": "smoky bracket",
+    "edibility": "edible"
+  },
+  {
+    "index": 561,
+    "raw": "(edible) Calocybe_gambosa",
+    "species": "Calocybe gambosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 562,
+    "raw": "(edible) Pleurotus pulmonarius",
+    "species": "Pleurotus pulmonarius",
+    "edibility": "edible"
+  },
+  {
+    "index": 563,
+    "raw": "(edible) Amanita_caesarea",
+    "species": "Amanita caesarea",
+    "edibility": "edible"
+  },
+  {
+    "index": 564,
+    "raw": "(edible) Agaricus",
+    "species": "Agaricus",
+    "edibility": "edible"
+  },
+  {
+    "index": 565,
+    "raw": "(edible) Tremella_fuciformis",
+    "species": "Tremella fuciformis",
+    "edibility": "edible"
+  },
+  {
+    "index": 566,
+    "raw": "(edible) chestnut_bolete",
+    "species": "chestnut bolete",
+    "edibility": "edible"
+  },
+  {
+    "index": 567,
+    "raw": "(edible) Suillus_granulatus",
+    "species": "Suillus granulatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 568,
+    "raw": "(edible) black_bulgar",
+    "species": "black bulgar",
+    "edibility": "edible"
+  },
+  {
+    "index": 569,
+    "raw": "(edible) Stropharia aeruginosa",
+    "species": "Stropharia aeruginosa",
+    "edibility": "edible"
+  },
+  {
+    "index": 570,
+    "raw": "(edible) Hydnum_repandum",
+    "species": "Hydnum repandum",
+    "edibility": "edible"
+  },
+  {
+    "index": 571,
+    "raw": "(edible) Boletus_badius",
+    "species": "Boletus badius",
+    "edibility": "edible"
+  },
+  {
+    "index": 572,
+    "raw": "(edible) Leccinum_aurantiacum",
+    "species": "Leccinum aurantiacum",
+    "edibility": "edible"
+  },
+  {
+    "index": 573,
+    "raw": "(edible) pestle_puffball",
+    "species": "pestle puffball",
+    "edibility": "edible"
+  },
+  {
+    "index": 574,
+    "raw": "(edible) crimped_gill",
+    "species": "crimped gill",
+    "edibility": "edible"
+  },
+  {
+    "index": 575,
+    "raw": "(edible) porcelain_fungus",
+    "species": "porcelain fungus",
+    "edibility": "edible"
+  },
+  {
+    "index": 576,
+    "raw": "(edible) Phallus impudicus",
+    "species": "Phallus impudicus",
+    "edibility": "edible"
+  },
+  {
+    "index": 577,
+    "raw": "(edible) Kuehneromyces mutabilis",
+    "species": "Kuehneromyces mutabilis",
+    "edibility": "edible"
+  },
+  {
+    "index": 578,
+    "raw": "(edible) wrinkled_peach",
+    "species": "wrinkled peach",
+    "edibility": "edible"
+  },
+  {
+    "index": 579,
+    "raw": "(edible) Hericium coralloides",
+    "species": "Hericium coralloides",
+    "edibility": "edible"
+  },
+  {
+    "index": 580,
+    "raw": "(edible) birch_polypore",
+    "species": "birch polypore",
+    "edibility": "edible"
+  },
+  {
+    "index": 581,
+    "raw": "(edible) velvet_shank",
+    "species": "velvet shank",
+    "edibility": "edible"
+  },
+  {
+    "index": 582,
+    "raw": "(edible) horse_mushroom",
+    "species": "horse mushroom",
+    "edibility": "edible"
+  },
+  {
+    "index": 583,
+    "raw": "(edible) Leccinum_versipelle",
+    "species": "Leccinum versipelle",
+    "edibility": "edible"
+  },
+  {
+    "index": 584,
+    "raw": "(edible) beechwood_sickener",
+    "species": "beechwood sickener",
+    "edibility": "edible"
+  },
+  {
+    "index": 585,
+    "raw": "(edible) Merulius tremellosus",
+    "species": "Merulius tremellosus",
+    "edibility": "edible"
+  },
+  {
+    "index": 586,
+    "raw": "(edible) Tricholoma_terreum",
+    "species": "Tricholoma terreum",
+    "edibility": "edible"
+  },
+  {
+    "index": 587,
+    "raw": "(edible) Cantharellus_cibarius",
+    "species": "Cantharellus cibarius",
+    "edibility": "edible"
+  },
+  {
+    "index": 588,
+    "raw": "(edible) poplar_bell",
+    "species": "poplar bell",
+    "edibility": "edible"
+  },
+  {
+    "index": 589,
+    "raw": "(edible) Hypsizygus_tessellatus",
+    "species": "Hypsizygus tessellatus",
+    "edibility": "edible"
+  },
+  {
+    "index": 590,
+    "raw": "(edible) Mutinus ravenelii",
+    "species": "Mutinus ravenelii",
+    "edibility": "edible"
+  },
+  {
+    "index": 591,
+    "raw": "(edible) dryads_saddle",
+    "species": "dryads saddle",
+    "edibility": "edible"
+  },
+  {
+    "index": 592,
+    "raw": "(edible) spectacular_rustgill",
+    "species": "spectacular rustgill",
+    "edibility": "edible"
+  }
+]
