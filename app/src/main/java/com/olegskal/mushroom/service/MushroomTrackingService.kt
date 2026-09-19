@@ -31,6 +31,7 @@ import com.olegskal.mushroom.model.TrackPoint
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
 import com.olegskal.mushroom.util.AppPrefs
+import com.olegskal.mushroom.util.L10n
 import com.olegskal.mushroom.util.LocationUtils
 import com.olegskal.mushroom.util.ServiceUtils
 import java.text.SimpleDateFormat
@@ -206,7 +207,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         }
 
         updateNotification()
-        Toast.makeText(this, "Track recording started", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, L10n.t(this, "Запис треку розпочато", "Track recording started"), Toast.LENGTH_SHORT).show()
         AppLogger.log("TrackingService", "startTrackRecording", true, "Started track ${track.id}")
     }
 
@@ -228,7 +229,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
 
         releaseWakeLock()
         updateNotification()
-        Toast.makeText(this, "Track recording saved", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, L10n.t(this, "Трек збережено", "Track recording saved"), Toast.LENGTH_SHORT).show()
     }
 
     private fun acquireWakeLock() {
@@ -405,7 +406,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         )
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Mushroom Navigation")
+            .setContentTitle(L10n.t(this, "Лісовий навігатор Грибника", "Mushroom Navigation"))
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_mushroom_notif)
             .setContentIntent(pendingIntent)
@@ -420,7 +421,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
                 this, 1, stopRecIntent,
                 ServiceUtils.PENDING_INTENT_IMMUTABLE_FLAGS
             )
-            builder.addAction(android.R.drawable.ic_media_pause, "Stop Recording", pStopRec)
+            builder.addAction(android.R.drawable.ic_media_pause, L10n.t(this, "Зупинити запис", "Stop Recording"), pStopRec)
         }
 
         return builder.build()
@@ -432,9 +433,10 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
             val sec = (System.currentTimeMillis() - activeTrack!!.startTime) / 1000L
             val m = sec / 60
             val s = sec % 60
-            String.format(Locale.US, "Recording track: %.2f km | %02d:%02d", km, m, s)
+            val fmt = if (L10n.isUk(this)) "Запис треку: %.2f км | %02d:%02d" else "Recording track: %.2f km | %02d:%02d"
+            String.format(Locale.US, fmt, km, m, s)
         } else {
-            "Mushroom: Active"
+            L10n.t(this, "Навігатор активний", "Mushroom: Active")
         }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification(notifText))

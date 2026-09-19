@@ -88,7 +88,7 @@ class SplashActivity : Activity() {
             if (hasLocation) {
                 onBasicPermissionsGranted()
             } else {
-                Toast.makeText(applicationContext, "GPS location access is required for navigator to work.", Toast.LENGTH_LONG).show()
+                Toast.makeText(applicationContext, com.olegskal.mushroom.util.L10n.t(this, "Для роботи навігатора потрібен доступ до GPS.", "GPS location access is required for navigator to work."), Toast.LENGTH_LONG).show()
                 finish()
             }
         }
@@ -117,14 +117,21 @@ class SplashActivity : Activity() {
 
     private fun showExplanationDialog(needsBgLoc: Boolean, needsBattery: Boolean, needsAllFiles: Boolean) {
         AlertDialog.Builder(this)
-            .setTitle("Mushroom Settings")
+            .setTitle(com.olegskal.mushroom.util.L10n.t(this, "Налаштування Mushroom", "Mushroom Settings"))
             .setMessage(
-                "For reliable operation in the woods, the app needs:\n" +
-                        (if (needsBgLoc) "• Background location access (\"Allow all the time\") to record tracks with the screen off.\n" else "") +
-                        (if (needsBattery) "• Disabling battery optimization for continuous GPS tracking.\n" else "") +
-                        (if (needsAllFiles) "• Storage access to save offline maps, markers, and settings in /sdcard/mushroom (data persists after reinstall)." else "")
+                com.olegskal.mushroom.util.L10n.t(
+                    this,
+                    "Для надійної роботи в лісі додатку потрібні:\n" +
+                            (if (needsBgLoc) "• Доступ до геолокації у фоні (\"Дозволяти завжди\") для запису треку при вимкненому екрані.\n" else "") +
+                            (if (needsBattery) "• Вимкнення оптимізації батареї для безперервного GPS-трекінгу.\n" else "") +
+                            (if (needsAllFiles) "• Доступ до пам'яті для збереження офлайн-карт, міток і налаштувань у /sdcard/mushroom (зберігаються після перевстановлення)." else ""),
+                    "For reliable operation in the woods, the app needs:\n" +
+                            (if (needsBgLoc) "• Background location access (\"Allow all the time\") to record tracks with the screen off.\n" else "") +
+                            (if (needsBattery) "• Disabling battery optimization for continuous GPS tracking.\n" else "") +
+                            (if (needsAllFiles) "• Storage access to save offline maps, markers, and settings in /sdcard/mushroom (data persists after reinstall)." else "")
+                )
             )
-            .setPositiveButton("Configure") { _, _ ->
+            .setPositiveButton(com.olegskal.mushroom.util.L10n.t(this, "Налаштувати", "Configure")) { _, _ ->
                 awaitingSettings = true
                 if (needsAllFiles && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     try {
@@ -152,7 +159,7 @@ class SplashActivity : Activity() {
                     } catch (_: Exception) {}
                 }
             }
-            .setNegativeButton("Continue") { _, _ ->
+            .setNegativeButton(com.olegskal.mushroom.util.L10n.t(this, "Продовжити", "Continue")) { _, _ ->
                 startMushroomServiceAndFinish()
             }
             .setCancelable(false)

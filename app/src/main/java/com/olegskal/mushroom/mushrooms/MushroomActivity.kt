@@ -1,6 +1,7 @@
 package com.olegskal.mushroom.mushrooms
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -27,12 +28,12 @@ class MushroomActivity : Activity() {
 
     private lateinit var btnTabEncyclopedia: Button
     private lateinit var btnTabClassifier: Button
-    private lateinit var btnLangToggle: Button
+    private lateinit var tvTitle: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        currentLang = com.olegskal.mushroom.util.AppPrefs.getMushroomLang(this)
+        currentLang = com.olegskal.mushroom.util.AppPrefs.getAppLang(this)
 
         // Initialize disk cache for images
         MushroomApiClient.initDiskCache(filesDir)
@@ -64,8 +65,8 @@ class MushroomActivity : Activity() {
         }
         header.addView(btnBack)
 
-        val tvTitle = TextView(this).apply {
-            text = "🍄 Mushrooms"
+        tvTitle = TextView(this).apply {
+            text = if (currentLang == "uk") "🍄 Гриби" else "🍄 Mushrooms"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -75,21 +76,19 @@ class MushroomActivity : Activity() {
         }
         header.addView(tvTitle)
 
-        btnLangToggle = Button(this).apply {
-            text = currentLang.uppercase()
+        val btnMenu = Button(this).apply {
+            text = "☰"
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#22362C"))
-            textSize = 12f
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+            textSize = 20f
             setTypeface(null, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            val btnSize = (40 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(btnSize, btnSize)
             setOnClickListener {
-                currentLang = if (currentLang == "uk") "en" else "uk"
-                text = currentLang.uppercase()
-                com.olegskal.mushroom.util.AppPrefs.setMushroomLang(this@MushroomActivity, currentLang)
-                updateLanguage(currentLang)
+                showMushroomMenuDialog()
             }
         }
-        header.addView(btnLangToggle)
+        header.addView(btnMenu)
         rootLayout.addView(header)
 
         // 2. Tab Selector Row
@@ -210,11 +209,55 @@ class MushroomActivity : Activity() {
         }
     }
 
+    private fun showMushroomMenuDialog() {
+        val dialog = Dialog(this)
+        val container = UiUtils.createDarkDialogContainer(this)
+        val itemParams = UiUtils.createStandardItemParams()
+
+        val menuTitleTv = TextView(this).apply {
+            text = if (currentLang == "uk") "🍄 Меню грибника" else "🍄 Mushroom Menu"
+            setTextColor(Color.WHITE)
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 16)
+        }
+        container.addView(menuTitleTv)
+
+        val langLabel = if (currentLang == "uk") "🌐 Мова: Українська" else "🌐 Language: English"
+        val btnLang = UiUtils.createStyledButton(this, langLabel, itemParams) {
+            val newLang = if (currentLang == "uk") "en" else "uk"
+            com.olegskal.mushroom.util.AppPrefs.setAppLang(this@MushroomActivity, newLang)
+            updateLanguage(newLang)
+            dialog.dismiss()
+            showMushroomMenuDialog()
+        }
+        container.addView(btnLang)
+
+        val btnMap = UiUtils.createStyledButton(this, if (currentLang == "uk") "🗺️ Карта лісу" else "🗺️ Forest Map", itemParams) {
+            dialog.dismiss()
+            finish()
+        }
+        container.addView(btnMap)
+
+        dialog.setContentView(container)
+        dialog.show()
+    }
+
     private fun updateLanguage(lang: String) {
+        currentLang = lang
+        tvTitle.text = if (lang == "uk") "🍄 Гриби" else "🍄 Mushrooms"
         btnTabEncyclopedia.text = if (lang == "uk") "📖 Енциклопедія" else "📖 Encyclopedia"
         btnTabClassifier.text = if (lang == "uk") "🔍 Визначник" else "🔍 Identifier"
         encyclopediaTab.setLanguage(lang)
         classifierTab.setLanguage(lang)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(this)
+        if (lang != currentLang) {
+            updateLanguage(lang)
+        }
     }
 
     @Deprecated("Deprecated in Java")

@@ -13,6 +13,7 @@ import android.widget.Toast
 import com.olegskal.mushroom.db.DatabaseHelper
 import com.olegskal.mushroom.model.MushroomMarker
 import com.olegskal.mushroom.model.MushroomTrack
+import com.olegskal.mushroom.util.L10n
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,19 +45,20 @@ object ItemEditDialog {
         initialType: String? = null,
         onMarkerAdded: (MushroomMarker) -> Unit
     ) {
-        val defaultName = initialName ?: "Marker (${formatDate()})"
+        val baseMarker = L10n.t(activity, "Мітка", "Marker")
+        val defaultName = initialName ?: "$baseMarker (${formatDate()})"
         showDialog(
             activity = activity,
-            dialogTitle = "🍄 New Marker",
+            dialogTitle = L10n.t(activity, "🍄 Нова мітка", "🍄 New Marker"),
             initialName = defaultName,
-            colorTitle = "Marker color:",
+            colorTitle = L10n.t(activity, "Колір мітки:", "Marker color:"),
             initialColor = 0xFFF44336.toInt(),
-            saveButtonText = "Save"
+            saveButtonText = L10n.t(activity, "Зберегти", "Save")
         ) { name, color ->
             val marker = MushroomMarker(
                 id = System.currentTimeMillis(),
                 name = name,
-                type = initialType ?: "Mushroom",
+                type = initialType ?: L10n.t(activity, "Гриб", "Mushroom"),
                 lat = lat,
                 lon = lon,
                 altitude = altitude,
@@ -67,7 +69,7 @@ object ItemEditDialog {
             )
             dbHelper.insertMarker(marker)
             onMarkerAdded(marker)
-            Toast.makeText(activity, "Marker \"$name\" saved!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, L10n.t(activity, "Мітку \"$name\" збережено!", "Marker \"$name\" saved!"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -80,17 +82,17 @@ object ItemEditDialog {
     ) {
         showDialog(
             activity = activity,
-            dialogTitle = "✏️ Edit Marker",
+            dialogTitle = L10n.t(activity, "✏️ Редагувати мітку", "✏️ Edit Marker"),
             initialName = marker.name,
-            colorTitle = "Marker color:",
+            colorTitle = L10n.t(activity, "Колір мітки:", "Marker color:"),
             initialColor = marker.color,
-            saveButtonText = "Save"
+            saveButtonText = L10n.t(activity, "Зберегти", "Save")
         ) { name, color ->
             dbHelper.updateMarker(marker.id, name, color)
             marker.name = name
             marker.color = color
             onMarkerUpdated(marker)
-            Toast.makeText(activity, "Marker \"$name\" updated!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, L10n.t(activity, "Мітку \"$name\" оновлено!", "Marker \"$name\" updated!"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -99,14 +101,15 @@ object ItemEditDialog {
         activity: Activity,
         onStartRecording: (title: String, color: Int) -> Unit
     ) {
-        val defaultTitle = "Track (${formatDate()})"
+        val baseTrack = L10n.t(activity, "Трек", "Track")
+        val defaultTitle = "$baseTrack (${formatDate()})"
         showDialog(
             activity = activity,
-            dialogTitle = "🧭 New Track",
+            dialogTitle = L10n.t(activity, "🧭 Новий трек", "🧭 New Track"),
             initialName = defaultTitle,
-            colorTitle = "Track color:",
+            colorTitle = L10n.t(activity, "Колір треку:", "Track color:"),
             initialColor = 0xFF2196F3.toInt(),
-            saveButtonText = "Record"
+            saveButtonText = L10n.t(activity, "Запис", "Record")
         ) { title, color ->
             onStartRecording(title, color)
         }
@@ -121,17 +124,17 @@ object ItemEditDialog {
     ) {
         showDialog(
             activity = activity,
-            dialogTitle = "✏️ Edit Track",
+            dialogTitle = L10n.t(activity, "✏️ Редагувати трек", "✏️ Edit Track"),
             initialName = track.title,
-            colorTitle = "Track color:",
+            colorTitle = L10n.t(activity, "Колір треку:", "Track color:"),
             initialColor = track.color,
-            saveButtonText = "Save"
+            saveButtonText = L10n.t(activity, "Зберегти", "Save")
         ) { title, color ->
             dbHelper.updateTrackInfo(track.id, title, color)
             track.title = title
             track.color = color
             onTrackUpdated(track)
-            Toast.makeText(activity, "Track \"$title\" updated!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, L10n.t(activity, "Трек \"$title\" оновлено!", "Track \"$title\" updated!"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -235,7 +238,7 @@ object ItemEditDialog {
         }
         btnSave.layoutParams = rowParams
 
-        val btnCancel = UiUtils.createStyledButton(activity, "Cancel") {
+        val btnCancel = UiUtils.createStyledButton(activity, L10n.t(activity, "Скасувати", "Cancel")) {
             dialog.dismiss()
         }
         btnCancel.layoutParams = rowParams

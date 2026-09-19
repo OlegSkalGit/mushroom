@@ -37,6 +37,7 @@ import com.olegskal.mushroom.ui.*
 import com.olegskal.mushroom.util.AppLogger
 import com.olegskal.mushroom.util.AppPrefs
 import com.olegskal.mushroom.util.GeoDataExchange
+import com.olegskal.mushroom.util.L10n
 import com.olegskal.mushroom.util.LocationUtils
 import com.olegskal.mushroom.util.ServiceUtils
 import java.util.Locale
@@ -214,7 +215,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             setBearing(-mapView.mapBearing)
             setOnClickListener {
                 if (mapView.alignToNorth()) {
-                    Toast.makeText(this@MushroomMapActivity, "Map aligned to North", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MushroomMapActivity, L10n.t(this@MushroomMapActivity, "Карту вирівняно на північ", "Map aligned to North"), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -271,9 +272,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/gpx+xml", "application/octet-stream", "text/xml", "*/*"))
             }
-            startActivityForResult(Intent.createChooser(intent, "Select GPX File"), REQ_CODE_IMPORT_GPX)
+            startActivityForResult(Intent.createChooser(intent, L10n.t(this, "Оберіть GPX файл", "Select GPX File")), REQ_CODE_IMPORT_GPX)
         } catch (e: Exception) {
-            Toast.makeText(this, "Error selecting file: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, L10n.t(this, "Помилка вибору файлу: ${e.message}", "Error selecting file: ${e.message}"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -311,7 +312,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     if (coords != null) {
                         onReceivedCoordinates(coords.first, coords.second)
                     } else {
-                        Toast.makeText(this, "No coordinates found in shared text", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, L10n.t(this, "Координати не знайдено у тексті", "No coordinates found in shared text"), Toast.LENGTH_SHORT).show()
                     }
                     intent.action = null
                 }
@@ -339,22 +340,23 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             dbHelper,
             lat,
             lon,
-            initialName = "Received Marker",
-            initialType = "📍 Found Location"
+            initialName = L10n.t(this, "Отримана мітка", "Received Marker"),
+            initialType = L10n.t(this, "📍 Знайдена локація", "📍 Found Location")
         ) {
             mapView.reloadMarkers()
         }
-        Toast.makeText(this, String.format(Locale.US, "Received coordinates: %.5f, %.5f", lat, lon), Toast.LENGTH_LONG).show()
+        val msg = String.format(Locale.US, L10n.t(this, "Отримано координати: %.5f, %.5f", "Received coordinates: %.5f, %.5f"), lat, lon)
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
     }
 
     private fun importGpxFromUri(uri: Uri) {
         try {
             val stream = contentResolver.openInputStream(uri)
             if (stream == null) {
-                Toast.makeText(this, "Failed to open file", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, L10n.t(this, "Не вдалося відкрити файл", "Failed to open file"), Toast.LENGTH_SHORT).show()
                 return
             }
-            val fileName = getFileNameFromUri(uri) ?: "Imported Track"
+            val fileName = getFileNameFromUri(uri) ?: L10n.t(this, "Імпортований трек", "Imported Track")
             val cleanTitle = fileName.removeSuffix(".gpx").removeSuffix(".xml")
             val track = stream.use { GeoDataExchange.parseGpx(it, cleanTitle) }
             if (track != null && track.points.isNotEmpty()) {
@@ -363,13 +365,18 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 isFollowLocation = false
                 mapView.fitTrackBounds(track)
                 val km = track.distanceMeters / 1000f
-                Toast.makeText(this, "Imported track \"${track.title}\" (length: ${String.format(Locale.US, "%.2f", km)} km)", Toast.LENGTH_LONG).show()
+                val msg = String.format(
+                    Locale.US,
+                    L10n.t(this, "Імпортовано трек \"%s\" (довжина: %.2f км)", "Imported track \"%s\" (length: %.2f km)"),
+                    track.title, km
+                )
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
             } else {
-                Toast.makeText(this, "No valid GPX track found in file", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, L10n.t(this, "У файлі не знайдено валідного GPX треку", "No valid GPX track found in file"), Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             AppLogger.log("MushroomMapActivity", "importGpxFromUri", false, "Error importing GPX: ${e.message}")
-            Toast.makeText(this, "Error reading GPX: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, L10n.t(this, "Помилка читання GPX: ${e.message}", "Error reading GPX: ${e.message}"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -438,7 +445,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             val km = distMeters / 1000f
             val m = durationSec / 60
             val s = durationSec % 60
-            tvRecordingBadge.text = String.format(Locale.US, "⏺️ TRACK RECORDING: %.2f km (%02d:%02d)", km, m, s)
+            val fmt = if (L10n.isUk(this)) "⏺️ ЗАПИС ТРЕКУ: %.2f км (%02d:%02d)" else "⏺️ TRACK RECORDING: %.2f km (%02d:%02d)"
+            tvRecordingBadge.text = String.format(Locale.US, fmt, km, m, s)
         } else {
             tvRecordingBadge.visibility = View.GONE
         }
@@ -463,13 +471,29 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
     }
 
+    private fun updateMapActivityLanguage() {
+        if (::btnAddMarker.isInitialized) {
+            btnAddMarker.contentDescription = L10n.t(this, "Створити мітку", "Create Marker")
+        }
+        if (::btnRecordTrack.isInitialized) {
+            btnRecordTrack.contentDescription = L10n.t(this, "Запис треку", "Record Track")
+        }
+        if (::btnCenter.isInitialized) {
+            btnCenter.contentDescription = L10n.t(this, "Центрувати на мені", "Center on Current Location")
+        }
+        if (::compassButton.isInitialized) {
+            compassButton.contentDescription = L10n.t(this, "Компас", "Compass")
+        }
+        updateLiveStats()
+    }
+
     private fun showMainMenuDialog() {
         val dialog = Dialog(this)
         val container = UiUtils.createDarkDialogContainer(this)
         val itemParams = UiUtils.createStandardItemParams()
 
         val titleTv = TextView(this).apply {
-            text = "🌲 Mushroom Menu"
+            text = L10n.t(this@MushroomMapActivity, "🌲 Меню навігатора", "🌲 Mushroom Menu")
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -478,7 +502,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         container.addView(titleTv)
 
         // 1. Markers
-        val btnMarkers = UiUtils.createStyledButton(this, "🍄 Markers", itemParams) {
+        val btnMarkers = UiUtils.createStyledButton(this, L10n.t(this, "🍄 Мітки", "🍄 Markers"), itemParams) {
             dialog.dismiss()
             val loc = mapView.currentLocation ?: currentMetrics?.location
             MarkersListDialog.show(
@@ -499,7 +523,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         // 2. Tracks
         val isRec = MushroomTrackingService.instance?.isRecording == true
-        val trackText = if (isRec) "⏹️ Track (recording...)" else "🧭 Track"
+        val trackText = if (isRec) {
+            L10n.t(this, "⏹️ Трек (триває запис...)", "⏹️ Track (recording...)")
+        } else {
+            L10n.t(this, "🧭 Треки", "🧭 Tracks")
+        }
         val btnTracks = UiUtils.createStyledButton(this, trackText, itemParams) {
             dialog.dismiss()
             TracksListDialog.show(
@@ -518,7 +546,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         container.addView(btnTracks)
 
         // 3. Download offline maps
-        val btnDownloadMaps = UiUtils.createStyledButton(this, "🗺️ Maps", itemParams) {
+        val btnDownloadMaps = UiUtils.createStyledButton(this, L10n.t(this, "🗺️ Офлайн-карти", "🗺️ Offline Maps"), itemParams) {
             dialog.dismiss()
             RegionDownloadDialog.show(this@MushroomMapActivity) {
                 mapView.invalidate()
@@ -528,7 +556,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         // 4. Background work without battery optimization
         if (!ServiceUtils.isIgnoringBatteryOptimizations(this)) {
-            val btnBattery = UiUtils.createStyledButton(this, "🔋 Background Run (Unrestricted)", itemParams) {
+            val btnBattery = UiUtils.createStyledButton(this, L10n.t(this, "🔋 Робота у фоні (без обмежень)", "🔋 Background Run (Unrestricted)"), itemParams) {
                 dialog.dismiss()
                 ServiceUtils.requestIgnoreBatteryOptimizations(this@MushroomMapActivity)
             }
@@ -536,7 +564,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
 
         // 5. Mushrooms
-        val btnMushrooms = UiUtils.createStyledButton(this, "🍄 Mushrooms", itemParams) {
+        val btnMushrooms = UiUtils.createStyledButton(this, L10n.t(this, "🍄 Енциклопедія та AI визначник", "🍄 Mushrooms & AI Identifier"), itemParams) {
             dialog.dismiss()
             startActivity(Intent(this@MushroomMapActivity, com.olegskal.mushroom.mushrooms.MushroomActivity::class.java))
         }
@@ -544,8 +572,21 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         container.addView(UiUtils.createDialogDivider(this))
 
-        // 6. Exit
-        val btnQuit = UiUtils.createStyledButton(this, "🚪 Exit", itemParams) {
+        // 6. Language Switcher in Menu
+        val langLabel = if (L10n.isUk(this)) "🌐 Мова: Українська" else "🌐 Language: English"
+        val btnLang = UiUtils.createStyledButton(this, langLabel, itemParams) {
+            val newLang = if (L10n.isUk(this)) "en" else "uk"
+            AppPrefs.setAppLang(this@MushroomMapActivity, newLang)
+            dialog.dismiss()
+            updateMapActivityLanguage()
+            showMainMenuDialog()
+        }
+        container.addView(btnLang)
+
+        container.addView(UiUtils.createDialogDivider(this))
+
+        // 7. Exit
+        val btnQuit = UiUtils.createStyledButton(this, L10n.t(this, "🚪 Вихід", "🚪 Exit"), itemParams) {
             dialog.dismiss()
             val s = MushroomTrackingService.instance
             if (s?.isRecording == true) {
@@ -566,6 +607,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     override fun onResume() {
         super.onResume()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        updateMapActivityLanguage()
         mapView.reloadMarkers()
         mapView.reloadTracks()
         updateLiveStats()
@@ -804,14 +846,15 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 val hitMarker = findMarkerAt(downX, downY, 40f * resources.displayMetrics.density)
                 if (hitMarker != null) {
                     AlertDialog.Builder(this@MushroomMapActivity)
-                        .setTitle("Delete marker?")
-                        .setMessage("Delete \"${hitMarker.name}\"?")
-                        .setPositiveButton("Delete") { _, _ ->
+                        .setTitle(L10n.t(this@MushroomMapActivity, "Видалити мітку?", "Delete marker?"))
+                        .setMessage(L10n.t(this@MushroomMapActivity, "Видалити \"${hitMarker.name}\"?", "Delete \"${hitMarker.name}\"?"))
+                        .setPositiveButton(L10n.t(this@MushroomMapActivity, "Видалити", "Delete")) { _, _ ->
                             dbHelper.deleteMarker(hitMarker.id)
                             reloadMarkers()
-                            Toast.makeText(this@MushroomMapActivity, "Marker \"${hitMarker.name}\" deleted", Toast.LENGTH_SHORT).show()
+                            val msg = L10n.t(this@MushroomMapActivity, "Мітку \"${hitMarker.name}\" видалено", "Marker \"${hitMarker.name}\" deleted")
+                            Toast.makeText(this@MushroomMapActivity, msg, Toast.LENGTH_SHORT).show()
                         }
-                        .setNegativeButton("Cancel", null)
+                        .setNegativeButton(L10n.t(this@MushroomMapActivity, "Скасувати", "Cancel"), null)
                         .show()
                 } else {
                     val coords = screenToLatLon(downX, downY)

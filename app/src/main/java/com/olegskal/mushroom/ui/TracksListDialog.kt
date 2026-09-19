@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import android.widget.*
 import com.olegskal.mushroom.db.DatabaseHelper
 import com.olegskal.mushroom.model.MushroomTrack
+import com.olegskal.mushroom.util.L10n
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -33,7 +34,7 @@ object TracksListDialog {
         }
 
         val titleTv = TextView(activity).apply {
-            text = "🗺️ Recorded Tracks"
+            text = L10n.t(activity, "🗺️ Збережені треки", "🗺️ Recorded Tracks")
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -54,7 +55,7 @@ object TracksListDialog {
 
         val isRecording = com.olegskal.mushroom.service.MushroomTrackingService.instance?.isRecording == true
         val btnRecordTrack = Button(activity).apply {
-            text = if (isRecording) "⏹️ Stop Recording Track" else "⏺️ Record New Track"
+            text = if (isRecording) L10n.t(activity, "⏹️ Зупинити запис треку", "⏹️ Stop Recording Track") else L10n.t(activity, "⏺️ Записати новий трек", "⏺️ Record New Track")
             setTextColor(Color.WHITE)
             setBackgroundColor(if (isRecording) Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
             textSize = 15f
@@ -79,7 +80,7 @@ object TracksListDialog {
         }
         container.addView(btnRecordTrack)
 
-        val btnImportGpx = UiUtils.createStyledButton(activity, "📂 Import GPX File") {
+        val btnImportGpx = UiUtils.createStyledButton(activity, L10n.t(activity, "📂 Імпортувати GPX файл", "📂 Import GPX File")) {
             dialog.dismiss()
             (activity as? com.olegskal.mushroom.MushroomMapActivity)?.openGpxFilePicker()
         }
@@ -106,7 +107,7 @@ object TracksListDialog {
 
             if (tracks.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = "No saved tracks.\nTap \"⏺️ Record New Track\"."
+                    text = L10n.t(activity, "Немає збережених треків.\nНатисніть \"⏺️ Записати новий трек\".", "No saved tracks.\nTap \"⏺️ Record New Track\".")
                     setTextColor(Color.GRAY)
                     textSize = 14f
                     gravity = Gravity.CENTER
@@ -158,11 +159,16 @@ object TracksListDialog {
                 val h = track.durationSec / 3600
                 val m = (track.durationSec % 3600) / 60
                 val s = track.durationSec % 60
-                val timeStr = if (h > 0) String.format(Locale.US, "%d h %02d min", h, m) else String.format(Locale.US, "%d min %02d s", m, s)
+                val hUnit = L10n.t(activity, "год", "h")
+                val minUnit = L10n.t(activity, "хв", "min")
+                val secUnit = L10n.t(activity, "с", "s")
+                val kmUnit = L10n.t(activity, "км", "km")
+                val pointsUnit = L10n.t(activity, "точок", "points")
+                val timeStr = if (h > 0) String.format(Locale.US, "%d %s %02d %s", h, hUnit, m, minUnit) else String.format(Locale.US, "%d %s %02d %s", m, minUnit, s, secUnit)
                 val dateStr = sdf.format(Date(track.startTime))
 
                 val subTv = TextView(activity).apply {
-                    text = String.format(Locale.US, "%.2f km • %s • %d points", km, timeStr, track.points.size)
+                    text = String.format(Locale.US, "%.2f %s • %s • %d %s", km, kmUnit, timeStr, track.points.size, pointsUnit)
                     setTextColor(track.color)
                     textSize = 12f
                 }
@@ -210,14 +216,14 @@ object TracksListDialog {
                     setPadding(8, 0, 8, 0)
                     setOnClickListener {
                         AlertDialog.Builder(activity)
-                            .setTitle("Delete Track?")
-                            .setMessage("Delete \"${track.title}\"?")
-                            .setPositiveButton("Delete") { _, _ ->
+                            .setTitle(L10n.t(activity, "Видалити трек?", "Delete Track?"))
+                            .setMessage(L10n.t(activity, "Видалити \"${track.title}\"?", "Delete \"${track.title}\"?"))
+                            .setPositiveButton(L10n.t(activity, "Видалити", "Delete")) { _, _ ->
                                 dbHelper.deleteTrack(track.id)
                                 onVisibilityChanged()
                                 populateTracks()
                             }
-                            .setNegativeButton("Cancel", null)
+                            .setNegativeButton(L10n.t(activity, "Скасувати", "Cancel"), null)
                             .show()
                     }
                 }
