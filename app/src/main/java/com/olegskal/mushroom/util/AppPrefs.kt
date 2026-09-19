@@ -214,4 +214,10 @@ object AppPrefs {
     fun setMushroomFilter(context: Context, filter: String) {
         getPrefs(context).edit().putString(KEY_MUSHROOM_FILTER, filter).apply()
     }
+
+    const val KEY_MUSHROOM_VIEW_MODE = "mushroom_view_mode"
+    fun getMushroomViewMode(context: Context): String = getPrefs(context).getString(KEY_MUSHROOM_VIEW_MODE, "list") ?: "list"
+    fun setMushroomViewMode(context: Context, mode: String) {
+        getPrefs(context).edit().putString(KEY_MUSHROOM_VIEW_MODE, mode).apply()
+    }
 }

@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
@@ -30,11 +31,14 @@ class MushroomEncyclopediaTab(
     private val statusTextView: TextView
     private val regionToggleBtn: Button
     private val filterSpinner: Spinner
+    private val viewModeSpinner: Spinner
     private val scrollView: ScrollView
 
     private var currentQuery = ""
     private var isUkraineOnly = true
     private var currentFilter = "all"
+    private var currentViewMode = "list"
+    private val viewModeKeys = listOf("list", "grid")
     private var currentPage = 1
     private var isLoading = false
     private var hasMore = true
@@ -61,6 +65,7 @@ class MushroomEncyclopediaTab(
         // Load saved preferences
         isUkraineOnly = AppPrefs.getMushroomIsUkraine(activity)
         currentFilter = AppPrefs.getMushroomFilter(activity)
+        currentViewMode = AppPrefs.getMushroomViewMode(activity)
 
         // 1. Search Bar & Clear Button
         val searchRow = LinearLayout(activity).apply {
@@ -99,7 +104,7 @@ class MushroomEncyclopediaTab(
         searchRow.addView(btnClearSearch)
         view.addView(searchRow)
 
-        // 2. Region Toggle & Dropdown Filter Row
+        // 2. Region Toggle, Filter & View Mode Row
         val controlsRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -111,14 +116,14 @@ class MushroomEncyclopediaTab(
         regionToggleBtn = Button(activity).apply {
             text = if (isUkraineOnly) "🇺🇦 Україна" else "🌍 Світ"
             setTextColor(Color.WHITE)
-            textSize = 13f
+            textSize = 12f
             setTypeface(null, Typeface.BOLD)
             setBackgroundColor(Color.parseColor("#22362C"))
-            val padH = (12 * density).toInt()
-            val padV = (8 * density).toInt()
+            val padH = (8 * density).toInt()
+            val padV = (6 * density).toInt()
             setPadding(padH, padV, padH, padV)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 8, 0)
+                setMargins(0, 0, 6, 0)
             }
             setOnClickListener {
                 isUkraineOnly = !isUkraineOnly
@@ -130,12 +135,22 @@ class MushroomEncyclopediaTab(
         controlsRow.addView(regionToggleBtn)
 
         filterSpinner = Spinner(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(0, 0, 6, 0)
+            }
             setBackgroundColor(Color.parseColor("#1B2A22"))
-            setPadding(8, 8, 8, 8)
+            setPadding(6, 6, 6, 6)
         }
         setupFilterSpinner()
         controlsRow.addView(filterSpinner)
+
+        viewModeSpinner = Spinner(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+            setPadding(6, 6, 6, 6)
+        }
+        setupViewModeSpinner()
+        controlsRow.addView(viewModeSpinner)
         view.addView(controlsRow)
 
         // 3. Status text
@@ -229,9 +244,9 @@ class MushroomEncyclopediaTab(
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val tv = super.getView(position, convertView, parent) as TextView
                 tv.setTextColor(Color.WHITE)
-                tv.textSize = 13.5f
+                tv.textSize = 12.5f
                 tv.setTypeface(null, Typeface.BOLD)
-                tv.setPadding(12, 6, 12, 6)
+                tv.setPadding(6, 6, 6, 6)
                 return tv
             }
 
@@ -239,8 +254,8 @@ class MushroomEncyclopediaTab(
                 val tv = super.getDropDownView(position, convertView, parent) as TextView
                 tv.setTextColor(Color.WHITE)
                 tv.setBackgroundColor(Color.parseColor("#1B2A22"))
-                tv.textSize = 14f
-                val pad = (12 * activity.resources.displayMetrics.density).toInt()
+                tv.textSize = 13.5f
+                val pad = (10 * activity.resources.displayMetrics.density).toInt()
                 tv.setPadding(pad, pad, pad, pad)
                 return tv
             }
@@ -264,12 +279,62 @@ class MushroomEncyclopediaTab(
         }
     }
 
+    private fun getViewModeLabels(): List<String> {
+        return if (currentLang == "uk") {
+            listOf("📋 Список", "🔲 Картки")
+        } else {
+            listOf("📋 List", "🔲 Cards")
+        }
+    }
+
+    private fun setupViewModeSpinner() {
+        val labels = getViewModeLabels()
+        val adapter = object : ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item, labels) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val tv = super.getView(position, convertView, parent) as TextView
+                tv.setTextColor(Color.WHITE)
+                tv.textSize = 12.5f
+                tv.setTypeface(null, Typeface.BOLD)
+                tv.setPadding(6, 6, 6, 6)
+                return tv
+            }
+
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val tv = super.getDropDownView(position, convertView, parent) as TextView
+                tv.setTextColor(Color.WHITE)
+                tv.setBackgroundColor(Color.parseColor("#1B2A22"))
+                tv.textSize = 13.5f
+                val pad = (10 * activity.resources.displayMetrics.density).toInt()
+                tv.setPadding(pad, pad, pad, pad)
+                return tv
+            }
+        }
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        viewModeSpinner.adapter = adapter
+
+        val initialIdx = viewModeKeys.indexOf(currentViewMode).let { if (it >= 0) it else 0 }
+        viewModeSpinner.setSelection(initialIdx, false)
+
+        viewModeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val newMode = viewModeKeys.getOrElse(position) { "list" }
+                if (newMode != currentViewMode) {
+                    currentViewMode = newMode
+                    AppPrefs.setMushroomViewMode(activity, currentViewMode)
+                    applyFilter()
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
     fun setLanguage(lang: String) {
         currentLang = lang
         searchEditText.hint = if (currentLang == "uk") "Пошук (білий, печериця, boletus, amanita)..." else "Search (porcini, amanita, boletus)..."
         regionToggleBtn.text = if (isUkraineOnly) "🇺🇦 Україна" else "🌍 Світ"
         setupFilterSpinner()
-        applyFilter()
+        setupViewModeSpinner()
+        resetAndReload()
     }
 
     fun setSearchQuery(query: String) {
@@ -359,8 +424,37 @@ class MushroomEncyclopediaTab(
             }
         } else {
             statusTextView.visibility = View.GONE
-            for (taxon in matching) {
-                renderCard(taxon)
+            if (currentViewMode == "grid") {
+                val density = activity.resources.displayMetrics.density
+                val pairs = matching.chunked(2)
+                for (pair in pairs) {
+                    val row = LinearLayout(activity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            setMargins(0, 4, 0, 4)
+                        }
+                    }
+                    row.addView(createGridCard(pair[0]))
+                    if (pair.size > 1) {
+                        row.addView(createGridCard(pair[1]))
+                    } else {
+                        val spacer = View(activity).apply {
+                            val margin = (3 * density).toInt()
+                            layoutParams = LinearLayout.LayoutParams(0, 0, 1f).apply {
+                                setMargins(margin, 0, margin, 0)
+                            }
+                        }
+                        row.addView(spacer)
+                    }
+                    itemsContainer.addView(row)
+                }
+            } else {
+                for (taxon in matching) {
+                    renderListCard(taxon)
+                }
             }
         }
 
@@ -369,7 +463,105 @@ class MushroomEncyclopediaTab(
         }
     }
 
-    private fun renderCard(taxon: MushroomTaxon) {
+    private fun createGridCard(taxon: MushroomTaxon): View {
+        val density = activity.resources.displayMetrics.density
+        val card = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+            val pad = (6 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+            val margin = (3 * density).toInt()
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(margin, 0, margin, 0)
+            }
+            setOnClickListener {
+                MushroomApiClient.getTaxonDetails(taxon.id, taxon.scientificName, currentLang) { detailedTaxon ->
+                    MushroomDetailDialog.show(activity, detailedTaxon ?: taxon, currentLang)
+                }
+            }
+        }
+
+        // Large photo on top
+        val photoHeight = (120 * density).toInt()
+        val ivPhoto = ImageView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, photoHeight)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(Color.parseColor("#0C130F"))
+        }
+        MushroomApiClient.loadBitmap(taxon.defaultPhotoUrl) { bmp ->
+            if (bmp != null) ivPhoto.setImageBitmap(bmp)
+        }
+        card.addView(ivPhoto)
+
+        // Caption info container at the bottom
+        val captionCol = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, (6 * density).toInt(), 0, (2 * density).toInt())
+        }
+
+        val tvCommon = TextView(activity).apply {
+            text = taxon.commonName
+            setTextColor(Color.WHITE)
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        }
+
+        val tvScientific = TextView(activity).apply {
+            text = taxon.scientificName
+            setTextColor(Color.parseColor("#9CA3AF"))
+            textSize = 11f
+            setTypeface(null, Typeface.ITALIC)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+
+        val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
+        val edibility = if (taxon.edibility != "unknown") taxon.edibility else meta.edibility
+
+        val badgeRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 4, 0, 0)
+        }
+
+        val tvBadge = TextView(activity).apply {
+            text = MycoKnowledge.getEdibilityLabel(edibility, currentLang)
+            setTextColor(Color.WHITE)
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(MycoKnowledge.getEdibilityColor(edibility))
+            setPadding(8, 3, 8, 3)
+        }
+        badgeRow.addView(tvBadge)
+
+        if (!meta.lookalikesUk.isNullOrEmpty()) {
+            val tvLookalikeAlert = TextView(activity).apply {
+                text = "⚠️"
+                textSize = 11f
+                setPadding(6, 0, 2, 0)
+            }
+            badgeRow.addView(tvLookalikeAlert)
+        }
+
+        val hymeniumIcon = if (meta.hymenium == "tubes" || taxon.hymenium == "tubes") "🧽" else "🍂"
+        val tvHymenium = TextView(activity).apply {
+            text = hymeniumIcon
+            textSize = 11.5f
+            setPadding(4, 0, 0, 0)
+        }
+        badgeRow.addView(tvHymenium)
+
+        captionCol.addView(tvCommon)
+        captionCol.addView(tvScientific)
+        captionCol.addView(badgeRow)
+        card.addView(captionCol)
+
+        return card
+    }
+
+    private fun renderListCard(taxon: MushroomTaxon) {
         val density = activity.resources.displayMetrics.density
         val card = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL

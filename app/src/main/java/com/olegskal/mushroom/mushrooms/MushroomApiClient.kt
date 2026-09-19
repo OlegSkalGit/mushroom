@@ -31,7 +31,9 @@ data class MushroomTaxon(
     val order: String? = null,
     val genus: String? = null,
     val englishCommonName: String? = null,
-    val conservationStatus: String? = null
+    val conservationStatus: String? = null,
+    val phylum: String? = null,
+    val taxonClass: String? = null
 )
 
 object MushroomApiClient {
@@ -120,26 +122,27 @@ object MushroomApiClient {
                         var taxon = parseTaxonObject(obj, lang)
 
                         // If Wikipedia summary is missing in current language, fallback to English
-                        if (taxon.wikipediaSummary.isNullOrBlank()) {
+                        val currentSummary = taxon.wikipediaSummary?.takeIf { !it.equals("null", ignoreCase = true) && it.isNotBlank() }
+                        if (currentSummary == null) {
                             // 1. Try iNaturalist locale=en
                             try {
                                 val enUrl = "https://api.inaturalist.org/v1/taxa/$resolvedTaxonId?locale=en"
                                 val enJson = fetchUrlString(enUrl)
                                 val enObj = JSONObject(enJson).optJSONArray("results")?.optJSONObject(0)
-                                val enSummary = enObj?.optString("wikipedia_summary", "")?.takeIf { it.isNotBlank() }
+                                val enSummary = enObj?.optCleanString("wikipedia_summary")
                                 if (enSummary != null) {
                                     taxon = taxon.copy(wikipediaSummary = cleanHtml(enSummary))
                                 }
                             } catch (ignored: Exception) {}
 
                             // 2. If still blank, try Wikipedia REST API directly for English summary
-                            if (taxon.wikipediaSummary.isNullOrBlank()) {
+                            if (taxon.wikipediaSummary == null) {
                                 try {
                                     val wikiRestUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/${URLEncoder.encode(taxon.scientificName, "UTF-8")}"
                                     val wikiJson = fetchUrlString(wikiRestUrl)
-                                    val extract = JSONObject(wikiJson).optString("extract", "").takeIf { it.isNotBlank() }
+                                    val extract = JSONObject(wikiJson).optCleanString("extract")
                                     if (extract != null) {
-                                        taxon = taxon.copy(wikipediaSummary = extract)
+                                        taxon = taxon.copy(wikipediaSummary = cleanHtml(extract))
                                     }
                                 } catch (ignored: Exception) {}
                             }
@@ -187,13 +190,19 @@ object MushroomApiClient {
         }
     }
 
+    private fun JSONObject.optCleanString(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        val v = optString(key, "").trim()
+        return if (v.isEmpty() || v.equals("null", ignoreCase = true)) null else v
+    }
+
     private fun parseTaxonObject(obj: JSONObject, lang: String): MushroomTaxon {
         val id = obj.optInt("id", 0)
-        val scientificName = obj.optString("name", "Unknown species")
-        val preferredCommon = obj.optString("preferred_common_name", "")
-        val englishCommon = obj.optString("english_common_name", "").takeIf { it.isNotBlank() }
+        val scientificName = obj.optCleanString("name") ?: "Unknown species"
+        val preferredCommon = obj.optCleanString("preferred_common_name")
+        val englishCommon = obj.optCleanString("english_common_name")
         val common = when {
-            preferredCommon.isNotEmpty() -> preferredCommon
+            !preferredCommon.isNullOrEmpty() -> preferredCommon
             !englishCommon.isNullOrEmpty() -> englishCommon
             else -> scientificName
         }
@@ -201,20 +210,16 @@ object MushroomApiClient {
         var defaultPhotoUrl: String? = null
         val defaultPhotoObj = obj.optJSONObject("default_photo")
         if (defaultPhotoObj != null) {
-            val med = defaultPhotoObj.optString("medium_url")
-            val sq = defaultPhotoObj.optString("square_url")
-            defaultPhotoUrl = when {
-                med.isNotEmpty() -> med
-                sq.isNotEmpty() -> sq
-                else -> null
-            }
+            val med = defaultPhotoObj.optCleanString("medium_url")
+            val sq = defaultPhotoObj.optCleanString("square_url")
+            val u = defaultPhotoObj.optCleanString("url")
+            defaultPhotoUrl = med ?: sq ?: u
         }
         if (defaultPhotoUrl == null) {
             val photosArr = obj.optJSONArray("photos")
             if (photosArr != null && photosArr.length() > 0) {
                 val pObj = photosArr.getJSONObject(0)
-                val u = pObj.optString("medium_url").takeIf { it.isNotEmpty() }
-                    ?: pObj.optString("url").takeIf { it.isNotEmpty() }
+                val u = pObj.optCleanString("medium_url") ?: pObj.optCleanString("url")
                 defaultPhotoUrl = u
             }
         }
@@ -226,30 +231,36 @@ object MushroomApiClient {
         if (taxonPhotos != null) {
             for (j in 0 until taxonPhotos.length()) {
                 val pObj = taxonPhotos.getJSONObject(j).optJSONObject("photo")
-                val url = pObj?.optString("medium_url") ?: pObj?.optString("large_url")
+                val url = pObj?.optCleanString("medium_url") ?: pObj?.optCleanString("large_url")
                 if (!url.isNullOrEmpty() && !photoUrls.contains(url)) {
                     photoUrls.add(url)
                 }
             }
         }
 
-        val wikiSummary = obj.optString("wikipedia_summary", "").takeIf { it.isNotBlank() }
-        val wikiUrl = obj.optString("wikipedia_url", "").takeIf { it.isNotBlank() }
+        val wikiSummary = obj.optCleanString("wikipedia_summary")
+        val wikiUrl = obj.optCleanString("wikipedia_url")
         val observationsCount = obj.optInt("observations_count", 0)
-        val rank = obj.optString("rank", "species")
+        val rank = obj.optCleanString("rank") ?: "species"
 
         // Parse taxonomic hierarchy from ancestors
-        var family: String? = null
+        var phylum: String? = null
+        var taxonClass: String? = null
         var order: String? = null
+        var family: String? = null
         var genus: String? = null
         val ancestors = obj.optJSONArray("ancestors")
         if (ancestors != null) {
             for (i in 0 until ancestors.length()) {
                 val anc = ancestors.getJSONObject(i)
-                when (anc.optString("rank")) {
-                    "family" -> family = anc.optString("name")
-                    "order" -> order = anc.optString("name")
-                    "genus" -> genus = anc.optString("name")
+                val r = anc.optCleanString("rank")
+                val n = anc.optCleanString("name")
+                when (r) {
+                    "phylum" -> phylum = n
+                    "class" -> taxonClass = n
+                    "order" -> order = n
+                    "family" -> family = n
+                    "genus" -> genus = n
                 }
             }
         }
@@ -259,10 +270,10 @@ object MushroomApiClient {
         var conservationStatus: String? = null
         if (conservationStatuses != null && conservationStatuses.length() > 0) {
             val cs = conservationStatuses.getJSONObject(0)
-            val st = cs.optString("status")
-            val auth = cs.optString("authority")
-            if (st.isNotEmpty()) {
-                conservationStatus = if (auth.isNotEmpty()) "$st ($auth)" else st
+            val st = cs.optCleanString("status")
+            val auth = cs.optCleanString("authority")
+            if (st != null) {
+                conservationStatus = if (auth != null) "$st ($auth)" else st
             }
         }
 
@@ -284,13 +295,16 @@ object MushroomApiClient {
             order = order,
             genus = genus,
             englishCommonName = englishCommon,
-            conservationStatus = conservationStatus
+            conservationStatus = conservationStatus,
+            phylum = phylum,
+            taxonClass = taxonClass
         )
     }
 
     private fun cleanHtml(html: String?): String? {
         if (html == null) return null
-        return html.replace(Regex("<[^>]*>"), "").trim()
+        val cleaned = html.replace(Regex("<[^>]*>"), "").trim()
+        return if (cleaned.isEmpty() || cleaned.equals("null", ignoreCase = true)) null else cleaned
     }
 
     private fun fetchUrlString(urlString: String): String {

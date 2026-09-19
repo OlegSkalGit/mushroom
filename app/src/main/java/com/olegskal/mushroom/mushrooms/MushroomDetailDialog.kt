@@ -350,11 +350,17 @@ object MushroomDetailDialog {
             if (!taxon.englishCommonName.isNullOrBlank() && !taxon.englishCommonName.equals(taxon.commonName, ignoreCase = true)) {
                 addTaxRow(if (isUk) "Англ. назва:" else "English Name:", taxon.englishCommonName)
             }
-            if (!taxon.family.isNullOrBlank()) {
-                addTaxRow(if (isUk) "Родина:" else "Family:", taxon.family)
+            if (!taxon.phylum.isNullOrBlank()) {
+                addTaxRow(if (isUk) "Відділ:" else "Phylum:", taxon.phylum)
+            }
+            if (!taxon.taxonClass.isNullOrBlank()) {
+                addTaxRow(if (isUk) "Клас:" else "Class:", taxon.taxonClass)
             }
             if (!taxon.order.isNullOrBlank()) {
                 addTaxRow(if (isUk) "Порядок:" else "Order:", taxon.order)
+            }
+            if (!taxon.family.isNullOrBlank()) {
+                addTaxRow(if (isUk) "Родина:" else "Family:", taxon.family)
             }
             if (!taxon.genus.isNullOrBlank()) {
                 addTaxRow(if (isUk) "Рід:" else "Genus:", taxon.genus)
@@ -370,12 +376,14 @@ object MushroomDetailDialog {
             content.addView(taxContainer)
         }
 
-        // 6. Wikipedia Summary (with Ukrainian / English language indicator)
-        val summary = taxon.wikipediaSummary
-        if (!summary.isNullOrBlank()) {
+        // 6. Wikipedia Summary or Biological Overview from iNaturalist API
+        val summary = taxon.wikipediaSummary?.takeIf { !it.equals("null", ignoreCase = true) && it.isNotBlank() }
+        val isUk = currentLang == "uk"
+
+        if (summary != null) {
             val hasCyrillic = summary.any { it in '\u0400'..'\u04FF' }
             val tvDescTitle = TextView(activity).apply {
-                val title = if (currentLang == "uk") {
+                val title = if (isUk) {
                     if (hasCyrillic) "📖 Опис (Вікіпедія):" else "📖 Опис (English Wikipedia):"
                 } else {
                     "📖 Overview (Wikipedia):"
@@ -388,6 +396,74 @@ object MushroomDetailDialog {
             }
             val tvDesc = TextView(activity).apply {
                 text = summary
+                setTextColor(Color.parseColor("#D1D5DB"))
+                textSize = 12.5f
+                setLineSpacing(4f, 1f)
+                setPadding(0, 0, 0, 14)
+            }
+            content.addView(tvDescTitle)
+            content.addView(tvDesc)
+        } else {
+            // High-detail biological summary synthesized from iNaturalist API data
+            val tvDescTitle = TextView(activity).apply {
+                text = if (isUk) "📖 Опис та наукові відомості (iNaturalist):" else "📖 Overview & Scientific Data (iNaturalist):"
+                setTextColor(Color.parseColor("#10B981"))
+                textSize = 14f
+                setTypeface(null, Typeface.BOLD)
+                setPadding(0, 6, 0, 4)
+            }
+            val autoDesc = buildString {
+                if (isUk) {
+                    append("Таксон «${taxon.scientificName}» зареєстрований у міжнародному реєстрі біорізноманіття iNaturalist.")
+                    if (!taxon.commonName.equals(taxon.scientificName, ignoreCase = true)) {
+                        append(" Загальновживана назва: «${taxon.commonName}».")
+                    }
+                    if (!taxon.englishCommonName.isNullOrBlank() && !taxon.englishCommonName.equals(taxon.commonName, ignoreCase = true)) {
+                        append(" В англомовній літературі: «${taxon.englishCommonName}».")
+                    }
+                    val taxParts = mutableListOf<String>()
+                    taxon.phylum?.let { taxParts.add("відділ $it") }
+                    taxon.taxonClass?.let { taxParts.add("клас $it") }
+                    taxon.order?.let { taxParts.add("порядок $it") }
+                    taxon.family?.let { taxParts.add("родина $it") }
+                    taxon.genus?.let { taxParts.add("рід $it") }
+                    if (taxParts.isNotEmpty()) {
+                        append("\n\nТаксономічна належність: ").append(taxParts.joinToString(", ")).append(".")
+                    }
+                    if (taxon.observationsCount > 0) {
+                        val formatted = "%,d".format(taxon.observationsCount).replace(',', ' ')
+                        append("\n\nСвітова спільнота налічує $formatted польових спостережень цього таксона.")
+                    }
+                    if (!taxon.conservationStatus.isNullOrBlank()) {
+                        append("\n\nОхоронний статус: ${taxon.conservationStatus}.")
+                    }
+                    append("\n\nСтаття у Вікіпедії відсутня. Інтерактивні карти поширення та фотографії доступні за посиланням на iNaturalist.")
+                } else {
+                    append("Taxon \"${taxon.scientificName}\" is indexed in the international iNaturalist biodiversity registry.")
+                    if (!taxon.englishCommonName.isNullOrBlank()) {
+                        append(" Known commonly as \"${taxon.englishCommonName}\".")
+                    }
+                    val taxParts = mutableListOf<String>()
+                    taxon.phylum?.let { taxParts.add("phylum $it") }
+                    taxon.taxonClass?.let { taxParts.add("class $it") }
+                    taxon.order?.let { taxParts.add("order $it") }
+                    taxon.family?.let { taxParts.add("family $it") }
+                    taxon.genus?.let { taxParts.add("genus $it") }
+                    if (taxParts.isNotEmpty()) {
+                        append("\n\nTaxonomy: ").append(taxParts.joinToString(", ")).append(".")
+                    }
+                    if (taxon.observationsCount > 0) {
+                        val formatted = "%,d".format(taxon.observationsCount).replace(',', ' ')
+                        append("\n\nGlobal community recorded $formatted field observations of this taxon.")
+                    }
+                    if (!taxon.conservationStatus.isNullOrBlank()) {
+                        append("\n\nConservation status: ${taxon.conservationStatus}.")
+                    }
+                    append("\n\nWikipedia article is unavailable. Distribution maps and research photos are available on iNaturalist.")
+                }
+            }
+            val tvDesc = TextView(activity).apply {
+                text = autoDesc
                 setTextColor(Color.parseColor("#D1D5DB"))
                 textSize = 12.5f
                 setLineSpacing(4f, 1f)
