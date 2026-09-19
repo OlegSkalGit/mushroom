@@ -40,6 +40,7 @@ class MushroomClassifierTab(
 
     private val previewImageView: ImageView
     private val btnAnalyze: Button
+    private val tvWarning: TextView
     private val tvStatus: TextView
     private val tvModelStatus: TextView
     private val resultsContainer: LinearLayout
@@ -92,10 +93,10 @@ class MushroomClassifierTab(
         updateModelStatusBadge()
 
         // 3. Selected Photo Preview Card
-        val previewHeight = (200 * density).toInt()
+        val previewHeight = (180 * density).toInt()
         val previewFrame = FrameLayout(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, previewHeight).apply {
-                setMargins(0, 0, 0, 12)
+                setMargins(0, 0, 0, 10)
             }
             setBackgroundColor(Color.parseColor("#111915"))
         }
@@ -124,22 +125,39 @@ class MushroomClassifierTab(
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, 12)
+                setMargins(0, 0, 0, 8)
             }
         }
         view.addView(btnAnalyze)
 
-        // 5. Status text
+        // 5. Inaccuracy Warning (Red)
+        tvWarning = TextView(activity).apply {
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#FF5252"))
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#2A1215"))
+            val padH = (12 * density).toInt()
+            val padV = (8 * density).toInt()
+            setPadding(padH, padV, padH, padV)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, 8)
+            }
+        }
+        updateWarningText()
+        view.addView(tvWarning)
+
+        // 6. Status text
         tvStatus = TextView(activity).apply {
             setTextColor(Color.parseColor("#9CA3AF"))
             textSize = 13f
             gravity = Gravity.CENTER
             visibility = View.GONE
-            setPadding(0, 6, 0, 12)
+            setPadding(0, 4, 0, 8)
         }
         view.addView(tvStatus)
 
-        // 6. Results Scroll Container
+        // 7. Results Scroll Container
         val scrollView = ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
@@ -161,10 +179,19 @@ class MushroomClassifierTab(
         }
     }
 
+    private fun updateWarningText() {
+        tvWarning.text = if (currentLang == "uk") {
+            "⚠️ УВАГА: Метод розпізнавання не є 100% точним! Ніколи не вживайте гриби, покладаючись лише на визначник."
+        } else {
+            "⚠️ WARNING: Recognition method is not 100% accurate! Never consume mushrooms relying solely on the classifier."
+        }
+    }
+
     fun setLanguage(lang: String) {
         currentLang = lang
         btnAnalyze.text = if (currentLang == "uk") "🔍 Визначити гриб" else "🔍 Identify Mushroom"
         updateModelStatusBadge()
+        updateWarningText()
     }
 
     fun setInputBitmap(bitmap: Bitmap) {
