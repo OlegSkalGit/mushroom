@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -46,6 +47,8 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         const val ACTION_STOP_SERVICE = "com.olegskal.mushroom.ACTION_STOP_SERVICE"
         const val ACTION_START_RECORDING = "com.olegskal.mushroom.ACTION_START_RECORDING"
         const val ACTION_STOP_RECORDING = "com.olegskal.mushroom.ACTION_STOP_RECORDING"
+        const val ACTION_RESTORE_NOTIFICATION = "com.olegskal.mushroom.ACTION_RESTORE_NOTIFICATION"
+        const val ACTION_NOTIFICATION_DISMISSED = "com.olegskal.mushroom.ACTION_NOTIFICATION_DISMISSED"
         const val EXTRA_TRACK_TITLE = "extra_track_title"
         const val EXTRA_TRACK_COLOR = "extra_track_color"
 
@@ -56,11 +59,31 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         @Volatile
         var instance: MushroomTrackingService? = null
         @Volatile
+        var isAppInForeground = false
+        @Volatile
+        var isNotificationDismissed = false
+        @Volatile
         var lastMetrics: ProcessedLocationMetrics? = null
         @Volatile
         var metricsListener: ((ProcessedLocationMetrics) -> Unit)? = null
         @Volatile
         var serviceStateListener: ((Boolean) -> Unit)? = null
+
+        fun ensureServiceAndNotification(context: Context) {
+            try {
+                val s = instance
+                if (s == null || !isRunning) {
+                    val serviceIntent = Intent(context, MushroomTrackingService::class.java).apply {
+                        action = ACTION_RESTORE_NOTIFICATION
+                    }
+                    ServiceUtils.startTrackingService(context, serviceIntent)
+                } else {
+                    s.restoreForegroundNotification()
+                }
+            } catch (e: Exception) {
+                AppLogger.log("TrackingService", "ensureServiceAndNotification", false, "Error: ${e.message}")
+            }
+        }
     }
 
     private lateinit var locationManager: LocationManager
@@ -109,7 +132,12 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
 
         createNotificationChannel()
         val initialNotif = AppPrefs.t(this, "Пошук супутників GPS...", "Searching for GPS satellites...")
-        startForeground(NOTIF_ID, buildNotification(initialNotif))
+        val notif = buildNotification(initialNotif)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
 
         registerSensors()
         registerGpsUpdates()
@@ -182,6 +210,20 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
             }
             ACTION_STOP_RECORDING -> {
                 stopTrackRecording()
+            }
+            ACTION_NOTIFICATION_DISMISSED -> {
+                isNotificationDismissed = true
+                if (isAppInForeground) {
+                    restoreForegroundNotification()
+                }
+            }
+            ACTION_RESTORE_NOTIFICATION -> {
+                restoreForegroundNotification()
+            }
+            else -> {
+                if (isNotificationDismissed || isAppInForeground) {
+                    restoreForegroundNotification()
+                }
             }
         }
         return START_NOT_STICKY
@@ -266,9 +308,9 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         if (!isRunning) return
         lastLocation = location
 
-        if (!hasUpdatedActiveNotification && !isRecording) {
+        if ((!hasUpdatedActiveNotification || isNotificationDismissed) && !isRecording) {
             hasUpdatedActiveNotification = true
-            updateNotification()
+            updateNotification(forceForeground = isNotificationDismissed && isAppInForeground)
         }
 
         val traj = trajectoryFilter.processLocation(location)
@@ -439,10 +481,19 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
             builder.addAction(android.R.drawable.ic_media_pause, AppPrefs.t(this, "Зупинити запис", "Stop Recording"), pStopRec)
         }
 
+        val dismissedIntent = Intent(this, MushroomTrackingService::class.java).apply {
+            action = ACTION_NOTIFICATION_DISMISSED
+        }
+        val pDismissed = PendingIntent.getService(
+            this, 2, dismissedIntent,
+            ServiceUtils.PENDING_INTENT_IMMUTABLE_FLAGS
+        )
+        builder.setDeleteIntent(pDismissed)
+
         return builder.build()
     }
 
-    private fun updateNotification(textOverride: String? = null) {
+    fun updateNotification(textOverride: String? = null, forceForeground: Boolean = false) {
         val notifText = textOverride ?: if (isRecording && activeTrack != null) {
             val km = activeTrack!!.distanceMeters / 1000f
             val sec = (System.currentTimeMillis() - activeTrack!!.startTime) / 1000L
@@ -456,8 +507,34 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         } else {
             AppPrefs.t(this, "Пошук супутників GPS...", "Searching for GPS satellites...")
         }
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIF_ID, buildNotification(notifText))
+        val notification = buildNotification(notifText)
+        if (forceForeground || isNotificationDismissed) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                } else {
+                    startForeground(NOTIF_ID, notification)
+                }
+                isNotificationDismissed = false
+            } catch (e: Exception) {
+                AppLogger.log("TrackingService", "updateNotification", false, "startForeground error: ${e.message}")
+                try {
+                    val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    nm.notify(NOTIF_ID, notification)
+                } catch (_: Exception) {}
+            }
+        } else {
+            try {
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                nm.notify(NOTIF_ID, notification)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun restoreForegroundNotification() {
+        if (!isRunning) return
+        isNotificationDismissed = false
+        updateNotification(forceForeground = true)
     }
 
     fun stopSelfAndCleanup() {

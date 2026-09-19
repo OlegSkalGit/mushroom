@@ -266,6 +266,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
+        MushroomTrackingService.isAppInForeground = true
+        MushroomTrackingService.ensureServiceAndNotification(this)
         handleIncomingIntent(intent)
     }
 
@@ -996,6 +998,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     override fun onResume() {
         super.onResume()
+        MushroomTrackingService.isAppInForeground = true
+        MushroomTrackingService.ensureServiceAndNotification(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         updateUiLanguage()
         mapView.reloadMarkers()
@@ -1029,8 +1033,17 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         uiHandler.post(periodicRefreshRunnable)
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            MushroomTrackingService.isAppInForeground = true
+            MushroomTrackingService.ensureServiceAndNotification(this)
+        }
+    }
+
     override fun onPause() {
         super.onPause()
+        MushroomTrackingService.isAppInForeground = false
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sensorManager.unregisterListener(this)
         uiHandler.removeCallbacks(periodicRefreshRunnable)

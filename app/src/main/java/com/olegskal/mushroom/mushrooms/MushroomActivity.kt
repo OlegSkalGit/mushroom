@@ -208,6 +208,8 @@ class MushroomActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        com.olegskal.mushroom.service.MushroomTrackingService.isAppInForeground = true
+        com.olegskal.mushroom.service.MushroomTrackingService.ensureServiceAndNotification(this)
         val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(this)
         if (lang != currentLang) {
             updateLanguage(lang)
@@ -267,6 +269,19 @@ class MushroomActivity : Activity() {
                 }
             }
         }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            com.olegskal.mushroom.service.MushroomTrackingService.isAppInForeground = true
+            com.olegskal.mushroom.service.MushroomTrackingService.ensureServiceAndNotification(this)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        com.olegskal.mushroom.service.MushroomTrackingService.isAppInForeground = false
     }
 
     override fun onDestroy() {
