@@ -34,7 +34,7 @@ object TracksListDialog {
         }
 
         val titleTv = TextView(activity).apply {
-            text = if (lang == "uk") "🧭 Збережені треки" else "🧭 Recorded Tracks"
+            text = if (lang == "uk") "〰️ Збережені треки" else "〰️ Recorded Tracks"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -58,7 +58,7 @@ object TracksListDialog {
             text = if (isRecording) {
                 if (lang == "uk") "⏹️ Зупинити запис треку" else "⏹️ Stop Recording Track"
             } else {
-                if (lang == "uk") "⏺️ Записати новий трек" else "⏺️ Record New Track"
+                if (lang == "uk") "〰️ Записати новий трек" else "〰️ Record New Track"
             }
             setTextColor(Color.WHITE)
             setBackgroundColor(if (isRecording) Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
@@ -153,7 +153,7 @@ object TracksListDialog {
                 }
 
                 val nameTv = TextView(activity).apply {
-                    text = track.title
+                    text = "〰️ ${track.title}"
                     setTextColor(Color.WHITE)
                     textSize = 15f
                     setTypeface(null, Typeface.BOLD)

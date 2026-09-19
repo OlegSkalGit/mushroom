@@ -48,7 +48,7 @@ object ItemEditDialog {
         val defaultName = initialName ?: (if (lang == "uk") "Маркер (${formatDate()})" else "Marker (${formatDate()})")
         showDialog(
             activity = activity,
-            dialogTitle = if (lang == "uk") "🍄 Новий маркер" else "🍄 New Marker",
+            dialogTitle = if (lang == "uk") "🚩 Новий маркер" else "🚩 New Marker",
             initialName = defaultName,
             colorTitle = if (lang == "uk") "Колір маркера:" else "Marker color:",
             initialColor = 0xFFF44336.toInt(),
@@ -83,7 +83,7 @@ object ItemEditDialog {
         val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
         showDialog(
             activity = activity,
-            dialogTitle = if (lang == "uk") "✏️ Редагувати маркер" else "✏️ Edit Marker",
+            dialogTitle = if (lang == "uk") "🚩 Редагувати маркер" else "🚩 Edit Marker",
             initialName = marker.name,
             colorTitle = if (lang == "uk") "Колір маркера:" else "Marker color:",
             initialColor = marker.color,
@@ -107,7 +107,7 @@ object ItemEditDialog {
         val defaultTitle = if (lang == "uk") "Трек (${formatDate()})" else "Track (${formatDate()})"
         showDialog(
             activity = activity,
-            dialogTitle = if (lang == "uk") "🧭 Новий трек" else "🧭 New Track",
+            dialogTitle = if (lang == "uk") "〰️ Новий трек" else "〰️ New Track",
             initialName = defaultTitle,
             colorTitle = if (lang == "uk") "Колір треку:" else "Track color:",
             initialColor = 0xFF2196F3.toInt(),
@@ -127,7 +127,7 @@ object ItemEditDialog {
         val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
         showDialog(
             activity = activity,
-            dialogTitle = if (lang == "uk") "✏️ Редагувати трек" else "✏️ Edit Track",
+            dialogTitle = if (lang == "uk") "〰️ Редагувати трек" else "〰️ Edit Track",
             initialName = track.title,
             colorTitle = if (lang == "uk") "Колір треку:" else "Track color:",
             initialColor = track.color,

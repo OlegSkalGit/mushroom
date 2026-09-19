@@ -37,7 +37,7 @@ object MarkersListDialog {
         }
 
         val titleTv = TextView(activity).apply {
-            text = if (lang == "uk") "🍄 Збережені маркери" else "🍄 Saved Markers"
+            text = if (lang == "uk") "🚩 Збережені маркери" else "🚩 Saved Markers"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -57,7 +57,7 @@ object MarkersListDialog {
         container.addView(headerRow)
 
         val btnAddMarker = Button(activity).apply {
-            text = if (lang == "uk") "➕ Створити новий маркер" else "➕ Create New Marker"
+            text = if (lang == "uk") "➕ 🚩 Створити новий маркер" else "➕ 🚩 Create New Marker"
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#2E7D32"))
             textSize = 15f
@@ -161,7 +161,7 @@ object MarkersListDialog {
                 }
 
                 val nameTv = TextView(activity).apply {
-                    text = marker.name
+                    text = "🚩 ${marker.name}"
                     setTextColor(Color.WHITE)
                     textSize = 15f
                     setTypeface(null, Typeface.BOLD)

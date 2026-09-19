@@ -533,7 +533,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         container.addView(headerRow)
 
         // 1. Markers
-        val btnMarkers = UiUtils.createStyledButton(this, if (currentLang == "uk") "🍄 Маркери" else "🍄 Markers", itemParams) {
+        val btnMarkers = UiUtils.createStyledButton(this, if (currentLang == "uk") "🚩 Маркери" else "🚩 Markers", itemParams) {
             dialog.dismiss()
             val loc = mapView.currentLocation ?: currentMetrics?.location
             MarkersListDialog.show(
@@ -555,9 +555,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         // 2. Tracks
         val isRec = MushroomTrackingService.instance?.isRecording == true
         val trackText = if (currentLang == "uk") {
-            if (isRec) "⏹️ Треки (запис...)" else "🧭 Треки"
+            if (isRec) "⏹️ Треки (запис...)" else "〰️ Треки"
         } else {
-            if (isRec) "⏹️ Tracks (recording...)" else "🧭 Tracks"
+            if (isRec) "⏹️ Tracks (recording...)" else "〰️ Tracks"
         }
         val btnTracks = UiUtils.createStyledButton(this, trackText, itemParams) {
             dialog.dismiss()
@@ -728,14 +728,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "• Кнопка компаса вказує напрямок на північ; натискання на неї вирівнює карту на північ."
             )
             addSection(
-                "📍", "Грибні точки та маркери",
+                "🚩", "Грибні точки та маркери",
                 "• Додавання нової точки на карті: тривале натискання (довгий тап) або швидкий подвійний тап на потрібному місці.\n" +
-                "• Також точку можна створити за поточними GPS-координатами через круглу плаваючу кнопку «+».\n" +
+                "• Також точку можна створити за поточними GPS-координатами через круглу плаваючу кнопку з прапорцем.\n" +
                 "• Редагування назви, висоти, нотаток та вибір типу гриба (білий, лисичка, опеньок, маслюк тощо).\n" +
                 "• Список усіх маркерів у меню: фільтрація за назвою, сортування за відстанню, приховування/показ та експорт у GPX."
             )
             addSection(
-                "🧭", "Запис та аналіз GPS-треків",
+                "〰️", "Запис та аналіз GPS-треків",
                 "• Надійний фоновий запис маршруту навіть при заблокованому екрані смартфона у кишені.\n" +
                 "• Інформаційний бейдж у верхній частині показує подолану відстань і точний час походу.\n" +
                 "• Автоматичне збереження у вбудовану базу даних та експорт треків у стандартний формат GPX.\n" +
@@ -773,14 +773,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "• Compass button points north; tapping aligns the map view to north."
             )
             addSection(
-                "📍", "Mushroom Markers & Waypoints",
+                "🚩", "Mushroom Markers & Waypoints",
                 "• Add new marker: long press or quick double tap anywhere on the map.\n" +
-                "• Or tap the floating '+' button to pin your current GPS coordinates.\n" +
+                "• Or tap the floating flag button to pin your current GPS coordinates.\n" +
                 "• Edit marker name, notes, elevation, and assign mushroom species icons.\n" +
                 "• Markers manager: search filter, proximity sorting, visibility toggle, GPX export."
             )
             addSection(
-                "🧭", "Track Recording & GPS Logging",
+                "〰️", "Track Recording & GPS Logging",
                 "• Reliable background track recording even with screen turned off.\n" +
                 "• Live status badge displays elapsed distance and duration.\n" +
                 "• Automatic local database storage and full GPX export support.\n" +
@@ -1299,7 +1299,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     }
 
                     if (isDoubleTapDrag) {
-                        if (!hasDoubleTapMoved && moveDist > longPressSlop) {
+                        if (!hasDoubleTapMoved && moveDist > touchSlop) {
                             hasDoubleTapMoved = true
                         }
                         if (hasDoubleTapMoved) {
@@ -1312,6 +1312,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
                             // 1. Pan with moving touch
                             if (abs(dx) > 1f || abs(dy) > 1f) {
+                                hasDoubleTapMoved = true
                                 panMap(dx, dy)
                                 lastTouchX = curX
                                 lastTouchY = curY
@@ -1322,6 +1323,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                             val minGestureDist = 20f * density
 
                             if (curDist >= minGestureDist) {
+                                hasDoubleTapMoved = true
                                 if (prevDist >= minGestureDist) {
                                     // Smooth zoom
                                     val factor = curDist / prevDist
@@ -1434,7 +1436,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     if (isDoubleTapDrag) {
                         isDoubleTapDrag = false
                         val upDist = hypot((event.x - downX).toDouble(), (event.y - downY).toDouble()).toFloat()
-                        if (isDoubleTapCandidate && !hasDoubleTapMoved && upDist <= longPressSlop) {
+                        if (isDoubleTapCandidate && !hasDoubleTapMoved && upDist <= touchSlop * 1.5f) {
                             // Confirmed double-tap without drag -> add or edit marker!
                             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                             handlePointActionAt(event.x, event.y, isFromDoubleTap = true)
