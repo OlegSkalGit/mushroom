@@ -10,7 +10,6 @@ import android.view.ViewGroup
 import android.widget.*
 import com.olegskal.mushroom.db.DatabaseHelper
 import com.olegskal.mushroom.model.MushroomTrack
-import com.olegskal.mushroom.util.L10n
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -25,6 +24,7 @@ object TracksListDialog {
         val dialog = Dialog(activity)
         dialog.setTitle("Tracks List")
 
+        val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
         val container = UiUtils.createDarkDialogContainer(activity)
 
         val headerRow = LinearLayout(activity).apply {
@@ -34,7 +34,7 @@ object TracksListDialog {
         }
 
         val titleTv = TextView(activity).apply {
-            text = L10n.t(activity, "🗺️ Збережені треки", "🗺️ Recorded Tracks")
+            text = if (lang == "uk") "🧭 Збережені треки" else "🧭 Recorded Tracks"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -55,7 +55,11 @@ object TracksListDialog {
 
         val isRecording = com.olegskal.mushroom.service.MushroomTrackingService.instance?.isRecording == true
         val btnRecordTrack = Button(activity).apply {
-            text = if (isRecording) L10n.t(activity, "⏹️ Зупинити запис треку", "⏹️ Stop Recording Track") else L10n.t(activity, "⏺️ Записати новий трек", "⏺️ Record New Track")
+            text = if (isRecording) {
+                if (lang == "uk") "⏹️ Зупинити запис треку" else "⏹️ Stop Recording Track"
+            } else {
+                if (lang == "uk") "⏺️ Записати новий трек" else "⏺️ Record New Track"
+            }
             setTextColor(Color.WHITE)
             setBackgroundColor(if (isRecording) Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
             textSize = 15f
@@ -80,7 +84,7 @@ object TracksListDialog {
         }
         container.addView(btnRecordTrack)
 
-        val btnImportGpx = UiUtils.createStyledButton(activity, L10n.t(activity, "📂 Імпортувати GPX файл", "📂 Import GPX File")) {
+        val btnImportGpx = UiUtils.createStyledButton(activity, if (lang == "uk") "📂 Імпорт GPX файлу" else "📂 Import GPX File") {
             dialog.dismiss()
             (activity as? com.olegskal.mushroom.MushroomMapActivity)?.openGpxFilePicker()
         }
@@ -107,7 +111,7 @@ object TracksListDialog {
 
             if (tracks.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = L10n.t(activity, "Немає збережених треків.\nНатисніть \"⏺️ Записати новий трек\".", "No saved tracks.\nTap \"⏺️ Record New Track\".")
+                    text = if (lang == "uk") "Треків ще немає.\nНатисніть \"⏺️ Записати новий трек\"." else "No saved tracks.\nTap \"⏺️ Record New Track\"."
                     setTextColor(Color.GRAY)
                     textSize = 14f
                     gravity = Gravity.CENTER
@@ -159,16 +163,17 @@ object TracksListDialog {
                 val h = track.durationSec / 3600
                 val m = (track.durationSec % 3600) / 60
                 val s = track.durationSec % 60
-                val hUnit = L10n.t(activity, "год", "h")
-                val minUnit = L10n.t(activity, "хв", "min")
-                val secUnit = L10n.t(activity, "с", "s")
-                val kmUnit = L10n.t(activity, "км", "km")
-                val pointsUnit = L10n.t(activity, "точок", "points")
-                val timeStr = if (h > 0) String.format(Locale.US, "%d %s %02d %s", h, hUnit, m, minUnit) else String.format(Locale.US, "%d %s %02d %s", m, minUnit, s, secUnit)
+                val timeStr = if (h > 0) {
+                    if (lang == "uk") String.format(Locale.US, "%d год %02d хв", h, m) else String.format(Locale.US, "%d h %02d min", h, m)
+                } else {
+                    if (lang == "uk") String.format(Locale.US, "%d хв %02d с", m, s) else String.format(Locale.US, "%d min %02d s", m, s)
+                }
                 val dateStr = sdf.format(Date(track.startTime))
 
+                val pointsWord = if (lang == "uk") "точок" else "points"
+                val kmWord = if (lang == "uk") "км" else "km"
                 val subTv = TextView(activity).apply {
-                    text = String.format(Locale.US, "%.2f %s • %s • %d %s", km, kmUnit, timeStr, track.points.size, pointsUnit)
+                    text = String.format(Locale.US, "%.2f %s • %s • %d %s", km, kmWord, timeStr, track.points.size, pointsWord)
                     setTextColor(track.color)
                     textSize = 12f
                 }
@@ -216,14 +221,14 @@ object TracksListDialog {
                     setPadding(8, 0, 8, 0)
                     setOnClickListener {
                         AlertDialog.Builder(activity)
-                            .setTitle(L10n.t(activity, "Видалити трек?", "Delete Track?"))
-                            .setMessage(L10n.t(activity, "Видалити \"${track.title}\"?", "Delete \"${track.title}\"?"))
-                            .setPositiveButton(L10n.t(activity, "Видалити", "Delete")) { _, _ ->
+                            .setTitle(if (lang == "uk") "Видалити трек?" else "Delete Track?")
+                            .setMessage(if (lang == "uk") "Видалити \"${track.title}\"?" else "Delete \"${track.title}\"?")
+                            .setPositiveButton(if (lang == "uk") "Видалити" else "Delete") { _, _ ->
                                 dbHelper.deleteTrack(track.id)
                                 onVisibilityChanged()
                                 populateTracks()
                             }
-                            .setNegativeButton(L10n.t(activity, "Скасувати", "Cancel"), null)
+                            .setNegativeButton(if (lang == "uk") "Скасувати" else "Cancel", null)
                             .show()
                     }
                 }

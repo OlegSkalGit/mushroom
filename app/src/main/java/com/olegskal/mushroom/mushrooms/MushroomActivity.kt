@@ -1,7 +1,6 @@
 package com.olegskal.mushroom.mushrooms
 
 import android.app.Activity
-import android.app.Dialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -75,20 +74,6 @@ class MushroomActivity : Activity() {
             }
         }
         header.addView(tvTitle)
-
-        val btnMenu = Button(this).apply {
-            text = "☰"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-            textSize = 20f
-            setTypeface(null, Typeface.BOLD)
-            val btnSize = (40 * resources.displayMetrics.density).toInt()
-            layoutParams = LinearLayout.LayoutParams(btnSize, btnSize)
-            setOnClickListener {
-                showMushroomMenuDialog()
-            }
-        }
-        header.addView(btnMenu)
         rootLayout.addView(header)
 
         // 2. Tab Selector Row
@@ -209,43 +194,11 @@ class MushroomActivity : Activity() {
         }
     }
 
-    private fun showMushroomMenuDialog() {
-        val dialog = Dialog(this)
-        val container = UiUtils.createDarkDialogContainer(this)
-        val itemParams = UiUtils.createStandardItemParams()
-
-        val menuTitleTv = TextView(this).apply {
-            text = if (currentLang == "uk") "🍄 Меню грибника" else "🍄 Mushroom Menu"
-            setTextColor(Color.WHITE)
-            textSize = 18f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 16)
-        }
-        container.addView(menuTitleTv)
-
-        val langLabel = if (currentLang == "uk") "🌐 Мова: Українська" else "🌐 Language: English"
-        val btnLang = UiUtils.createStyledButton(this, langLabel, itemParams) {
-            val newLang = if (currentLang == "uk") "en" else "uk"
-            com.olegskal.mushroom.util.AppPrefs.setAppLang(this@MushroomActivity, newLang)
-            updateLanguage(newLang)
-            dialog.dismiss()
-            showMushroomMenuDialog()
-        }
-        container.addView(btnLang)
-
-        val btnMap = UiUtils.createStyledButton(this, if (currentLang == "uk") "🗺️ Карта лісу" else "🗺️ Forest Map", itemParams) {
-            dialog.dismiss()
-            finish()
-        }
-        container.addView(btnMap)
-
-        dialog.setContentView(container)
-        dialog.show()
-    }
-
     private fun updateLanguage(lang: String) {
         currentLang = lang
-        tvTitle.text = if (lang == "uk") "🍄 Гриби" else "🍄 Mushrooms"
+        if (::tvTitle.isInitialized) {
+            tvTitle.text = if (lang == "uk") "🍄 Гриби" else "🍄 Mushrooms"
+        }
         btnTabEncyclopedia.text = if (lang == "uk") "📖 Енциклопедія" else "📖 Encyclopedia"
         btnTabClassifier.text = if (lang == "uk") "🔍 Визначник" else "🔍 Identifier"
         encyclopediaTab.setLanguage(lang)

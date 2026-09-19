@@ -13,7 +13,6 @@ import android.widget.Toast
 import com.olegskal.mushroom.db.DatabaseHelper
 import com.olegskal.mushroom.model.MushroomMarker
 import com.olegskal.mushroom.model.MushroomTrack
-import com.olegskal.mushroom.util.L10n
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -45,20 +44,20 @@ object ItemEditDialog {
         initialType: String? = null,
         onMarkerAdded: (MushroomMarker) -> Unit
     ) {
-        val baseMarker = L10n.t(activity, "Мітка", "Marker")
-        val defaultName = initialName ?: "$baseMarker (${formatDate()})"
+        val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
+        val defaultName = initialName ?: (if (lang == "uk") "Маркер (${formatDate()})" else "Marker (${formatDate()})")
         showDialog(
             activity = activity,
-            dialogTitle = L10n.t(activity, "🍄 Нова мітка", "🍄 New Marker"),
+            dialogTitle = if (lang == "uk") "🍄 Новий маркер" else "🍄 New Marker",
             initialName = defaultName,
-            colorTitle = L10n.t(activity, "Колір мітки:", "Marker color:"),
+            colorTitle = if (lang == "uk") "Колір маркера:" else "Marker color:",
             initialColor = 0xFFF44336.toInt(),
-            saveButtonText = L10n.t(activity, "Зберегти", "Save")
+            saveButtonText = if (lang == "uk") "Зберегти" else "Save"
         ) { name, color ->
             val marker = MushroomMarker(
                 id = System.currentTimeMillis(),
                 name = name,
-                type = initialType ?: L10n.t(activity, "Гриб", "Mushroom"),
+                type = initialType ?: (if (lang == "uk") "Гриб" else "Mushroom"),
                 lat = lat,
                 lon = lon,
                 altitude = altitude,
@@ -69,7 +68,8 @@ object ItemEditDialog {
             )
             dbHelper.insertMarker(marker)
             onMarkerAdded(marker)
-            Toast.makeText(activity, L10n.t(activity, "Мітку \"$name\" збережено!", "Marker \"$name\" saved!"), Toast.LENGTH_SHORT).show()
+            val msg = if (lang == "uk") "Маркер \"$name\" збережено!" else "Marker \"$name\" saved!"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -80,19 +80,21 @@ object ItemEditDialog {
         marker: MushroomMarker,
         onMarkerUpdated: (MushroomMarker) -> Unit
     ) {
+        val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
         showDialog(
             activity = activity,
-            dialogTitle = L10n.t(activity, "✏️ Редагувати мітку", "✏️ Edit Marker"),
+            dialogTitle = if (lang == "uk") "✏️ Редагувати маркер" else "✏️ Edit Marker",
             initialName = marker.name,
-            colorTitle = L10n.t(activity, "Колір мітки:", "Marker color:"),
+            colorTitle = if (lang == "uk") "Колір маркера:" else "Marker color:",
             initialColor = marker.color,
-            saveButtonText = L10n.t(activity, "Зберегти", "Save")
+            saveButtonText = if (lang == "uk") "Зберегти" else "Save"
         ) { name, color ->
             dbHelper.updateMarker(marker.id, name, color)
             marker.name = name
             marker.color = color
             onMarkerUpdated(marker)
-            Toast.makeText(activity, L10n.t(activity, "Мітку \"$name\" оновлено!", "Marker \"$name\" updated!"), Toast.LENGTH_SHORT).show()
+            val msg = if (lang == "uk") "Маркер \"$name\" оновлено!" else "Marker \"$name\" updated!"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -101,15 +103,15 @@ object ItemEditDialog {
         activity: Activity,
         onStartRecording: (title: String, color: Int) -> Unit
     ) {
-        val baseTrack = L10n.t(activity, "Трек", "Track")
-        val defaultTitle = "$baseTrack (${formatDate()})"
+        val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
+        val defaultTitle = if (lang == "uk") "Трек (${formatDate()})" else "Track (${formatDate()})"
         showDialog(
             activity = activity,
-            dialogTitle = L10n.t(activity, "🧭 Новий трек", "🧭 New Track"),
+            dialogTitle = if (lang == "uk") "🧭 Новий трек" else "🧭 New Track",
             initialName = defaultTitle,
-            colorTitle = L10n.t(activity, "Колір треку:", "Track color:"),
+            colorTitle = if (lang == "uk") "Колір треку:" else "Track color:",
             initialColor = 0xFF2196F3.toInt(),
-            saveButtonText = L10n.t(activity, "Запис", "Record")
+            saveButtonText = if (lang == "uk") "Запис" else "Record"
         ) { title, color ->
             onStartRecording(title, color)
         }
@@ -122,19 +124,21 @@ object ItemEditDialog {
         track: MushroomTrack,
         onTrackUpdated: (MushroomTrack) -> Unit
     ) {
+        val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
         showDialog(
             activity = activity,
-            dialogTitle = L10n.t(activity, "✏️ Редагувати трек", "✏️ Edit Track"),
+            dialogTitle = if (lang == "uk") "✏️ Редагувати трек" else "✏️ Edit Track",
             initialName = track.title,
-            colorTitle = L10n.t(activity, "Колір треку:", "Track color:"),
+            colorTitle = if (lang == "uk") "Колір треку:" else "Track color:",
             initialColor = track.color,
-            saveButtonText = L10n.t(activity, "Зберегти", "Save")
+            saveButtonText = if (lang == "uk") "Зберегти" else "Save"
         ) { title, color ->
             dbHelper.updateTrackInfo(track.id, title, color)
             track.title = title
             track.color = color
             onTrackUpdated(track)
-            Toast.makeText(activity, L10n.t(activity, "Трек \"$title\" оновлено!", "Track \"$title\" updated!"), Toast.LENGTH_SHORT).show()
+            val msg = if (lang == "uk") "Трек \"$title\" оновлено!" else "Track \"$title\" updated!"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -238,7 +242,8 @@ object ItemEditDialog {
         }
         btnSave.layoutParams = rowParams
 
-        val btnCancel = UiUtils.createStyledButton(activity, L10n.t(activity, "Скасувати", "Cancel")) {
+        val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
+        val btnCancel = UiUtils.createStyledButton(activity, if (lang == "uk") "Скасувати" else "Cancel") {
             dialog.dismiss()
         }
         btnCancel.layoutParams = rowParams

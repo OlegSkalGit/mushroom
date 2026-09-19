@@ -195,26 +195,31 @@ object AppPrefs {
         getPrefs(context).edit().putLong(KEY_ACTIVE_TRACK_ID, trackId).apply()
     }
 
-    // App language (uk / en)
+    // Language & Mushrooms preferences
     const val KEY_APP_LANG = "app_lang"
-    const val KEY_MUSHROOM_LANG = "mushroom_lang"
+    const val KEY_MUSHROOM_LANG = KEY_APP_LANG
     const val KEY_MUSHROOM_IS_UKRAINE = "mushroom_is_ukraine"
     const val KEY_MUSHROOM_FILTER = "mushroom_filter"
 
     fun getAppLang(context: Context): String {
-        return getPrefs(context).getString(KEY_APP_LANG, null)
-            ?: getPrefs(context).getString(KEY_MUSHROOM_LANG, "uk") ?: "uk"
+        val prefs = getPrefs(context)
+        return prefs.getString(KEY_APP_LANG, null)
+            ?: prefs.getString("mushroom_lang", "uk")
+            ?: "uk"
     }
 
     fun setAppLang(context: Context, lang: String) {
         getPrefs(context).edit()
             .putString(KEY_APP_LANG, lang)
-            .putString(KEY_MUSHROOM_LANG, lang)
+            .putString("mushroom_lang", lang)
             .apply()
     }
 
     fun getMushroomLang(context: Context): String = getAppLang(context)
     fun setMushroomLang(context: Context, lang: String) = setAppLang(context, lang)
+
+    fun isUk(context: Context): Boolean = getAppLang(context) == "uk"
+    fun t(context: Context, uk: String, en: String): String = if (isUk(context)) uk else en
 
     fun getMushroomIsUkraine(context: Context): Boolean = getPrefs(context).getBoolean(KEY_MUSHROOM_IS_UKRAINE, true)
     fun setMushroomIsUkraine(context: Context, isUkraine: Boolean) {
