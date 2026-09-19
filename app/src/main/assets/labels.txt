@@ -1,0 +1,593 @@
+(poisonous) Rubroboletus_pulcherrimus
+(poisonous) Stropharia_aeruginosa
+(poisonous) Clitocybe_fragrans
+(poisonous) jelly_tooth
+(poisonous) Coprinopsis_romagnesiana
+(poisonous) Tricholoma_pardinum
+(poisonous) Amanita_frostiana
+(poisonous) blackening_waxcap
+(poisonous) Cudonia_circinans
+(poisonous) Amanita_pseudoregalis
+(poisonous) Inocybe_lilacina
+(poisonous) Hypholoma_lateritium
+(poisonous) Entoloma_sinuatum
+(poisonous) Amanita_petalinivolva
+(poisonous) Imperator_torosus
+(poisonous) king_alfreds_cakes
+(poisonous) Cortinarius_cinnabarinus
+(poisonous) Helvella_lactea
+(poisonous) white_saddle
+(poisonous) Cortinarius_limonius
+(poisonous) Amanita_gemmata
+(poisonous) Amanita_xanthocephala
+(poisonous) warted_amanita
+(poisonous) Coprinopsis_alopecia
+(poisonous) Amanita_porphyria
+(poisonous) Cortinarius_palustris
+(poisonous) spotted_toughshank
+(poisonous) Entoloma_albidum
+(poisonous) grey_spotted_amanita
+(poisonous) Rubroboletus_satanas
+(poisonous) Amanita_albocreata
+(poisonous) panthercap
+(poisonous) saffron_milkcap
+(poisonous) Inocybe_hystrix
+(poisonous) deadly_webcap
+(poisonous) peppery_bolete
+(poisonous) Coprinellus_micaceus
+(poisonous) Psilocybe_semilanceata
+(poisonous) bovine_bolete
+(poisonous) Panaeolus_cinctulus
+(poisonous) Amanita_parvipantherina
+(poisonous) deadly_fibrecap
+(poisonous) Cortinarius_phoeniceus
+(poisonous) Amanita_farinosa
+(poisonous) Hypholoma_marginatum
+(poisonous) orange_peel_fungus
+(poisonous) Omphalotus_olearius
+(poisonous) ochre_brittlegill
+(poisonous) Amanita_wellsii
+(poisonous) old_man_of_the_woods
+(poisonous) Tricholoma_equestre
+(poisonous) bruising_webcap
+(poisonous) Sarcosphaera_coronaria
+(poisonous) Agrocybe_arenicola
+(poisonous) white_false_death_cap
+(poisonous) Rubroboletus_lupinus
+(poisonous) Amanita_nehuta
+(poisonous) Ramaria_pallida
+(poisonous) Hebeloma_crustuliniforme
+(poisonous) Agaricus_menieri
+(poisonous) Amanita_rubrovolvata
+(poisonous) Echinoderma_asperum
+(poisonous) Gyromitra_perlata
+(poisonous) hairy_curtain_crust
+(poisonous) Hebeloma_sinapizans
+(poisonous) Russula_olivacea
+(poisonous) Amanita_boudieri
+(poisonous) blushing_rosette
+(poisonous) blackening_polypore
+(poisonous) bitter_beech_bolete
+(poisonous) Gyromitra esculenta
+(poisonous) Hypholoma_fasciculare
+(poisonous) Amanita_roseotincta
+(poisonous) jelly_ears
+(poisonous) the_sickener
+(poisonous) Amanita_smithiana
+(poisonous) Cortinarius_smithii
+(poisonous) black_morel
+(poisonous) Tricholoma_muscarium
+(poisonous) inky_mushroom
+(poisonous) Mycena_rosea
+(poisonous) penny_bun
+(poisonous) suede_bolete
+(poisonous) Ramaria_neoformosa
+(poisonous) Calocera_viscosa
+(poisonous) Mycena_diosma
+(poisonous) Chlorophyllum_brunneum
+(poisonous) Cortinarius_cruentus
+(poisonous) Amanita_parcivolvata
+(poisonous) Cortinarius_cinnamomeoluteus
+(poisonous) Agaricus_hondensis
+(poisonous) Gyromitra gigas
+(poisonous) Agaricus_moelleri
+(poisonous) Amanita_velatipes
+(poisonous) Helvella_lacunosa
+(poisonous) Imperator_rhodopurpureus
+(poisonous) scarlet_waxcap
+(poisonous) Echinoderma_calcicola
+(poisonous) scarlet_elfcup
+(poisonous) Ramaria_formosa
+(poisonous) Agaricus_phaeolepidotus
+(poisonous) Pholiotina_rugosa
+(poisonous) Agaricus_placomyces
+(poisonous) Coprinopsis atramentaria
+(poisonous) Amanita
+(poisonous) Helvella_vespertina
+(poisonous) Amanita_ceciliae
+(poisonous) Omphalotus_illudens
+(poisonous) Russula_viscida
+(poisonous) Amanita_neoovoidea
+(poisonous) Conocybe_subovalis
+(poisonous) Helvella_dryophila
+(poisonous) stinking_dapperling
+(poisonous) Calycina citrina
+(poisonous) hedgehog_fungus
+(poisonous) Paralepistopsis_amoenolens
+(poisonous) Amanita muscaria
+(poisonous) Choiromyces_venosus
+(poisonous) Amanita_ibotengutake
+(poisonous) Lactarius_torminosus
+(poisonous) bronze_bolete
+(poisonous) Inocybe_rimosa
+(poisonous) Amanita_citrina
+(poisonous) Neonothopanus_nambi
+(poisonous) trooping_funnel
+(poisonous) yellow_false_truffle
+(poisonous) Amanita_heterochroma
+(poisonous) Cortinarius_callisteus
+(poisonous) blushing_bracket
+(poisonous) lurid_bolete
+(poisonous) Bjerkandera adusta
+(poisonous) Tricholoma_filamentosum
+(poisonous) Entoloma_rhodopolium
+(poisonous) oak_polypore
+(poisonous) Mycena_pura
+(poisonous) larch_bolete
+(poisonous) Cortinarius_malicorius
+(poisonous) Xanthoria parietina
+(poisonous) Amanita_eliae
+(poisonous) Amanita citrina
+(poisonous) Amanita_gioiosa
+(poisonous) yellow_stagshorn
+(poisonous) yellow_stainer
+(poisonous) Cortinarius_bolaris
+(poisonous) Cortinarius_rubicundulus
+(poisonous) giant_puffball
+(poisonous) Ampulloclitocybe_clavipes
+(poisonous) Amanita_regalis
+(poisonous) Inocybe_sublilacina
+(poisonous) parasol
+(poisonous) Helvella_crispa
+(poisonous) Agaricus_xanthodermus
+(poisonous) Omphalotus_nidiformis
+(poisonous) Clitocybe_cerussata
+(poisonous) Inocybe_lacera
+(poisonous) Agaricus_californicus
+(poisonous) Rubroboletus_legaliae
+(poisonous) Turbinellus_kauffmanii
+(poisonous) Clitocybe_dealbata
+(poisonous) turkey_tail
+(poisonous) Amanita_subfrostiana
+(poisonous) Inocybe_geophylla
+(poisonous) false_deathcap
+(poisonous) greencracked_brittlegill
+(poisonous) Armillaria_mellea
+(poisonous) Marasmius_collinus
+(poisonous) Lactarius_chrysorrheus
+(poisonous) Omphalotus_olivascens
+(poisonous) Lactarius_helvus
+(poisonous) yellow_foot_waxcap
+(poisonous) blushing_wood_mushroom
+(poisonous) blackening_brittlegill
+(poisonous) deathcap
+(poisonous) Amanita_pseudoporphyria
+(poisonous) Hypholoma_radicosum
+(poisonous) Amanita rubescens
+(poisonous) Amanita_echinocephala
+(poisonous) Amanita_aprica
+(poisonous) Omphalotus_japonicus
+(poisonous) Coprinopsis_atramentaria
+(poisonous) Amanita_hongoi
+(poisonous) Hapalopilus_nidulans
+(poisonous) Cortinarius_cinnamomeus
+(poisonous) Suillus_granulatus
+(poisonous) Russula_subnigricans
+(poisonous) Amanita_cokeri
+(poisonous) Amanita_pantherina
+(poisonous) Amanita_abrupta
+(poisonous) Lepiota_cristata
+(poisonous) Tricholoma_sulphureum
+(poisonous) Inocybe_sambucina
+(poisonous) Amanita_flavoconia
+(poisonous) brown_birch_bolete
+(poisonous) Inocybe_fibrosa
+(poisonous) oak_mazegill
+(poisonous) Turbinellus_floccosus
+(poisonous) Amanita_cothurnata
+(poisonous) Scleroderma_citrinum
+(poisonous) scarletina_bolete
+(poisonous) destroying_angel
+(poisonous) Amanita_pseudorubescens
+(poisonous) Amanita_flavorubescens
+(poisonous) Cortinarius_mirandus
+(poisonous) Amanita_gracilior
+(poisonous) Chlorophyllum_molybdites
+(poisonous) Amanita_viscidolutea
+(poisonous) Gyromitra infula
+(poisonous) Russula_emetica
+(poisonous) Amanita_breckonii
+(poisonous) Amanita pantherina
+(poisonous) stinkhorn
+(poisonous) Clitocybe_nebularis
+(poisonous) Trogia_venenata
+(poisonous) liberty_cap
+(conditionally_edible) shaggy_scalycap
+(conditionally_edible) Imleria badia
+(conditionally_edible) Rhytisma acerinum
+(conditionally_edible) Clitocybe nebularis
+(conditionally_edible) Amanita_rubescens
+(conditionally_edible) Suillus luteus
+(conditionally_edible) Nectria cinnabarina
+(conditionally_edible) orange_bolete
+(conditionally_edible) egghead_mottlegill
+(conditionally_edible) crimson_waxcap
+(conditionally_edible) Leccinum versipelle
+(conditionally_edible) weeping_widow
+(conditionally_edible) pavement_mushroom
+(conditionally_edible) common_inkcap
+(conditionally_edible) false_chanterelle
+(conditionally_edible) woolly_milkcap
+(conditionally_edible) freckled_dapperling
+(conditionally_edible) earthballs
+(conditionally_edible) Phellinus igniarius
+(conditionally_edible) Stereum hirsutum
+(conditionally_edible) white_domecap
+(conditionally_edible) Lactarius
+(conditionally_edible) Trametes ochracea
+(conditionally_edible) Cantharellus cibarius
+(conditionally_edible) Calocera viscosa
+(conditionally_edible) Pseudevernia furfuracea
+(conditionally_edible) giant_funnel
+(conditionally_edible) Lepista_saeva
+(conditionally_edible) tripe_fungus
+(conditionally_edible) shaggy_parasol
+(conditionally_edible) Leccinum albostipitatum
+(conditionally_edible) brown_rollrim
+(conditionally_edible) red_belted_bracket
+(conditionally_edible) Fomitopsis betulina
+(conditionally_edible) Trichaptum biforme
+(conditionally_edible) poison_pie
+(conditionally_edible) fleecy_milkcap
+(conditionally_edible) Suillus grevillei
+(conditionally_edible) Evernia prunastri
+(conditionally_edible) Pholiota squarrosa
+(conditionally_edible) vermillion_waxcap
+(conditionally_edible) cinnamon_bracket
+(conditionally_edible) white_fibrecap
+(conditionally_edible) Trametes versicolor
+(conditionally_edible) slimy_waxcap
+(conditionally_edible) leccinum_albostipitatum
+(conditionally_edible) dusky_puffball
+(conditionally_edible) Paxillus involutus
+(conditionally_edible) Gyromitra_esculenta
+(conditionally_edible) hoof_fungus
+(conditionally_edible) sepia_bolete
+(conditionally_edible) Laetiporus sulphureus
+(conditionally_edible) Sarcoscypha austriaca
+(conditionally_edible) scarlet_caterpillarclub
+(conditionally_edible) Suillus
+(conditionally_edible) Sarcosoma globosum
+(conditionally_edible) Phlebia radiata
+(conditionally_edible) amethyst_deceiver
+(conditionally_edible) scaly_wood_mushroom
+(conditionally_edible) Chondrostereum purpureum
+(conditionally_edible) tuberous_polypore
+(conditionally_edible) orange_grisette
+(conditionally_edible) Phaeophyscia orbicularis
+(conditionally_edible) rooting_shank
+(conditionally_edible) splitgill
+(conditionally_edible) geranium_brittlegill
+(conditionally_edible) Fomitopsis pinicola
+(conditionally_edible) Coprinellus disseminatus
+(conditionally_edible) orange_birch_bolete
+(conditionally_edible) Cladonia fimbriata
+(conditionally_edible) funeral_bell
+(conditionally_edible) mosaic_puffball
+(conditionally_edible) dog_stinkhorn
+(conditionally_edible) Verpa bohemica
+(conditionally_edible) butter_cap
+(conditionally_edible) Hygrophoropsis aurantiaca
+(conditionally_edible) lilac_fibrecap
+(conditionally_edible) pink_waxcap
+(conditionally_edible) Pholiota aurivella
+(conditionally_edible) Cladonia stellaris
+(conditionally_edible) Trametes hirsuta
+(conditionally_edible) terracotta_hedgehog
+(conditionally_edible) Cladonia rangiferina
+(conditionally_edible) winter_chanterelle
+(conditionally_edible) shaggy_inkcap
+(conditionally_edible) slender_parasol
+(conditionally_edible) wood_mushroom
+(conditionally_edible) Inonotus obliquus
+(conditionally_edible) rosy_bonnet
+(conditionally_edible) splendid_waxcap
+(conditionally_edible) Cetraria islandica
+(Mushrooms) Lactarius
+(Mushrooms) Russula
+(Mushrooms) Suillus
+(Mushrooms) Amanita
+(Mushrooms) Cortinarius
+(Mushrooms) Boletus
+(Mushrooms) Hygrocybe
+(Mushrooms) Entoloma
+(Mushrooms) Agaricus
+(conditionally_edible) jubilee_waxcap
+(conditionally_edible) Suillus granulatus
+(conditionally_edible) pale_oyster
+(conditionally_edible) macro_mushroom
+(conditionally_edible) root_rot
+(conditionally_edible) thimble_morel
+(conditionally_edible) grisettes
+(conditionally_edible) Tremella mesenterica
+(conditionally_edible) Cortinarius
+(conditionally_edible) Verpa_bohemica
+(conditionally_edible) shaggy_bracket
+(conditionally_edible) snakeskin_grisette
+(conditionally_edible) Boletus
+(conditionally_edible) semifree_morel
+(conditionally_edible) Chlorociboria aeruginascens
+(conditionally_edible) elfin_saddle
+(conditionally_edible) yellow_swamp_brittlegill
+(conditionally_edible) Lycoperdon perlatum
+(conditionally_edible) ruby_bolete
+(conditionally_edible) frosted_chanterelle
+(conditionally_edible) silverleaf_fungus
+(conditionally_edible) Lobaria pulmonaria
+(conditionally_edible) medusa_mushroom
+(conditionally_edible) Armillaria borealis
+(conditionally_edible) Graphis scripta
+(conditionally_edible) Physcia adscendens
+(conditionally_edible) Tricholomopsis rutilans
+(conditionally_edible) Lepista nuda
+(conditionally_edible) Artomyces pyxidatus
+(conditionally_edible) Fomes fomentarius
+(conditionally_edible) Urnula craterium
+(conditionally_edible) spring_fieldcap
+(conditionally_edible) ascot_hat
+(conditionally_edible) the_miller
+(conditionally_edible) false_morel
+(conditionally_edible) Parmelia sulcata
+(conditionally_edible) charcoal_burner
+(conditionally_edible) Morchella_esculenta
+(conditionally_edible) fragrant_funnel
+(conditionally_edible) fenugreek_milkcap
+(conditionally_edible) Leccinum aurantiacum
+(conditionally_edible) magpie_inkcap
+(conditionally_edible) Macrolepiota procera
+(conditionally_edible) Lactarius turpis
+(conditionally_edible) Peltigera aphthosa
+(conditionally_edible) bitter_bolete
+(conditionally_edible) stubble_rosegill
+(conditionally_edible) stump_puffball
+(conditionally_edible) Phellinus tremulae
+(conditionally_edible) amethyst_chanterelle
+(conditionally_edible) Vulpicida pinastri
+(conditionally_edible) glistening_inkcap
+(conditionally_edible) horn_of_plenty
+(conditionally_edible) Coprinopsis_atramentaria
+(conditionally_edible) sheathed_woodtuft
+(conditionally_edible) truffles
+(conditionally_edible) wood_blewit
+(conditionally_edible) Evernia mesomorpha
+(conditionally_edible) rooting_bolete
+(conditionally_edible) dyers_mazegill
+(conditionally_edible) Hypogymnia physodes
+(conditionally_edible) false_saffron_milkcap
+(conditionally_edible) Amanita_fulva
+(conditionally_edible) Boletus reticulatus
+(conditionally_edible) powdery_brittlegill
+(conditionally_edible) Peltigera praetextata
+(conditionally_edible) Boletus edulis
+(conditionally_edible) Sarcomyxa serotina
+(conditionally_edible) Ganoderma applanatum
+(conditionally_edible) pine_bolete
+(conditionally_edible) Amanita_muscaria
+(conditionally_edible) white_dapperling
+(conditionally_edible) Leccinum scabrum
+(conditionally_edible) grey_knight
+(conditionally_edible) devils_bolete
+(conditionally_edible) the_goblet
+(conditionally_edible) curry_milkcap
+(conditionally_edible) fools_funnel
+(conditionally_edible) deer_shield
+(deadly) Paxillus_involutus
+(deadly) Entoloma_sinuatum
+(deadly) Lepiota_brunneoincarnata
+(deadly) Lepiota_castanea
+(deadly) Amanita_magnivelaris
+(deadly) Cortinarius_orellanus
+(deadly) Tricholoma_equestre
+(deadly) Amanita_verna
+(deadly) Cortinarius_rubellus
+(deadly) Amanita_ocreata
+(deadly) Cortinarius_splendens
+(deadly) Hypholoma_fasciculare
+(deadly) Amanita_smithiana
+(deadly) Amanita_subpallidorosea
+(deadly) Amanita_fuliginea
+(deadly) Amanita_arocheae
+(deadly) Lepiota_subincarnata
+(deadly) Pholiotina_rugosa
+(deadly) Lepiota_helveola
+(deadly) Omphalotus_illudens
+(deadly) Lepiota_brunneolilacea
+(deadly) Lactarius_torminosus
+(deadly) Amanita_virosa
+(deadly) Cortinarius_eartoxicus
+(deadly) Amanita_sphaerobulbosa
+(deadly) Clitocybe_rivulosa
+(deadly) Pleurocybella_porrigens
+(deadly) Podostroma_cornu-damae
+(deadly) Boletus_pulcherrimus
+(deadly) Clitocybe_dealbata
+(deadly) Galerina_sulciceps
+(deadly) Galerina_marginata
+(deadly) Omphalotus_japonicus
+(deadly) Inosperma_erubescens
+(deadly) Amanita_phalloides
+(deadly) Russula_subnigricans
+(deadly) Amanita_exitialis
+(deadly) Amanita_bisporigera
+(deadly) Amanita_subjunquillea
+(deadly) Trogia_venenata
+(edible) Aleuria_aurantia
+(edible) fairy_ring_champignons
+(edible) Cyclocybe_aegerita
+(edible) snowy_waxcap
+(edible) Crucibulum laeve
+(edible) Flammulina_velutipes
+(edible) sulphur_tuft
+(edible) meadow_waxcap
+(edible) common_bonnet
+(edible) Grifola_frondosa
+(edible) Hygrophorus_chrysodon
+(edible) Suillus_tomentosus
+(edible) Lactarius_subdulcis
+(edible) Tuber_brumale
+(edible) Tuber_indicum
+(edible) golden_waxcap
+(edible) field_mushroom
+(edible) Clavulinaceae
+(edible) honey_fungus
+(edible) lions_mane
+(edible) Kalaharituber_pfeilii
+(edible) Flammulina velutipes
+(edible) common_morel
+(edible) Suillus_bovinus
+(edible) Lentinula_edodes
+(edible) Coprinellus micaceus
+(edible) woodland_inkcap
+(edible) Cortinarius_caperatus
+(edible) Rhizopogon_luteolus
+(edible) bearded_milkcap
+(edible) Craterellus_tubaeformis
+(edible) Marasmius_oreades
+(edible) Macrolepiota_procera
+(edible) Cyttaria_espinosae
+(edible) Hypholoma fasciculare
+(edible) field_blewit
+(edible) Calbovista_subsculpta
+(edible) Calvatia_utriformis
+(edible) almond_mushroom
+(edible) Tuber_borchii
+(edible) Suillus_luteus
+(edible) poplar_fieldcap
+(edible) Auricularia_auricula-judae
+(edible) Lactarius_deliciosus
+(edible) Lactarius torminosus
+(edible) Daedaleopsis confragosa
+(edible) Schizophyllum commune
+(edible) Russula
+(edible) Agaricus_arvensis
+(edible) Daedaleopsis tricolor
+(edible) beefsteak_fungus
+(edible) blue_roundhead
+(edible) Panellus stipticus
+(edible) bay_bolete
+(edible) Tuber_mesentericum
+(edible) tawny_funnel
+(edible) Phallus_indusiatus
+(edible) Polyporus_squamosus
+(edible) Stropharia_rugosoannulata
+(edible) Clitocybe_nuda
+(edible) plums_and_custard
+(edible) Lactarius deliciosus
+(edible) morel
+(edible) Lactarius_salmonicolor
+(edible) the_deceiver
+(edible) Cortinarius_variicolor
+(edible) purple_brittlegill
+(edible) Hericium_erinaceus
+(edible) Coltricia perennis
+(edible) Leccinum_scabrum
+(edible) cauliflower_fungus
+(edible) Tricholoma_matsutake
+(edible) tawny_grisette
+(edible) Agaricus_silvaticus
+(edible) clustered_domecap
+(edible) Coprinus comatus
+(edible) common_puffball
+(edible) Cerioporus squamosus
+(edible) cedarwood_waxcap
+(edible) Boletus_edulis
+(edible) parrot_waxcap
+(edible) Agaricus_bisporus
+(edible) golden_scalycap
+(edible) Clavariaceae
+(edible) Polyporus_mylittae
+(edible) Hypholoma lateritium
+(edible) Calvatia_gigantea
+(edible) Volvariella_volvacea
+(edible) Chroogomphus
+(edible) Craterellus_cornucopioides
+(edible) the_blusher
+(edible) chicken_of_the_woods
+(edible) fly_agaric
+(edible) birch_woodwart
+(edible) clouded_agaric
+(edible) hen_of_the_woods
+(edible) common_rustgill
+(edible) Lactarius_deterrimus
+(edible) Pleurotus
+(edible) chanterelle
+(edible) Hygrocybe
+(edible) Laetiporus_sulphureus
+(edible) Fistulina_hepatica
+(edible) golden_bootleg
+(edible) Tuber_aestivum
+(edible) summer_bolete
+(edible) lilac_bonnet
+(edible) oyster_mushroom
+(edible) aniseed_funnel
+(edible) heath_waxcap
+(edible) oak_bolete
+(edible) Tuber_macrosporum
+(edible) cucumber_cap
+(edible) red_cracking_bolete
+(edible) Lactarius_volemus
+(edible) Sparassis_crispa
+(edible) Pseudohydnum_gelatinosum
+(edible) st_georges_mushroom
+(edible) the_prince
+(edible) Apioperdon pyriforme
+(edible) Entoloma
+(edible) Coprinus_comatus
+(edible) silky_rosegill
+(edible) Armillaria_mellea
+(edible) Platismatia glauca
+(edible) Pleurotus ostreatus
+(edible) slippery_jack
+(edible) smoky_bracket
+(edible) Calocybe_gambosa
+(edible) Pleurotus pulmonarius
+(edible) Amanita_caesarea
+(edible) Agaricus
+(edible) Tremella_fuciformis
+(edible) chestnut_bolete
+(edible) Suillus_granulatus
+(edible) black_bulgar
+(edible) Stropharia aeruginosa
+(edible) Hydnum_repandum
+(edible) Boletus_badius
+(edible) Leccinum_aurantiacum
+(edible) pestle_puffball
+(edible) crimped_gill
+(edible) porcelain_fungus
+(edible) Phallus impudicus
+(edible) Kuehneromyces mutabilis
+(edible) wrinkled_peach
+(edible) Hericium coralloides
+(edible) birch_polypore
+(edible) velvet_shank
+(edible) horse_mushroom
+(edible) Leccinum_versipelle
+(edible) beechwood_sickener
+(edible) Merulius tremellosus
+(edible) Tricholoma_terreum
+(edible) Cantharellus_cibarius
+(edible) poplar_bell
+(edible) Hypsizygus_tessellatus
+(edible) Mutinus ravenelii
+(edible) dryads_saddle
+(edible) spectacular_rustgill

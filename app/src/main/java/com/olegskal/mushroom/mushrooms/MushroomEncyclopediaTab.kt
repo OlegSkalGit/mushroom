@@ -393,7 +393,7 @@ class MushroomEncyclopediaTab(
 
     private fun matchesFilter(taxon: MushroomTaxon, filterKey: String): Boolean {
         val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = if (taxon.edibility != "unknown") taxon.edibility else meta.edibility
+        val edibility = meta.edibility
         val hymenium = if (meta.hymenium != "other") meta.hymenium else taxon.hymenium
 
         return when (filterKey) {
@@ -518,7 +518,7 @@ class MushroomEncyclopediaTab(
         }
 
         val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = if (taxon.edibility != "unknown") taxon.edibility else meta.edibility
+        val edibility = meta.edibility
 
         val badgeRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -614,7 +614,7 @@ class MushroomEncyclopediaTab(
         }
 
         val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = if (taxon.edibility != "unknown") taxon.edibility else meta.edibility
+        val edibility = meta.edibility
 
         val badgeRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL

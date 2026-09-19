@@ -1,5 +1,9 @@
 package com.olegskal.mushroom.mushrooms
 
+import android.content.Context
+import java.io.BufferedReader
+import java.io.File
+
 data class MycoProps(
     val cap: String = "",
     val hymenophore: String = "",
@@ -204,54 +208,135 @@ object MycoKnowledge {
         "schizophyllum commune" to MycoSpeciesData(edibility = "inedible", hymenium = "gills")
     )
 
-    fun resolveMetadata(scientificName: String): MycoSpeciesData {
-        val lower = scientificName.lowercase().trim()
+    @Volatile
+    private var labelsMap: Map<String, String>? = null
 
+    fun init(context: Context) {
+        if (labelsMap != null) return
+        loadLabelsInternal(context)
+    }
+
+    fun reloadLabels(context: Context) {
+        loadLabelsInternal(context)
+    }
+
+    private fun loadLabelsInternal(context: Context) {
+        synchronized(this) {
+            try {
+                val file = MushroomClassifier.getRequiredFile(context, "labels.txt")
+                if (file.exists() && file.length() > 0) {
+                    file.bufferedReader(Charsets.UTF_8).use { reader ->
+                        labelsMap = parseLabels(reader)
+                    }
+                    return
+                }
+            } catch (ignored: Exception) {}
+
+            try {
+                context.assets.open("labels.txt").bufferedReader(Charsets.UTF_8).use { reader ->
+                    labelsMap = parseLabels(reader)
+                }
+            } catch (ignored: Exception) {}
+        }
+    }
+
+    private fun parseLabels(reader: BufferedReader): Map<String, String> {
+        val map = HashMap<String, String>(600)
+        fun priority(e: String): Int = when (e) {
+            "deadly" -> 5
+            "toxic" -> 4
+            "cond-edible" -> 3
+            "edible" -> 2
+            else -> 1
+        }
+
+        reader.useLines { lines ->
+            for (rawLine in lines) {
+                val line = rawLine.trim()
+                if (line.isEmpty() || !line.startsWith('(')) continue
+                val endIdx = line.indexOf(')')
+                if (endIdx > 1) {
+                    val tag = line.substring(1, endIdx).trim().lowercase()
+                    val rawName = line.substring(endIdx + 1).trim()
+                    val edibility = when (tag) {
+                        "deadly" -> "deadly"
+                        "poisonous" -> "toxic"
+                        "conditionally_edible" -> "cond-edible"
+                        "edible" -> "edible"
+                        else -> "unknown"
+                    }
+                    val cleanName = rawName.replace('_', ' ').lowercase().trim()
+                    if (cleanName.isNotEmpty()) {
+                        val existing = map[cleanName]
+                        if (existing == null || priority(edibility) > priority(existing)) {
+                            map[cleanName] = edibility
+                        }
+                    }
+                }
+            }
+        }
+        return map
+    }
+
+    private fun ensureLabelsLoaded() {
+        if (labelsMap != null) return
+        synchronized(this) {
+            if (labelsMap != null) return
+            try {
+                val sdFile = File(MushroomClassifier.getModelDirectory(), "labels.txt")
+                if (sdFile.exists() && sdFile.length() > 0) {
+                    sdFile.bufferedReader(Charsets.UTF_8).use { reader ->
+                        labelsMap = parseLabels(reader)
+                    }
+                }
+            } catch (ignored: Exception) {}
+        }
+    }
+
+    private fun resolveHymenium(genus: String): String {
+        return when (genus) {
+            "boletus", "leccinum", "suillus", "imleria", "xerocomus", "neoboletus",
+            "rubroboletus", "tylopilus", "fomes", "trametes", "phellinus", "ganoderma",
+            "laetiporus", "polyporus", "fomitopsis", "daedaleopsis", "trichaptum" -> "tubes"
+            else -> "gills"
+        }
+    }
+
+    fun resolveMetadata(scientificName: String): MycoSpeciesData {
+        val clean = scientificName.lowercase().trim()
+            .replace('_', ' ')
+            .replace(Regex("\\s+"), " ")
+
+        // 1. Curated detailed knowledge base
         for ((key, data) in KNOWLEDGE) {
-            if (lower == key || lower.startsWith("$key ")) {
+            if (clean == key || clean.startsWith("$key ")) {
                 return data
             }
         }
 
-        val genus = lower.split(" ").firstOrNull() ?: ""
-        var edibility = "unknown"
-        var hymenium = "gills"
+        // 2. Parsed labels.txt database
+        ensureLabelsLoaded()
+        val genus = clean.split(" ").firstOrNull() ?: ""
+        val hymenium = resolveHymenium(genus)
 
-        when (genus) {
-            "boletus", "leccinum", "suillus", "imleria", "xerocomus", "neoboletus" -> {
-                edibility = "edible"
-                hymenium = "tubes"
+        val map = labelsMap
+        if (map != null) {
+            val exactMatch = map[clean]
+            if (exactMatch != null) {
+                return MycoSpeciesData(edibility = exactMatch, hymenium = hymenium)
             }
-            "cantharellus", "craterellus", "hydnum" -> {
-                edibility = "edible"
-                hymenium = "gills"
-            }
-            "amanita" -> {
-                edibility = if (lower.contains("rubescens") || lower.contains("caesarea")) "edible" else "toxic"
-                hymenium = "gills"
-            }
-            "galerina", "cortinarius", "inocybe" -> {
-                edibility = "deadly"
-                hymenium = "gills"
-            }
-            "fomes", "trametes", "stereum", "ganoderma", "trichaptum", "daedaleopsis" -> {
-                edibility = "inedible"
-                hymenium = "tubes"
-            }
-            "lactarius", "lactifluus", "russula" -> {
-                edibility = "cond-edible"
-                hymenium = "gills"
-            }
-            "agaricus", "pleurotus", "macrolepiota", "coprinus" -> {
-                edibility = "edible"
-                hymenium = "gills"
-            }
-            "hypholoma", "omphalotus", "paxillus", "rubroboletus" -> {
-                edibility = "toxic"
+            val parts = clean.split(" ")
+            if (parts.size >= 2) {
+                val binomial = "${parts[0]} ${parts[1]}"
+                val binMatch = map[binomial]
+                if (binMatch != null) {
+                    return MycoSpeciesData(edibility = binMatch, hymenium = hymenium)
+                }
             }
         }
 
-        return MycoSpeciesData(edibility = edibility, hymenium = hymenium)
+        // 3. Unknown (Variant A: strict, no genus guessing)
+        return MycoSpeciesData(edibility = "unknown", hymenium = hymenium)
     }
 
     fun getEdibilityLabel(edibility: String, lang: String): String {

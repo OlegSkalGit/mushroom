@@ -26,7 +26,8 @@ import kotlin.math.exp
 
 data class MushroomPrediction(
     val species: String,
-    val confidence: Float
+    val confidence: Float,
+    val edibility: String = "unknown"
 ) {
     val scientificName: String get() = species
 }
@@ -65,6 +66,12 @@ class MushroomClassifier(private val context: Context) {
                 primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/classes.json",
                 fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/classes.json",
                 minSize = 50 * 1024L
+            ),
+            ModelDownloadItem(
+                fileName = "labels.txt",
+                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/labels.txt",
+                fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/labels.txt",
+                minSize = 10 * 1024L
             ),
             ModelDownloadItem(
                 fileName = "ort.min.js",
@@ -116,6 +123,18 @@ class MushroomClassifier(private val context: Context) {
 
             val internal = File(context.filesDir, "model/$fileName")
             if (internal.exists() && internal.length() > 0) return internal
+
+            if (fileName == "labels.txt") {
+                try {
+                    internal.parentFile?.mkdirs()
+                    context.assets.open("labels.txt").use { input ->
+                        FileOutputStream(internal).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    if (internal.exists() && internal.length() > 0) return internal
+                } catch (ignored: Exception) {}
+            }
 
             return primary
         }
@@ -251,6 +270,7 @@ class MushroomClassifier(private val context: Context) {
                 }
 
                 onProgress(100)
+                MycoKnowledge.reloadLabels(context)
                 onComplete(true, null)
             }.start()
         }
@@ -258,6 +278,7 @@ class MushroomClassifier(private val context: Context) {
 
     init {
         loadClasses()
+        MycoKnowledge.init(context)
     }
 
     private fun loadClasses() {
@@ -530,9 +551,11 @@ class MushroomClassifier(private val context: Context) {
                 .take(topK)
                 .map { idx ->
                     val species = classes.getOrElse(idx) { "Вид #$idx" }
+                    val meta = MycoKnowledge.resolveMetadata(species)
                     MushroomPrediction(
                         species = species,
-                        confidence = meanProbs[idx] * 100f
+                        confidence = meanProbs[idx] * 100f,
+                        edibility = meta.edibility
                     )
                 }
         } catch (e: Exception) {

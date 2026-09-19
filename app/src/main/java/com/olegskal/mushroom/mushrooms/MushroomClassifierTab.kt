@@ -629,7 +629,7 @@ class MushroomClassifierTab(
                 setOnClickListener { onCardAction() }
             }
 
-            // Top row: rank, name, confidence %
+            // Top row: rank, name, edibility badge, confidence %
             val topRow = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -641,7 +641,7 @@ class MushroomClassifierTab(
                 textSize = 13f
                 setTypeface(null, Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    setMargins(0, 0, 8, 0)
+                    setMargins(0, 0, 6, 0)
                 }
             }
             topRow.addView(rankBadge)
@@ -649,16 +649,34 @@ class MushroomClassifierTab(
             val nameTv = TextView(activity).apply {
                 text = item.species
                 setTextColor(Color.WHITE)
-                textSize = 15f
+                textSize = 14f
                 setTypeface(null, Typeface.BOLD)
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(0, 0, 6, 0)
+                }
             }
             topRow.addView(nameTv)
 
+            val edibility = item.edibility
+            val edibilityBadge = TextView(activity).apply {
+                text = MycoKnowledge.getEdibilityLabel(edibility, currentLang)
+                setTextColor(Color.WHITE)
+                textSize = 10f
+                setTypeface(null, Typeface.BOLD)
+                setBackgroundColor(MycoKnowledge.getEdibilityColor(edibility))
+                val padH = (6 * density).toInt()
+                val padV = (2 * density).toInt()
+                setPadding(padH, padV, padH, padV)
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, 0, 8, 0)
+                }
+            }
+            topRow.addView(edibilityBadge)
+
             val confTv = TextView(activity).apply {
-                text = "%.2f%%".format(item.confidence)
+                text = "%.1f%%".format(item.confidence)
                 setTextColor(if (item.confidence > 50f) Color.parseColor("#10B981") else Color.parseColor("#F59E0B"))
-                textSize = 14f
+                textSize = 13.5f
                 setTypeface(null, Typeface.BOLD)
             }
             topRow.addView(confTv)

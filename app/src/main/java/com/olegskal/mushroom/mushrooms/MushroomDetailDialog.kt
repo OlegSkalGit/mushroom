@@ -196,7 +196,7 @@ object MushroomDetailDialog {
         }
 
         val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = if (taxon.edibility != "unknown") taxon.edibility else meta.edibility
+        val edibility = meta.edibility
         val edibilityBadge = TextView(activity).apply {
             text = MycoKnowledge.getEdibilityLabel(edibility, currentLang)
             setTextColor(Color.WHITE)

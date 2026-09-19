@@ -36,6 +36,7 @@ class MushroomActivity : Activity() {
 
         // Initialize disk cache for images
         MushroomApiClient.initDiskCache(filesDir)
+        MycoKnowledge.init(this)
 
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
