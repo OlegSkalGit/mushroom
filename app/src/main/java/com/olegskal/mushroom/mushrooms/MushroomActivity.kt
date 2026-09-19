@@ -226,21 +226,41 @@ class MushroomActivity : Activity() {
                         data?.extras?.get("data") as? Bitmap
                     }
                     if (bmp != null) {
-                        classifierTab.setInputBitmap(bmp)
+                        classifierTab.addInputBitmap(bmp)
                     }
                 }
                 MushroomClassifierTab.REQ_GALLERY -> {
-                    val uri = data?.data
-                    if (uri != null) {
-                        try {
-                            contentResolver.openInputStream(uri)?.use { stream ->
-                                val bmp = BitmapFactory.decodeStream(stream)
-                                if (bmp != null) {
-                                    classifierTab.setInputBitmap(bmp)
+                    val clipData = data?.clipData
+                    if (clipData != null && clipData.itemCount > 0) {
+                        val bitmaps = mutableListOf<Bitmap>()
+                        val count = minOf(clipData.itemCount, 3)
+                        for (i in 0 until count) {
+                            val uri = clipData.getItemAt(i).uri
+                            try {
+                                contentResolver.openInputStream(uri)?.use { stream ->
+                                    val bmp = BitmapFactory.decodeStream(stream)
+                                    if (bmp != null) bitmaps.add(bmp)
                                 }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
                             }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
+                        }
+                        if (bitmaps.isNotEmpty()) {
+                            classifierTab.addInputBitmaps(bitmaps)
+                        }
+                    } else {
+                        val uri = data?.data
+                        if (uri != null) {
+                            try {
+                                contentResolver.openInputStream(uri)?.use { stream ->
+                                    val bmp = BitmapFactory.decodeStream(stream)
+                                    if (bmp != null) {
+                                        classifierTab.addInputBitmap(bmp)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
                         }
                     }
                 }

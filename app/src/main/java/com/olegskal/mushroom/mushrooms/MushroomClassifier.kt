@@ -26,12 +26,10 @@ import kotlin.math.exp
 
 data class MushroomPrediction(
     val species: String,
-    val scientificName: String,
-    val isPoisonous: Boolean,
-    val confidence: Float,
-    val edibility: String,
-    val rawLabel: String
-)
+    val confidence: Float
+) {
+    val scientificName: String get() = species
+}
 
 data class ModelDownloadItem(
     val fileName: String,
@@ -46,16 +44,23 @@ class MushroomClassifier(private val context: Context) {
     private var webView: WebView? = null
     private var isSessionReady = false
     private var isInitializing = false
-    private var labels: List<String> = emptyList()
+    private var classes: List<String> = emptyList()
     private var pendingCallback: ((List<MushroomPrediction>) -> Unit)? = null
+    private var pendingTopK = 5
 
     companion object {
         val REQUIRED_FILES = listOf(
             ModelDownloadItem(
-                fileName = "model.onnx",
-                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/model.onnx",
-                fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/model.onnx",
-                minSize = 10 * 1024 * 1024L
+                fileName = "model2.onnx",
+                primaryUrl = "https://media.githubusercontent.com/media/OlegSkalGit/mushroom/main/model2.onnx",
+                fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/model2.onnx",
+                minSize = 50 * 1024 * 1024L
+            ),
+            ModelDownloadItem(
+                fileName = "classes.json",
+                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/classes.json",
+                fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/classes.json",
+                minSize = 50 * 1024L
             ),
             ModelDownloadItem(
                 fileName = "ort.min.js",
@@ -231,10 +236,25 @@ class MushroomClassifier(private val context: Context) {
     }
 
     init {
-        labels = try {
-            context.assets.open("labels.txt").bufferedReader().readLines()
+        loadClasses()
+    }
+
+    private fun loadClasses() {
+        if (classes.isNotEmpty()) return
+        try {
+            val file = getRequiredFile(context, "classes.json")
+            if (file.exists() && file.length() > 0) {
+                val jsonStr = file.readText(Charsets.UTF_8)
+                val arr = JSONArray(jsonStr)
+                val list = ArrayList<String>(arr.length())
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    list.add(obj.optString("species", "Невідомий вид"))
+                }
+                classes = list
+            }
         } catch (e: Exception) {
-            emptyList()
+            e.printStackTrace()
         }
     }
 
@@ -270,12 +290,12 @@ class MushroomClassifier(private val context: Context) {
                     }
 
                     @JavascriptInterface
-                    fun onInferenceResult(resultJson: String) {
+                    fun onInferenceResult(resultJson: String, batchSize: Int) {
                         mainHandler.post {
                             val cb = pendingCallback
                             pendingCallback = null
                             if (cb != null) {
-                                val preds = processResultJson(resultJson, 5)
+                                val preds = processResultJson(resultJson, batchSize, pendingTopK)
                                 cb(preds)
                             }
                         }
@@ -307,9 +327,13 @@ class MushroomClassifier(private val context: Context) {
                                 val f = getRequiredFile(context, "ort-wasm-simd.wasm")
                                 WebResourceResponse("application/wasm", null, FileInputStream(f))
                             }
-                            urlStr.startsWith("https://local.mushroom/model.onnx") -> {
-                                val f = getRequiredFile(context, "model.onnx")
+                            urlStr.startsWith("https://local.mushroom/model2.onnx") -> {
+                                val f = getRequiredFile(context, "model2.onnx")
                                 WebResourceResponse("application/octet-stream", null, FileInputStream(f))
+                            }
+                            urlStr.startsWith("https://local.mushroom/classes.json") -> {
+                                val f = getRequiredFile(context, "classes.json")
+                                WebResourceResponse("application/json", "UTF-8", FileInputStream(f))
                             }
                             else -> super.shouldInterceptRequest(view, request)
                         }
@@ -339,7 +363,7 @@ class MushroomClassifier(private val context: Context) {
                   try {
                     ort.env.wasm.wasmPaths = "https://local.mushroom/";
                     ort.env.wasm.numThreads = 2;
-                    session = await ort.InferenceSession.create("https://local.mushroom/model.onnx", {
+                    session = await ort.InferenceSession.create("https://local.mushroom/model2.onnx", {
                       executionProviders: ['wasm']
                     });
                     AndroidBridge.onModelLoaded(true, "");
@@ -348,7 +372,7 @@ class MushroomClassifier(private val context: Context) {
                   }
                 }
 
-                async function classifyBase64(base64Data) {
+                async function classifyBatchBase64(base64Data, batchSize) {
                   try {
                     const binaryString = atob(base64Data);
                     const bytes = new Uint8Array(binaryString.length);
@@ -356,12 +380,12 @@ class MushroomClassifier(private val context: Context) {
                       bytes[i] = binaryString.charCodeAt(i);
                     }
                     const float32 = new Float32Array(bytes.buffer);
-                    const tensor = new ort.Tensor('float32', float32, [1, 3, 224, 224]);
+                    const tensor = new ort.Tensor('float32', float32, [batchSize, 3, 384, 384]);
                     const feeds = {};
                     feeds[session.inputNames[0]] = tensor;
                     const results = await session.run(feeds);
                     const output = results[session.outputNames[0]].data;
-                    AndroidBridge.onInferenceResult(JSON.stringify(Array.from(output)));
+                    AndroidBridge.onInferenceResult(JSON.stringify(Array.from(output)), batchSize);
                   } catch(e) {
                     AndroidBridge.onInferenceError(e.toString());
                   }
@@ -375,93 +399,105 @@ class MushroomClassifier(private val context: Context) {
     }
 
     fun classify(bitmap: Bitmap, topK: Int = 5, callback: (List<MushroomPrediction>) -> Unit) {
+        classify(listOf(bitmap), topK, callback)
+    }
+
+    fun classify(bitmaps: List<Bitmap>, topK: Int = 5, callback: (List<MushroomPrediction>) -> Unit) {
+        if (bitmaps.isEmpty()) {
+            callback(emptyList())
+            return
+        }
         if (!isSessionReady) {
-            initEngine { success, error ->
+            initEngine { success, _ ->
                 if (success) {
-                    doInference(bitmap, topK, callback)
+                    doInference(bitmaps, topK, callback)
                 } else {
                     mainHandler.post { callback(emptyList()) }
                 }
             }
         } else {
-            doInference(bitmap, topK, callback)
+            doInference(bitmaps, topK, callback)
         }
     }
 
-    private fun doInference(bitmap: Bitmap, topK: Int, callback: (List<MushroomPrediction>) -> Unit) {
+    private fun doInference(bitmaps: List<Bitmap>, topK: Int, callback: (List<MushroomPrediction>) -> Unit) {
         mainHandler.post {
             pendingCallback = callback
-            val resized = Bitmap.createScaledBitmap(bitmap, 224, 224, true)
-            val byteBuffer = ByteBuffer.allocate(1 * 3 * 224 * 224 * 4).order(ByteOrder.LITTLE_ENDIAN)
-            val pixels = IntArray(224 * 224)
-            resized.getPixels(pixels, 0, 224, 0, 0, 224, 224)
+            pendingTopK = topK
+            val batchSize = bitmaps.size
+            val byteBuffer = ByteBuffer.allocate(batchSize * 3 * 384 * 384 * 4).order(ByteOrder.LITTLE_ENDIAN)
+            val pixels = IntArray(384 * 384)
 
-            // R Channel
-            for (i in pixels.indices) {
-                val r = (pixels[i] shr 16 and 0xFF) / 255.0f
-                byteBuffer.putFloat((r - 0.5f) / 0.5f)
-            }
-            // G Channel
-            for (i in pixels.indices) {
-                val g = (pixels[i] shr 8 and 0xFF) / 255.0f
-                byteBuffer.putFloat((g - 0.5f) / 0.5f)
-            }
-            // B Channel
-            for (i in pixels.indices) {
-                val b = (pixels[i] and 0xFF) / 255.0f
-                byteBuffer.putFloat((b - 0.5f) / 0.5f)
+            for (bmp in bitmaps) {
+                val resized = Bitmap.createScaledBitmap(bmp, 384, 384, true)
+                resized.getPixels(pixels, 0, 384, 0, 0, 384, 384)
+
+                // R Channel
+                for (i in pixels.indices) {
+                    val r = (pixels[i] shr 16 and 0xFF) / 255.0f
+                    byteBuffer.putFloat((r - 0.5f) / 0.5f)
+                }
+                // G Channel
+                for (i in pixels.indices) {
+                    val g = (pixels[i] shr 8 and 0xFF) / 255.0f
+                    byteBuffer.putFloat((g - 0.5f) / 0.5f)
+                }
+                // B Channel
+                for (i in pixels.indices) {
+                    val b = (pixels[i] and 0xFF) / 255.0f
+                    byteBuffer.putFloat((b - 0.5f) / 0.5f)
+                }
             }
 
             val base64 = Base64.encodeToString(byteBuffer.array(), Base64.NO_WRAP)
-            webView?.evaluateJavascript("classifyBase64('$base64');", null)
+            webView?.evaluateJavascript("classifyBatchBase64('$base64', $batchSize);", null)
         }
     }
 
-    private fun processResultJson(json: String, topK: Int): List<MushroomPrediction> {
+    private fun processResultJson(json: String, batchSize: Int, topK: Int): List<MushroomPrediction> {
         try {
+            loadClasses()
             val arr = JSONArray(json)
-            val logits = FloatArray(arr.length())
-            for (i in 0 until arr.length()) {
-                logits[i] = arr.getDouble(i).toFloat()
+            val numClasses = if (classes.isNotEmpty()) classes.size else 2829
+            val actualBatch = maxOf(1, batchSize)
+            val meanProbs = FloatArray(numClasses)
+
+            for (b in 0 until actualBatch) {
+                val offset = b * numClasses
+                var maxLogit = -Float.MAX_VALUE
+                for (c in 0 until numClasses) {
+                    val idx = offset + c
+                    if (idx < arr.length()) {
+                        val logit = arr.getDouble(idx).toFloat()
+                        if (logit > maxLogit) maxLogit = logit
+                    }
+                }
+
+                var sumExp = 0.0
+                val expScores = FloatArray(numClasses)
+                for (c in 0 until numClasses) {
+                    val idx = offset + c
+                    val logit = if (idx < arr.length()) arr.getDouble(idx).toFloat() else 0f
+                    val e = exp(logit - maxLogit)
+                    expScores[c] = e
+                    sumExp += e
+                }
+
+                if (sumExp > 0.0) {
+                    for (c in 0 until numClasses) {
+                        meanProbs[c] += (expScores[c] / sumExp.toFloat()) / actualBatch
+                    }
+                }
             }
 
-            val maxLogit = logits.maxOrNull() ?: 0f
-            val expScores = logits.map { exp(it - maxLogit) }
-            val sumExp = expScores.sum()
-            val probabilities = expScores.map { (it / sumExp) * 100f }
-
-            return probabilities.indices
-                .sortedByDescending { probabilities[it] }
+            return meanProbs.indices
+                .sortedByDescending { meanProbs[it] }
                 .take(topK)
                 .map { idx ->
-                    val raw = labels.getOrElse(idx) { "Unknown" }
-                    val isDeadly = raw.contains("(deadly)", ignoreCase = true)
-                    val isPoisonous = raw.contains("(poisonous)", ignoreCase = true)
-                    val isCondEdible = raw.contains("(conditionally_edible)", ignoreCase = true)
-                    val isEdible = raw.contains("(edible)", ignoreCase = true)
-
-                    val clean = raw
-                        .replace(Regex("""\s*\([^)]*\)\s*"""), " ")
-                        .replace("_", " ")
-                        .trim()
-
-                    val meta = MycoKnowledge.resolveMetadata(clean)
-                    val edibility = when {
-                        isDeadly -> "deadly"
-                        meta.edibility == "deadly" -> "deadly"
-                        isPoisonous -> if (meta.edibility == "deadly") "deadly" else "toxic"
-                        isCondEdible -> "cond-edible"
-                        isEdible -> if (meta.edibility != "unknown") meta.edibility else "edible"
-                        else -> meta.edibility
-                    }
-
+                    val species = classes.getOrElse(idx) { "Вид #$idx" }
                     MushroomPrediction(
-                        species = clean,
-                        scientificName = clean,
-                        isPoisonous = isPoisonous || isDeadly,
-                        confidence = probabilities[idx],
-                        edibility = edibility,
-                        rawLabel = raw
+                        species = species,
+                        confidence = meanProbs[idx] * 100f
                     )
                 }
         } catch (e: Exception) {

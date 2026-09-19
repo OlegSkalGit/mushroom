@@ -39,20 +39,23 @@ class MushroomClassifierTab(
     }
 
     private val previewImageView: ImageView
+    private val placeholderTv: TextView
     private val btnAnalyze: Button
     private val tvWarning: TextView
     private val tvStatus: TextView
     private val tvModelStatus: TextView
+    private val thumbnailsBar: LinearLayout
     private val resultsContainer: LinearLayout
     private val classifier = MushroomClassifier(activity)
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var currentSelectedBitmap: Bitmap? = null
+    private val loadedBitmaps = mutableListOf<Bitmap>()
+    private var activeIndex = 0
 
     init {
         val density = activity.resources.displayMetrics.density
 
-        // 1. Actions Row: Camera & Gallery
+        // 1. Actions Row: Camera, Gallery, Add (+), Clear
         val actionsRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -64,7 +67,7 @@ class MushroomClassifierTab(
             dispatchCameraIntent()
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(0, 0, 6, 0)
+                setMargins(0, 0, 4, 0)
             }
             setBackgroundColor(Color.parseColor("#1B2A22"))
         }
@@ -73,13 +76,35 @@ class MushroomClassifierTab(
             dispatchGalleryIntent()
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(6, 0, 0, 0)
+                setMargins(4, 0, 4, 0)
+            }
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+        }
+
+        val btnAddPhoto = UiUtils.createStyledButton(activity, "➕") {
+            showAddPhotoDialog()
+        }.apply {
+            val btnW = (48 * density).toInt()
+            layoutParams = LinearLayout.LayoutParams(btnW, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(4, 0, 4, 0)
+            }
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+        }
+
+        val btnClear = UiUtils.createStyledButton(activity, "🗑") {
+            clearPhotos()
+        }.apply {
+            val btnW = (48 * density).toInt()
+            layoutParams = LinearLayout.LayoutParams(btnW, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(4, 0, 0, 0)
             }
             setBackgroundColor(Color.parseColor("#1B2A22"))
         }
 
         actionsRow.addView(btnCamera)
         actionsRow.addView(btnGallery)
+        actionsRow.addView(btnAddPhoto)
+        actionsRow.addView(btnClear)
         view.addView(actionsRow)
 
         // 2. Model Local Storage Status Indicator
@@ -87,12 +112,22 @@ class MushroomClassifierTab(
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 8)
+            setPadding(0, 0, 0, 6)
         }
         view.addView(tvModelStatus)
         updateModelStatusBadge()
 
-        // 3. Selected Photo Preview Card
+        // 3. Thumbnails Row (up to 3 photos)
+        thumbnailsBar = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 8)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        view.addView(thumbnailsBar)
+        updateThumbnailsUi()
+
+        // 4. Selected Photo Preview Card
         val previewHeight = (180 * density).toInt()
         val previewFrame = FrameLayout(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, previewHeight).apply {
@@ -104,11 +139,16 @@ class MushroomClassifierTab(
         previewImageView = ImageView(activity).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             scaleType = ImageView.ScaleType.FIT_CENTER
+            visibility = View.GONE
         }
         previewFrame.addView(previewImageView)
 
-        val placeholderTv = TextView(activity).apply {
-            text = if (currentLang == "uk") "Оберіть або сфотографуйте гриб\n(шапинка, гіменофор знизу, ніжка)" else "Take or pick a photo of the mushroom\n(cap, hymenophore underneath, stem)"
+        placeholderTv = TextView(activity).apply {
+            text = if (currentLang == "uk") {
+                "Оберіть або сфотографуйте гриб\n(можна до 3-х фото для комбінованого аналізу)"
+            } else {
+                "Take or pick mushroom photos\n(up to 3 photos for ensemble analysis)"
+            }
             setTextColor(Color.parseColor("#6B7280"))
             textSize = 13f
             gravity = Gravity.CENTER
@@ -117,7 +157,7 @@ class MushroomClassifierTab(
         previewFrame.addView(placeholderTv)
         view.addView(previewFrame)
 
-        // 4. Analyze Button
+        // 5. Analyze Button
         btnAnalyze = UiUtils.createStyledButton(activity, if (currentLang == "uk") "🔍 Визначити гриб" else "🔍 Identify Mushroom") {
             startClassificationFlow()
         }.apply {
@@ -130,7 +170,7 @@ class MushroomClassifierTab(
         }
         view.addView(btnAnalyze)
 
-        // 5. Inaccuracy Warning (Red)
+        // 6. Inaccuracy Warning (Red)
         tvWarning = TextView(activity).apply {
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
@@ -147,7 +187,7 @@ class MushroomClassifierTab(
         updateWarningText()
         view.addView(tvWarning)
 
-        // 6. Status text
+        // 7. Status text
         tvStatus = TextView(activity).apply {
             setTextColor(Color.parseColor("#9CA3AF"))
             textSize = 13f
@@ -157,7 +197,7 @@ class MushroomClassifierTab(
         }
         view.addView(tvStatus)
 
-        // 7. Results Scroll Container
+        // 8. Results Scroll Container
         val scrollView = ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
@@ -174,7 +214,7 @@ class MushroomClassifierTab(
             tvModelStatus.text = if (currentLang == "uk") "✅ AI модель готова (локальне сховище)" else "✅ AI model ready (local storage)"
             tvModelStatus.setTextColor(Color.parseColor("#10B981"))
         } else {
-            tvModelStatus.text = if (currentLang == "uk") "⬇️ AI модель відсутня (~87 МБ для завантаження)" else "⬇️ AI model not found (~87 MB to download)"
+            tvModelStatus.text = if (currentLang == "uk") "⬇️ AI модель відсутня (~280 МБ для завантаження)" else "⬇️ AI model not found (~280 MB to download)"
             tvModelStatus.setTextColor(Color.parseColor("#F59E0B"))
         }
     }
@@ -189,20 +229,199 @@ class MushroomClassifierTab(
 
     fun setLanguage(lang: String) {
         currentLang = lang
-        btnAnalyze.text = if (currentLang == "uk") "🔍 Визначити гриб" else "🔍 Identify Mushroom"
+        updateAnalyzeButtonText()
         updateModelStatusBadge()
         updateWarningText()
+        updatePhotosUi()
+    }
+
+    fun addInputBitmap(bitmap: Bitmap) {
+        if (loadedBitmaps.size < 3) {
+            loadedBitmaps.add(bitmap)
+            activeIndex = loadedBitmaps.size - 1
+            updatePhotosUi()
+        } else {
+            val msg = if (currentLang == "uk") "Вже додано максимум 3 фото" else "Maximum 3 photos reached"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun addInputBitmaps(bitmaps: List<Bitmap>) {
+        val remaining = 3 - loadedBitmaps.size
+        if (remaining > 0) {
+            loadedBitmaps.addAll(bitmaps.take(remaining))
+            activeIndex = loadedBitmaps.size - 1
+            updatePhotosUi()
+        } else {
+            val msg = if (currentLang == "uk") "Вже додано максимум 3 фото" else "Maximum 3 photos reached"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun setInputBitmap(bitmap: Bitmap) {
-        currentSelectedBitmap = bitmap
-        previewImageView.setImageBitmap(bitmap)
+        loadedBitmaps.clear()
+        addInputBitmap(bitmap)
+    }
+
+    fun clearPhotos() {
+        loadedBitmaps.clear()
+        activeIndex = 0
+        updatePhotosUi()
         resultsContainer.removeAllViews()
         tvStatus.visibility = View.GONE
-        updateModelStatusBadge()
+    }
+
+    private fun removePhoto(idx: Int) {
+        if (idx in loadedBitmaps.indices) {
+            loadedBitmaps.removeAt(idx)
+            if (activeIndex >= loadedBitmaps.size) {
+                activeIndex = maxOf(0, loadedBitmaps.size - 1)
+            }
+            updatePhotosUi()
+        }
+    }
+
+    private fun updatePhotosUi() {
+        if (loadedBitmaps.isNotEmpty()) {
+            val idx = activeIndex.coerceIn(0, loadedBitmaps.size - 1)
+            previewImageView.setImageBitmap(loadedBitmaps[idx])
+            previewImageView.visibility = View.VISIBLE
+            placeholderTv.visibility = View.GONE
+        } else {
+            previewImageView.setImageBitmap(null)
+            previewImageView.visibility = View.GONE
+            placeholderTv.visibility = View.VISIBLE
+        }
+        updateThumbnailsUi()
+        updateAnalyzeButtonText()
+    }
+
+    private fun updateThumbnailsUi() {
+        thumbnailsBar.removeAllViews()
+        val density = activity.resources.displayMetrics.density
+        val size = (54 * density).toInt()
+
+        for (i in 0 until 3) {
+            if (i < loadedBitmaps.size) {
+                val isActive = (i == activeIndex)
+                val slot = FrameLayout(activity).apply {
+                    val p = (2 * density).toInt()
+                    setPadding(p, p, p, p)
+                    setBackgroundColor(if (isActive) Color.parseColor("#10B981") else Color.parseColor("#374151"))
+                    layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                        setMargins(0, 0, 8, 0)
+                    }
+                    isClickable = true
+                    setOnClickListener {
+                        activeIndex = i
+                        updatePhotosUi()
+                    }
+                }
+
+                val iv = ImageView(activity).apply {
+                    layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    setImageBitmap(loadedBitmaps[i])
+                }
+                slot.addView(iv)
+
+                val btnDel = TextView(activity).apply {
+                    text = "✕"
+                    setTextColor(Color.WHITE)
+                    textSize = 9f
+                    setTypeface(null, Typeface.BOLD)
+                    setBackgroundColor(Color.parseColor("#EF4444"))
+                    gravity = Gravity.CENTER
+                    val btnSize = (16 * density).toInt()
+                    layoutParams = FrameLayout.LayoutParams(btnSize, btnSize).apply {
+                        gravity = Gravity.TOP or Gravity.RIGHT
+                    }
+                    setOnClickListener {
+                        removePhoto(i)
+                    }
+                }
+                slot.addView(btnDel)
+                thumbnailsBar.addView(slot)
+            } else if (i == loadedBitmaps.size) {
+                val slot = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setBackgroundColor(Color.parseColor("#1B2A22"))
+                    layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                        setMargins(0, 0, 8, 0)
+                    }
+                    isClickable = true
+                    setOnClickListener {
+                        showAddPhotoDialog()
+                    }
+                }
+
+                val plusTv = TextView(activity).apply {
+                    text = "➕"
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                }
+                val labelTv = TextView(activity).apply {
+                    text = "${i + 1}"
+                    setTextColor(Color.parseColor("#9CA3AF"))
+                    textSize = 10f
+                    gravity = Gravity.CENTER
+                }
+                slot.addView(plusTv)
+                slot.addView(labelTv)
+                thumbnailsBar.addView(slot)
+            }
+        }
+
+        val counterTv = TextView(activity).apply {
+            text = "${loadedBitmaps.size} / 3"
+            setTextColor(Color.parseColor("#10B981"))
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(8, 0, 0, 0)
+        }
+        thumbnailsBar.addView(counterTv)
+    }
+
+    private fun updateAnalyzeButtonText() {
+        val count = loadedBitmaps.size
+        btnAnalyze.text = if (currentLang == "uk") {
+            if (count > 1) "🔍 Визначити гриб ($count фото)" else "🔍 Визначити гриб"
+        } else {
+            if (count > 1) "🔍 Identify Mushroom ($count photos)" else "🔍 Identify Mushroom"
+        }
+    }
+
+    private fun showAddPhotoDialog() {
+        if (loadedBitmaps.size >= 3) {
+            val msg = if (currentLang == "uk") "Вже додано максимум 3 фото" else "Maximum 3 photos reached"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val options = if (currentLang == "uk") {
+            arrayOf("📷 Камера", "🖼️ Галерея")
+        } else {
+            arrayOf("📷 Camera", "🖼️ Gallery")
+        }
+        AlertDialog.Builder(activity)
+            .setTitle(if (currentLang == "uk") "Додати фото гриба (до 3-х)" else "Add Mushroom Photo (up to 3)")
+            .setItems(options) { _, which ->
+                if (which == 0) {
+                    dispatchCameraIntent()
+                } else {
+                    dispatchGalleryIntent()
+                }
+            }
+            .setNegativeButton(if (currentLang == "uk") "Скасувати" else "Cancel", null)
+            .show()
     }
 
     private fun dispatchCameraIntent() {
+        if (loadedBitmaps.size >= 3) {
+            val msg = if (currentLang == "uk") "Вже додано максимум 3 фото" else "Maximum 3 photos reached"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+            return
+        }
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
         if (intent.resolveActivity(activity.packageManager) != null) {
             activity.startActivityForResult(intent, REQ_CAMERA)
@@ -214,13 +433,13 @@ class MushroomClassifierTab(
     private fun dispatchGalleryIntent() {
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "image/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
-        activity.startActivityForResult(Intent.createChooser(intent, "Select Mushroom Photo"), REQ_GALLERY)
+        activity.startActivityForResult(Intent.createChooser(intent, "Select Mushroom Photos"), REQ_GALLERY)
     }
 
     private fun startClassificationFlow() {
-        val bmp = currentSelectedBitmap
-        if (bmp == null) {
+        if (loadedBitmaps.isEmpty()) {
             val msg = if (currentLang == "uk") "Будь ласка, спочатку зробіть або оберіть фото гриба" else "Please take or choose a mushroom photo first"
             Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
             return
@@ -229,17 +448,21 @@ class MushroomClassifierTab(
         if (!MushroomClassifier.isModelDownloaded(activity)) {
             promptAndDownloadModel { success ->
                 if (success) {
-                    executeClassification(bmp)
+                    executeClassification()
                 }
             }
         } else {
-            executeClassification(bmp)
+            executeClassification()
         }
     }
 
     private fun promptAndDownloadModel(onReady: (Boolean) -> Unit) {
         val title = if (currentLang == "uk") "Завантаження моделі розпізнавання" else "Download Recognition Model"
-        val msg = if (currentLang == "uk") "Для автономного визначення грибів потрібна квантована модель (~87 МБ). Завантажити зараз?" else "Quantized vision model (~87 MB) is required for offline identification. Download now?"
+        val msg = if (currentLang == "uk") {
+            "Для автономного визначення грибів потрібна нейромережа model2.onnx та словник (~280 МБ). Завантажити зараз?"
+        } else {
+            "Neural network model2.onnx and dictionary (~280 MB) are required for offline identification. Download now?"
+        }
 
         val dialogBuilder = AlertDialog.Builder(activity)
             .setTitle(title)
@@ -323,13 +546,18 @@ class MushroomClassifierTab(
         )
     }
 
-    private fun executeClassification(bitmap: Bitmap) {
+    private fun executeClassification() {
+        val count = loadedBitmaps.size
         tvStatus.visibility = View.VISIBLE
-        tvStatus.text = if (currentLang == "uk") "Аналізуємо гриб за допомогою Vision Transformer..." else "Analyzing mushroom with Vision Transformer..."
+        tvStatus.text = if (currentLang == "uk") {
+            if (count > 1) "⏳ Виконується аналіз нейромережею (ансамбль з $count фото)..." else "⏳ Виконується аналіз нейромережею..."
+        } else {
+            if (count > 1) "⏳ Running neural analysis (ensemble of $count photos)..." else "⏳ Running neural analysis..."
+        }
         btnAnalyze.isEnabled = false
         resultsContainer.removeAllViews()
 
-        classifier.classify(bitmap, topK = 5) { predictions ->
+        classifier.classify(loadedBitmaps.toList(), topK = 5) { predictions ->
             btnAnalyze.isEnabled = true
             tvStatus.visibility = View.GONE
             renderPredictions(predictions)
@@ -352,8 +580,13 @@ class MushroomClassifierTab(
             return
         }
 
+        val count = loadedBitmaps.size
         val headerTv = TextView(activity).apply {
-            text = if (currentLang == "uk") "🎯 Ймовірні кандидати:" else "🎯 Top Candidates:"
+            text = if (currentLang == "uk") {
+                if (count > 1) "🎯 Результати (ансамбль з $count фото):" else "🎯 Ймовірні кандидати (Top-5):"
+            } else {
+                if (count > 1) "🎯 Results (ensemble of $count photos):" else "🎯 Top Candidates (Top-5):"
+            }
             setTextColor(Color.WHITE)
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
@@ -374,13 +607,13 @@ class MushroomClassifierTab(
 
             val onCardAction = {
                 val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("Mushroom Name", item.scientificName)
+                val clip = ClipData.newPlainText("Mushroom Name", item.species)
                 clipboard.setPrimaryClip(clip)
 
-                val msg = if (currentLang == "uk") "Скопійовано: ${item.scientificName} → Енциклопедія" else "Copied: ${item.scientificName} → Encyclopedia"
+                val msg = if (currentLang == "uk") "Скопійовано: ${item.species} → Енциклопедія" else "Copied: ${item.species} → Encyclopedia"
                 Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
 
-                onSearchInEncyclopedia(item.scientificName)
+                onSearchInEncyclopedia(item.species)
             }
 
             val card = LinearLayout(activity).apply {
@@ -423,7 +656,7 @@ class MushroomClassifierTab(
             topRow.addView(nameTv)
 
             val confTv = TextView(activity).apply {
-                text = "%.1f%%".format(item.confidence)
+                text = "%.2f%%".format(item.confidence)
                 setTextColor(if (item.confidence > 50f) Color.parseColor("#10B981") else Color.parseColor("#F59E0B"))
                 textSize = 14f
                 setTypeface(null, Typeface.BOLD)
@@ -434,45 +667,13 @@ class MushroomClassifierTab(
             // Confidence progress bar
             val pb = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
                 max = 100
-                progress = item.confidence.toInt()
+                progress = item.confidence.toInt().coerceIn(0, 100)
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (6 * density).toInt()).apply {
-                    setMargins(0, 6, 0, 8)
+                    setMargins(0, 6, 0, 0)
                 }
             }
             card.addView(pb)
 
-            // Status badge & action button row
-            val bottomRow = LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-
-            val edibilityBadge = TextView(activity).apply {
-                text = MycoKnowledge.getEdibilityLabel(item.edibility, currentLang)
-                setTextColor(Color.WHITE)
-                textSize = 11f
-                setTypeface(null, Typeface.BOLD)
-                setBackgroundColor(MycoKnowledge.getEdibilityColor(item.edibility))
-                setPadding(10, 4, 10, 4)
-            }
-            bottomRow.addView(edibilityBadge)
-
-            val spacer = View(activity).apply {
-                layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
-            }
-            bottomRow.addView(spacer)
-
-            val btnOpenCard = Button(activity).apply {
-                text = if (currentLang == "uk") "🔍 Пошук ›" else "🔍 Search ›"
-                setTextColor(Color.parseColor("#10B981"))
-                setBackgroundColor(Color.TRANSPARENT)
-                textSize = 12f
-                setTypeface(null, Typeface.BOLD)
-                setOnClickListener { onCardAction() }
-            }
-            bottomRow.addView(btnOpenCard)
-
-            card.addView(bottomRow)
             resultsContainer.addView(card)
         }
     }
