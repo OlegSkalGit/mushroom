@@ -47,14 +47,18 @@ class MushroomClassifier(private val context: Context) {
     private var classes: List<String> = emptyList()
     private var pendingCallback: ((List<MushroomPrediction>) -> Unit)? = null
     private var pendingTopK = 5
+    var lastError: String? = null
+        private set
 
     companion object {
+        private const val BROKEN_MODEL2_SIZE = 280274191L
+
         val REQUIRED_FILES = listOf(
             ModelDownloadItem(
                 fileName = "model2.onnx",
                 primaryUrl = "https://media.githubusercontent.com/media/OlegSkalGit/mushroom/main/model2.onnx",
                 fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/model2.onnx",
-                minSize = 50 * 1024 * 1024L
+                minSize = 281 * 1024 * 1024L
             ),
             ModelDownloadItem(
                 fileName = "classes.json",
@@ -75,6 +79,15 @@ class MushroomClassifier(private val context: Context) {
                 minSize = 2 * 1024 * 1024L
             )
         )
+
+        fun cleanBrokenModelIfPresent(context: Context) {
+            val file = getRequiredFile(context, "model2.onnx")
+            if (file.exists() && file.length() == BROKEN_MODEL2_SIZE) {
+                try {
+                    file.delete()
+                } catch (ignored: Exception) {}
+            }
+        }
 
         fun getModelDirectory(): File {
             val sdDir = File(Environment.getExternalStorageDirectory(), "mushroom/model")
@@ -101,6 +114,7 @@ class MushroomClassifier(private val context: Context) {
         }
 
         fun isModelDownloaded(context: Context): Boolean {
+            cleanBrokenModelIfPresent(context)
             for (item in REQUIRED_FILES) {
                 val file = getRequiredFile(context, item.fileName)
                 if (!file.exists() || file.length() < item.minSize) {
@@ -284,6 +298,12 @@ class MushroomClassifier(private val context: Context) {
                     fun onModelLoaded(success: Boolean, errorMsg: String) {
                         isSessionReady = success
                         isInitializing = false
+                        if (!success) {
+                            lastError = errorMsg
+                            android.util.Log.e("MushroomClassifier", "Model load error: $errorMsg")
+                        } else {
+                            lastError = null
+                        }
                         mainHandler.post {
                             onReady(success, errorMsg)
                         }
@@ -291,6 +311,7 @@ class MushroomClassifier(private val context: Context) {
 
                     @JavascriptInterface
                     fun onInferenceResult(resultJson: String, batchSize: Int) {
+                        lastError = null
                         mainHandler.post {
                             val cb = pendingCallback
                             pendingCallback = null
@@ -303,6 +324,8 @@ class MushroomClassifier(private val context: Context) {
 
                     @JavascriptInterface
                     fun onInferenceError(errorMsg: String) {
+                        lastError = errorMsg
+                        android.util.Log.e("MushroomClassifier", "Inference error: $errorMsg")
                         mainHandler.post {
                             val cb = pendingCallback
                             pendingCallback = null
@@ -343,7 +366,8 @@ class MushroomClassifier(private val context: Context) {
                 wv.loadUrl("https://local.mushroom/index.html")
             } catch (e: Exception) {
                 isInitializing = false
-                onReady(false, e.localizedMessage)
+                lastError = e.localizedMessage ?: e.toString()
+                onReady(false, lastError)
             }
         }
     }
@@ -362,12 +386,13 @@ class MushroomClassifier(private val context: Context) {
                 async function initSession() {
                   try {
                     ort.env.wasm.wasmPaths = "https://local.mushroom/";
-                    ort.env.wasm.numThreads = 2;
+                    ort.env.wasm.numThreads = 1;
                     session = await ort.InferenceSession.create("https://local.mushroom/model2.onnx", {
                       executionProviders: ['wasm']
                     });
                     AndroidBridge.onModelLoaded(true, "");
                   } catch(e) {
+                    console.error("InitSession error:", e);
                     AndroidBridge.onModelLoaded(false, e.toString());
                   }
                 }
@@ -387,6 +412,7 @@ class MushroomClassifier(private val context: Context) {
                     const output = results[session.outputNames[0]].data;
                     AndroidBridge.onInferenceResult(JSON.stringify(Array.from(output)), batchSize);
                   } catch(e) {
+                    console.error("Inference error:", e);
                     AndroidBridge.onInferenceError(e.toString());
                   }
                 }
@@ -407,11 +433,13 @@ class MushroomClassifier(private val context: Context) {
             callback(emptyList())
             return
         }
+        lastError = null
         if (!isSessionReady) {
-            initEngine { success, _ ->
+            initEngine { success, err ->
                 if (success) {
                     doInference(bitmaps, topK, callback)
                 } else {
+                    lastError = err ?: "Engine initialization failed"
                     mainHandler.post { callback(emptyList()) }
                 }
             }

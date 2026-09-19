@@ -570,8 +570,13 @@ class MushroomClassifierTab(
 
         if (predictions.isEmpty()) {
             val tvEmpty = TextView(activity).apply {
-                text = if (currentLang == "uk") "Не вдалося розпізнати гриб. Спробуйте інший ракурс або чіткіше освітлення." else "Could not identify species. Try another angle or better lighting."
-                setTextColor(Color.parseColor("#9CA3AF"))
+                val err = classifier.lastError
+                text = if (err != null) {
+                    if (currentLang == "uk") "⚠️ Помилка моделі: $err" else "⚠️ Model error: $err"
+                } else {
+                    if (currentLang == "uk") "Не вдалося розпізнати гриб. Спробуйте інший ракурс або чіткіше освітлення." else "Could not identify species. Try another angle or better lighting."
+                }
+                setTextColor(if (err != null) Color.parseColor("#F87171") else Color.parseColor("#9CA3AF"))
                 textSize = 13f
                 gravity = Gravity.CENTER
                 setPadding(0, 20, 0, 20)
