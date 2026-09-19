@@ -223,7 +223,7 @@ object MycoKnowledge {
     private fun loadLabelsInternal(context: Context) {
         synchronized(this) {
             try {
-                val file = MushroomClassifier.getRequiredFile(context, "labels.txt")
+                val file = File(MushroomClassifier.getModelDirectory(), "labels.txt")
                 if (file.exists() && file.length() > 0) {
                     file.bufferedReader(Charsets.UTF_8).use { reader ->
                         labelsMap = parseLabels(reader)

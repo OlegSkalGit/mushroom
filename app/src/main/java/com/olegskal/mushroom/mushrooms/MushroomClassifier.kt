@@ -68,12 +68,6 @@ class MushroomClassifier(private val context: Context) {
                 minSize = 50 * 1024L
             ),
             ModelDownloadItem(
-                fileName = "labels.txt",
-                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/labels.txt",
-                fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/labels.txt",
-                minSize = 10 * 1024L
-            ),
-            ModelDownloadItem(
                 fileName = "ort.min.js",
                 primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/ort.min.js",
                 fallbackUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js",
@@ -123,18 +117,6 @@ class MushroomClassifier(private val context: Context) {
 
             val internal = File(context.filesDir, "model/$fileName")
             if (internal.exists() && internal.length() > 0) return internal
-
-            if (fileName == "labels.txt") {
-                try {
-                    internal.parentFile?.mkdirs()
-                    context.assets.open("labels.txt").use { input ->
-                        FileOutputStream(internal).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    if (internal.exists() && internal.length() > 0) return internal
-                } catch (ignored: Exception) {}
-            }
 
             return primary
         }
