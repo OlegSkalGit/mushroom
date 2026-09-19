@@ -58,7 +58,7 @@ class MushroomClassifier(private val context: Context) {
                 fileName = "model2.onnx",
                 primaryUrl = "https://media.githubusercontent.com/media/OlegSkalGit/mushroom/main/model2.onnx",
                 fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/model2.onnx",
-                minSize = 281 * 1024 * 1024L
+                minSize = 250 * 1024 * 1024L
             ),
             ModelDownloadItem(
                 fileName = "classes.json",
@@ -81,11 +81,18 @@ class MushroomClassifier(private val context: Context) {
         )
 
         fun cleanBrokenModelIfPresent(context: Context) {
-            val file = getRequiredFile(context, "model2.onnx")
-            if (file.exists() && file.length() == BROKEN_MODEL2_SIZE) {
-                try {
-                    file.delete()
-                } catch (ignored: Exception) {}
+            val candidates = listOf(
+                File(getModelDirectory(), "model2.onnx"),
+                File(getModelDirectory(), "model2.onnx.tmp"),
+                context.getExternalFilesDir(null)?.let { File(it, "model/model2.onnx") },
+                context.getExternalFilesDir(null)?.let { File(it, "model/model2.onnx.tmp") },
+                File(context.filesDir, "model/model2.onnx"),
+                File(context.filesDir, "model/model2.onnx.tmp")
+            )
+            for (f in candidates) {
+                if (f != null && f.exists() && f.length() == BROKEN_MODEL2_SIZE) {
+                    try { f.delete() } catch (ignored: Exception) {}
+                }
             }
         }
 
