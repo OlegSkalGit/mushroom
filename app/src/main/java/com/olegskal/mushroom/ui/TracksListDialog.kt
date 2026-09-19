@@ -33,11 +33,17 @@ object TracksListDialog {
             setPadding(0, 0, 0, 16)
         }
 
+        val density = activity.resources.displayMetrics.density
+        val titleIcon = TrackIconDrawable(density, Color.parseColor("#2196F3"), 20)
+        titleIcon.setBounds(0, 0, titleIcon.intrinsicWidth, titleIcon.intrinsicHeight)
         val titleTv = TextView(activity).apply {
-            text = if (lang == "uk") "〰️ Збережені треки" else "〰️ Recorded Tracks"
+            text = if (lang == "uk") "Збережені треки" else "Recorded Tracks"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
+            setCompoundDrawables(titleIcon, null, null, null)
+            compoundDrawablePadding = (8 * density).toInt()
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
@@ -54,16 +60,26 @@ object TracksListDialog {
         container.addView(headerRow)
 
         val isRecording = com.olegskal.mushroom.service.MushroomTrackingService.instance?.isRecording == true
+        val btnIcon = TrackIconDrawable(
+            density,
+            if (isRecording) Color.parseColor("#FFCDD2") else Color.WHITE,
+            18,
+            isRecording = isRecording
+        )
+        btnIcon.setBounds(0, 0, btnIcon.intrinsicWidth, btnIcon.intrinsicHeight)
         val btnRecordTrack = Button(activity).apply {
             text = if (isRecording) {
-                if (lang == "uk") "⏹️ Зупинити запис треку" else "⏹️ Stop Recording Track"
+                if (lang == "uk") "Зупинити запис треку" else "Stop Recording Track"
             } else {
-                if (lang == "uk") "〰️ Записати новий трек" else "〰️ Record New Track"
+                if (lang == "uk") "Записати новий трек" else "Record New Track"
             }
             setTextColor(Color.WHITE)
             setBackgroundColor(if (isRecording) Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
+            setCompoundDrawables(btnIcon, null, null, null)
+            compoundDrawablePadding = (10 * density).toInt()
+            gravity = Gravity.CENTER
             val btnParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, 8)
             }
@@ -152,11 +168,16 @@ object TracksListDialog {
                     }
                 }
 
+                val itemIcon = TrackIconDrawable(density, track.color, 18)
+                itemIcon.setBounds(0, 0, itemIcon.intrinsicWidth, itemIcon.intrinsicHeight)
                 val nameTv = TextView(activity).apply {
-                    text = "〰️ ${track.title}"
+                    text = track.title
                     setTextColor(Color.WHITE)
                     textSize = 15f
                     setTypeface(null, Typeface.BOLD)
+                    setCompoundDrawables(itemIcon, null, null, null)
+                    compoundDrawablePadding = (8 * density).toInt()
+                    gravity = Gravity.CENTER_VERTICAL
                 }
 
                 val km = track.distanceMeters / 1000f

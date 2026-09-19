@@ -46,13 +46,16 @@ object ItemEditDialog {
     ) {
         val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
         val defaultName = initialName ?: (if (lang == "uk") "Маркер (${formatDate()})" else "Marker (${formatDate()})")
+        val density = activity.resources.displayMetrics.density
+        val markerColor = 0xFFF44336.toInt()
         showDialog(
             activity = activity,
-            dialogTitle = if (lang == "uk") "🚩 Новий маркер" else "🚩 New Marker",
+            dialogTitle = if (lang == "uk") "Новий маркер" else "New Marker",
             initialName = defaultName,
             colorTitle = if (lang == "uk") "Колір маркера:" else "Marker color:",
-            initialColor = 0xFFF44336.toInt(),
-            saveButtonText = if (lang == "uk") "Зберегти" else "Save"
+            initialColor = markerColor,
+            saveButtonText = if (lang == "uk") "Зберегти" else "Save",
+            iconDrawable = MarkerIconDrawable(density, markerColor, 20)
         ) { name, color ->
             val marker = MushroomMarker(
                 id = System.currentTimeMillis(),
@@ -81,13 +84,15 @@ object ItemEditDialog {
         onMarkerUpdated: (MushroomMarker) -> Unit
     ) {
         val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
+        val density = activity.resources.displayMetrics.density
         showDialog(
             activity = activity,
-            dialogTitle = if (lang == "uk") "🚩 Редагувати маркер" else "🚩 Edit Marker",
+            dialogTitle = if (lang == "uk") "Редагувати маркер" else "Edit Marker",
             initialName = marker.name,
             colorTitle = if (lang == "uk") "Колір маркера:" else "Marker color:",
             initialColor = marker.color,
-            saveButtonText = if (lang == "uk") "Зберегти" else "Save"
+            saveButtonText = if (lang == "uk") "Зберегти" else "Save",
+            iconDrawable = MarkerIconDrawable(density, marker.color, 20)
         ) { name, color ->
             dbHelper.updateMarker(marker.id, name, color)
             marker.name = name
@@ -105,13 +110,16 @@ object ItemEditDialog {
     ) {
         val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
         val defaultTitle = if (lang == "uk") "Трек (${formatDate()})" else "Track (${formatDate()})"
+        val density = activity.resources.displayMetrics.density
+        val trackColor = 0xFF2196F3.toInt()
         showDialog(
             activity = activity,
-            dialogTitle = if (lang == "uk") "〰️ Новий трек" else "〰️ New Track",
+            dialogTitle = if (lang == "uk") "Новий трек" else "New Track",
             initialName = defaultTitle,
             colorTitle = if (lang == "uk") "Колір треку:" else "Track color:",
-            initialColor = 0xFF2196F3.toInt(),
-            saveButtonText = if (lang == "uk") "Запис" else "Record"
+            initialColor = trackColor,
+            saveButtonText = if (lang == "uk") "Запис" else "Record",
+            iconDrawable = TrackIconDrawable(density, trackColor, 20)
         ) { title, color ->
             onStartRecording(title, color)
         }
@@ -125,13 +133,15 @@ object ItemEditDialog {
         onTrackUpdated: (MushroomTrack) -> Unit
     ) {
         val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
+        val density = activity.resources.displayMetrics.density
         showDialog(
             activity = activity,
-            dialogTitle = if (lang == "uk") "〰️ Редагувати трек" else "〰️ Edit Track",
+            dialogTitle = if (lang == "uk") "Редагувати трек" else "Edit Track",
             initialName = track.title,
             colorTitle = if (lang == "uk") "Колір треку:" else "Track color:",
             initialColor = track.color,
-            saveButtonText = if (lang == "uk") "Зберегти" else "Save"
+            saveButtonText = if (lang == "uk") "Зберегти" else "Save",
+            iconDrawable = TrackIconDrawable(density, track.color, 20)
         ) { title, color ->
             dbHelper.updateTrackInfo(track.id, title, color)
             track.title = title
@@ -150,6 +160,7 @@ object ItemEditDialog {
         colorTitle: String,
         initialColor: Int,
         saveButtonText: String,
+        iconDrawable: android.graphics.drawable.Drawable? = null,
         onSave: (name: String, color: Int) -> Unit
     ) {
         val dialog = Dialog(activity)
@@ -161,6 +172,12 @@ object ItemEditDialog {
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
             setPadding(0, 0, 0, 16)
+            if (iconDrawable != null) {
+                iconDrawable.setBounds(0, 0, iconDrawable.intrinsicWidth, iconDrawable.intrinsicHeight)
+                setCompoundDrawables(iconDrawable, null, null, null)
+                compoundDrawablePadding = (8 * activity.resources.displayMetrics.density).toInt()
+                gravity = Gravity.CENTER_VERTICAL
+            }
         }
         container.addView(titleTv)
 
@@ -194,6 +211,13 @@ object ItemEditDialog {
             for ((idx, tv) in colorViews.withIndex()) {
                 val c = COLORS[idx]
                 tv.text = if (c == selectedColor) "✓" else ""
+            }
+            if (iconDrawable is MarkerIconDrawable) {
+                iconDrawable.color = selectedColor
+                titleTv.invalidate()
+            } else if (iconDrawable is TrackIconDrawable) {
+                iconDrawable.color = selectedColor
+                titleTv.invalidate()
             }
         }
 

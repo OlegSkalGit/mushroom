@@ -10,6 +10,7 @@ import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
+import android.graphics.drawable.Drawable
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -533,7 +534,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         container.addView(headerRow)
 
         // 1. Markers
-        val btnMarkers = UiUtils.createStyledButton(this, if (currentLang == "uk") "🚩 Маркери" else "🚩 Markers", itemParams) {
+        val density = resources.displayMetrics.density
+        val markerIcon = MarkerIconDrawable(density, Color.parseColor("#F44336"), 18)
+        val btnMarkers = UiUtils.createStyledButton(
+            this,
+            if (currentLang == "uk") "Маркери" else "Markers",
+            itemParams,
+            icon = markerIcon
+        ) {
             dialog.dismiss()
             val loc = mapView.currentLocation ?: currentMetrics?.location
             MarkersListDialog.show(
@@ -555,11 +563,17 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         // 2. Tracks
         val isRec = MushroomTrackingService.instance?.isRecording == true
         val trackText = if (currentLang == "uk") {
-            if (isRec) "⏹️ Треки (запис...)" else "〰️ Треки"
+            if (isRec) "Треки (запис...)" else "Треки"
         } else {
-            if (isRec) "⏹️ Tracks (recording...)" else "〰️ Tracks"
+            if (isRec) "Tracks (recording...)" else "Tracks"
         }
-        val btnTracks = UiUtils.createStyledButton(this, trackText, itemParams) {
+        val trackIcon = TrackIconDrawable(
+            density,
+            if (isRec) Color.parseColor("#FF5252") else Color.parseColor("#2196F3"),
+            18,
+            isRecording = isRec
+        )
+        val btnTracks = UiUtils.createStyledButton(this, trackText, itemParams, icon = trackIcon) {
             dialog.dismiss()
             TracksListDialog.show(
                 this@MushroomMapActivity,
@@ -701,13 +715,19 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             setPadding(0, 0, 0, (12 * density).toInt())
         }
 
-        fun addSection(icon: String, title: String, desc: String) {
+        fun addSection(icon: String, title: String, desc: String, iconDrawable: Drawable? = null) {
             val secTitle = TextView(this).apply {
-                text = "$icon $title"
+                text = if (iconDrawable != null) title else "$icon $title"
                 setTextColor(Color.parseColor("#10B981"))
                 textSize = 14f
                 setTypeface(null, Typeface.BOLD)
                 setPadding(0, (10 * density).toInt(), 0, (3 * density).toInt())
+                if (iconDrawable != null) {
+                    iconDrawable.setBounds(0, 0, iconDrawable.intrinsicWidth, iconDrawable.intrinsicHeight)
+                    setCompoundDrawables(iconDrawable, null, null, null)
+                    compoundDrawablePadding = (8 * density).toInt()
+                    gravity = Gravity.CENTER_VERTICAL
+                }
             }
             val secDesc = TextView(this).apply {
                 text = desc
@@ -728,18 +748,20 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "• Кнопка компаса вказує напрямок на північ; натискання на неї вирівнює карту на північ."
             )
             addSection(
-                "🚩", "Грибні точки та маркери",
+                "", "Грибні точки та маркери",
                 "• Додавання нової точки на карті: тривале натискання (довгий тап) або швидкий подвійний тап на потрібному місці.\n" +
                 "• Також точку можна створити за поточними GPS-координатами через круглу плаваючу кнопку з прапорцем.\n" +
                 "• Редагування назви, висоти, нотаток та вибір типу гриба (білий, лисичка, опеньок, маслюк тощо).\n" +
-                "• Список усіх маркерів у меню: фільтрація за назвою, сортування за відстанню, приховування/показ та експорт у GPX."
+                "• Список усіх маркерів у меню: фільтрація за назвою, сортування за відстанню, приховування/показ та експорт у GPX.",
+                MarkerIconDrawable(density, Color.parseColor("#F44336"), 16)
             )
             addSection(
-                "〰️", "Запис та аналіз GPS-треків",
+                "", "Запис та аналіз GPS-треків",
                 "• Надійний фоновий запис маршруту навіть при заблокованому екрані смартфона у кишені.\n" +
                 "• Інформаційний бейдж у верхній частині показує подолану відстань і точний час походу.\n" +
                 "• Автоматичне збереження у вбудовану базу даних та експорт треків у стандартний формат GPX.\n" +
-                "• Керування треками: перегляд маршрутів на карті, центрування на межах треку та статистика."
+                "• Керування треками: перегляд маршрутів на карті, центрування на межах треку та статистика.",
+                TrackIconDrawable(density, Color.parseColor("#2196F3"), 16)
             )
             addSection(
                 "📥", "Завантаження офлайн-карт",
@@ -773,18 +795,20 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "• Compass button points north; tapping aligns the map view to north."
             )
             addSection(
-                "🚩", "Mushroom Markers & Waypoints",
+                "", "Mushroom Markers & Waypoints",
                 "• Add new marker: long press or quick double tap anywhere on the map.\n" +
                 "• Or tap the floating flag button to pin your current GPS coordinates.\n" +
                 "• Edit marker name, notes, elevation, and assign mushroom species icons.\n" +
-                "• Markers manager: search filter, proximity sorting, visibility toggle, GPX export."
+                "• Markers manager: search filter, proximity sorting, visibility toggle, GPX export.",
+                MarkerIconDrawable(density, Color.parseColor("#F44336"), 16)
             )
             addSection(
-                "〰️", "Track Recording & GPS Logging",
+                "", "Track Recording & GPS Logging",
                 "• Reliable background track recording even with screen turned off.\n" +
                 "• Live status badge displays elapsed distance and duration.\n" +
                 "• Automatic local database storage and full GPX export support.\n" +
-                "• Inspect routes, auto-fit track boundaries, and track management."
+                "• Inspect routes, auto-fit track boundaries, and track management.",
+                TrackIconDrawable(density, Color.parseColor("#2196F3"), 16)
             )
             addSection(
                 "📥", "Offline Map Downloads",

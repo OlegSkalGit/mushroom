@@ -36,11 +36,17 @@ object MarkersListDialog {
             setPadding(0, 0, 0, 16)
         }
 
+        val density = activity.resources.displayMetrics.density
+        val titleIcon = MarkerIconDrawable(density, Color.parseColor("#F44336"), 20)
+        titleIcon.setBounds(0, 0, titleIcon.intrinsicWidth, titleIcon.intrinsicHeight)
         val titleTv = TextView(activity).apply {
-            text = if (lang == "uk") "🚩 Збережені маркери" else "🚩 Saved Markers"
+            text = if (lang == "uk") "Збережені маркери" else "Saved Markers"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
+            setCompoundDrawables(titleIcon, null, null, null)
+            compoundDrawablePadding = (8 * density).toInt()
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
@@ -56,12 +62,17 @@ object MarkersListDialog {
         headerRow.addView(btnClose)
         container.addView(headerRow)
 
+        val addIcon = MarkerIconDrawable(density, Color.WHITE, 18)
+        addIcon.setBounds(0, 0, addIcon.intrinsicWidth, addIcon.intrinsicHeight)
         val btnAddMarker = Button(activity).apply {
-            text = if (lang == "uk") "➕ 🚩 Створити новий маркер" else "➕ 🚩 Create New Marker"
+            text = if (lang == "uk") "Створити новий маркер" else "Create New Marker"
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#2E7D32"))
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
+            setCompoundDrawables(addIcon, null, null, null)
+            compoundDrawablePadding = (10 * density).toInt()
+            gravity = Gravity.CENTER
             val addParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, 8)
             }
@@ -160,11 +171,16 @@ object MarkersListDialog {
                     }
                 }
 
+                val itemIcon = MarkerIconDrawable(density, marker.color, 18)
+                itemIcon.setBounds(0, 0, itemIcon.intrinsicWidth, itemIcon.intrinsicHeight)
                 val nameTv = TextView(activity).apply {
-                    text = "🚩 ${marker.name}"
+                    text = marker.name
                     setTextColor(Color.WHITE)
                     textSize = 15f
                     setTypeface(null, Typeface.BOLD)
+                    setCompoundDrawables(itemIcon, null, null, null)
+                    compoundDrawablePadding = (8 * density).toInt()
+                    gravity = Gravity.CENTER_VERTICAL
                 }
 
                 var distStr = ""

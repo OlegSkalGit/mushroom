@@ -47,6 +47,7 @@ object UiUtils {
         context: Context,
         buttonText: String,
         params: LinearLayout.LayoutParams? = null,
+        icon: android.graphics.drawable.Drawable? = null,
         onClick: () -> Unit
     ): Button {
         return Button(context).apply {
@@ -54,6 +55,13 @@ object UiUtils {
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#3A3A3A"))
             textSize = 14f
+            if (icon != null) {
+                icon.setBounds(0, 0, icon.intrinsicWidth, icon.intrinsicHeight)
+                setCompoundDrawables(icon, null, null, null)
+                compoundDrawablePadding = (10 * resources.displayMetrics.density).toInt()
+                setPadding((16 * resources.displayMetrics.density).toInt(), 0, (16 * resources.displayMetrics.density).toInt(), 0)
+                gravity = Gravity.CENTER_VERTICAL or Gravity.LEFT
+            }
             params?.let { layoutParams = it }
             setOnClickListener { onClick() }
         }
