@@ -480,6 +480,14 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         AppLogger.log("TrackingService", "stopSelfAndCleanup", true, "Service stopped completely.")
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        com.olegskal.mushroom.mushrooms.MushroomClassifierTab.isWarningDismissed = false
+        if (!isRecording) {
+            stopSelfAndCleanup()
+        }
+    }
+
     override fun onDestroy() {
         stopSelfAndCleanup()
         super.onDestroy()

@@ -97,6 +97,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.olegskal.mushroom.mushrooms.MushroomClassifierTab.isWarningDismissed = false
         OsmTileEngine.appContext = applicationContext
         if (!MushroomTrackingService.isRunning) {
             val serviceIntent = Intent(this, MushroomTrackingService::class.java)
@@ -639,7 +640,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 action = MushroomTrackingService.ACTION_STOP_SERVICE
             }
             startService(stopIntent)
+            com.olegskal.mushroom.mushrooms.MushroomClassifierTab.isWarningDismissed = false
             finishAffinity()
+            android.os.Process.killProcess(android.os.Process.myPid())
+            kotlin.system.exitProcess(0)
         }
         container.addView(btnQuit)
 
@@ -945,6 +949,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     override fun onDestroy() {
         super.onDestroy()
+        com.olegskal.mushroom.mushrooms.MushroomClassifierTab.isWarningDismissed = false
     }
 
     override fun onSensorChanged(event: SensorEvent?) {

@@ -46,6 +46,7 @@ class SplashActivity : Activity() {
         AppLogger.log("SplashActivity", "onCreate", true, "SplashActivity launched.")
 
         MushroomStorageManager.initStorage()
+        com.olegskal.mushroom.mushrooms.MushroomClassifierTab.isWarningDismissed = false
 
         if (MushroomTrackingService.isRunning) {
             startActivity(createSingleTopIntent<MushroomMapActivity>())
