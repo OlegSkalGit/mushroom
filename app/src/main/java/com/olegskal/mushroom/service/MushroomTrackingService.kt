@@ -108,10 +108,19 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         magneticSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification("Searching for GPS satellites..."))
+        val initialNotif = AppPrefs.t(this, "Пошук супутників GPS...", "Searching for GPS satellites...")
+        startForeground(NOTIF_ID, buildNotification(initialNotif))
 
         registerSensors()
         registerGpsUpdates()
+
+        val lastKnown = LocationUtils.getLastKnownLocationCascade(locationManager)
+        if (lastKnown != null) {
+            lastLocation = lastKnown
+            publishMetrics(lastKnown, 0f, isStationary = true)
+            hasUpdatedActiveNotification = true
+            updateNotification()
+        }
 
         // Resume track recording if was active prior to process kill
         if (AppPrefs.isRecordingTrack(this)) {
@@ -134,6 +143,8 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         AppLogger.log("TrackingService", "onCreate", true, "MushroomTrackingService started. GPS at full 1-sec rate.")
     }
 
+    private var hasUpdatedActiveNotification = false
+
     private fun registerSensors() {
         if (rotationVectorSensor != null) {
             sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_UI)
@@ -145,7 +156,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
     private fun registerGpsUpdates() {
         try {
             locationManager.removeUpdates(this)
-            val providers = arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            val providers = arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
             for (p in providers) {
                 if (locationManager.isProviderEnabled(p)) {
                     locationManager.requestLocationUpdates(p, GPS_FULL_UPDATE_INTERVAL_MS, 0f, this)
@@ -254,6 +265,11 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
         lastLocation = location
+
+        if (!hasUpdatedActiveNotification && !isRecording) {
+            hasUpdatedActiveNotification = true
+            updateNotification()
+        }
 
         val traj = trajectoryFilter.processLocation(location)
         val speedKmh = traj.averageSpeedKmh
@@ -434,8 +450,11 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
             val s = sec % 60
             val fmt = if (AppPrefs.isUk(this)) "Запис треку: %.2f км | %02d:%02d" else "Recording track: %.2f km | %02d:%02d"
             String.format(Locale.US, fmt, km, m, s)
+        } else if (lastLocation != null) {
+            val acc = if (lastLocation!!.hasAccuracy()) " (±${lastLocation!!.accuracy.toInt()}м)" else ""
+            AppPrefs.t(this, "GPS: активний$acc", "GPS: active$acc")
         } else {
-            AppPrefs.t(this, "Навігатор активний", "Mushroom: Active")
+            AppPrefs.t(this, "Пошук супутників GPS...", "Searching for GPS satellites...")
         }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification(notifText))

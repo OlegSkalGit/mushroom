@@ -30,6 +30,7 @@ class MushroomClassifierTab(
     companion object {
         const val REQ_CAMERA = 301
         const val REQ_GALLERY = 302
+        var isWarningDismissed: Boolean = false
     }
 
     val view: LinearLayout = LinearLayout(activity).apply {
@@ -41,6 +42,7 @@ class MushroomClassifierTab(
     private val previewImageView: ImageView
     private val placeholderTv: TextView
     private val btnAnalyze: Button
+    private val warningContainer: LinearLayout
     private val tvWarning: TextView
     private val tvStatus: TextView
     private val modelStatusRow: LinearLayout
@@ -57,22 +59,46 @@ class MushroomClassifierTab(
     init {
         val density = activity.resources.displayMetrics.density
 
-        // 1. Inaccuracy Warning (Red) - at the top
-        tvWarning = TextView(activity).apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#FF5252"))
-            gravity = Gravity.CENTER
+        // 1. Inaccuracy Warning (Red) - dismissible with '✕' until app process restart
+        warningContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(Color.parseColor("#2A1215"))
-            val padH = (12 * density).toInt()
-            val padV = (8 * density).toInt()
+            val padH = (10 * density).toInt()
+            val padV = (6 * density).toInt()
             setPadding(padH, padV, padH, padV)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, 8)
             }
+            visibility = if (isWarningDismissed) View.GONE else View.VISIBLE
+        }
+
+        tvWarning = TextView(activity).apply {
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#FF5252"))
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         updateWarningText()
-        view.addView(tvWarning)
+        warningContainer.addView(tvWarning)
+
+        val btnDismissWarning = TextView(activity).apply {
+            text = "✕"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#FF8A80"))
+            gravity = Gravity.CENTER
+            val p = (6 * density).toInt()
+            setPadding(p, p, p, p)
+            isClickable = true
+            setOnClickListener {
+                isWarningDismissed = true
+                warningContainer.visibility = View.GONE
+            }
+        }
+        warningContainer.addView(btnDismissWarning)
+        view.addView(warningContainer)
 
         // 2. Model Status Row (hidden if model is ready; if missing: "Модель розпізнавання відсутня" + [Завантажити])
         modelStatusRow = LinearLayout(activity).apply {
@@ -221,6 +247,7 @@ class MushroomClassifierTab(
         updateAnalyzeButtonText()
         updateModelStatusBadge()
         updateWarningText()
+        warningContainer.visibility = if (isWarningDismissed) View.GONE else View.VISIBLE
         updatePhotosUi()
     }
 
@@ -376,6 +403,26 @@ class MushroomClassifierTab(
             setPadding(8, 0, 0, 0)
         }
         thumbnailsBar.addView(counterTv)
+
+        if (loadedBitmaps.isNotEmpty()) {
+            val spacer = View(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+            }
+            thumbnailsBar.addView(spacer)
+
+            val btnClearAll = TextView(activity).apply {
+                text = "🗑️"
+                textSize = 18f
+                gravity = Gravity.CENTER
+                val p = (6 * density).toInt()
+                setPadding(p, p, p, p)
+                isClickable = true
+                setOnClickListener {
+                    clearPhotos()
+                }
+            }
+            thumbnailsBar.addView(btnClearAll)
+        }
     }
 
     private fun updateAnalyzeButtonText() {

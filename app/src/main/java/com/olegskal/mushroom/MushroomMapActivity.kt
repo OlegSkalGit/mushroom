@@ -601,6 +601,17 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
         container.addView(btnMushrooms)
 
+        // Divider before Help
+        container.addView(UiUtils.createDialogDivider(this))
+
+        // Help
+        val btnHelp = UiUtils.createStyledButton(this, if (currentLang == "uk") "ℹ️ Довідка" else "ℹ️ Help", itemParams) {
+            dialog.dismiss()
+            showHelpDialog()
+        }
+        container.addView(btnHelp)
+
+        // Divider before Exit
         container.addView(UiUtils.createDialogDivider(this))
 
         // 6. Exit
@@ -619,6 +630,231 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         container.addView(btnQuit)
 
         dialog.setContentView(container)
+        dialog.show()
+    }
+
+    private fun showHelpDialog() {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val currentLang = AppPrefs.getAppLang(this)
+        val isUk = currentLang == "uk"
+        val density = resources.displayMetrics.density
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#16221C"))
+            val pad = (18 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+
+        // Header
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, (12 * density).toInt())
+        }
+
+        val versionName = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (e: Exception) {
+            "v1.0"
+        }
+
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val tvTitle = TextView(this).apply {
+            text = if (isUk) "ℹ️ Довідка користувача" else "ℹ️ User Guide & Help"
+            setTextColor(Color.WHITE)
+            textSize = 19f
+            setTypeface(null, Typeface.BOLD)
+        }
+        val tvVersion = TextView(this).apply {
+            text = "Mushroom $versionName"
+            setTextColor(Color.parseColor("#10B981"))
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+        }
+        titleBox.addView(tvTitle)
+        titleBox.addView(tvVersion)
+        header.addView(titleBox)
+
+        val btnClose = Button(this).apply {
+            text = "✕"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            textSize = 20f
+            setOnClickListener { dialog.dismiss() }
+        }
+        header.addView(btnClose)
+        root.addView(header)
+
+        // Scrollable content
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, (12 * density).toInt())
+        }
+
+        fun addSection(icon: String, title: String, desc: String) {
+            val secTitle = TextView(this).apply {
+                text = "$icon $title"
+                setTextColor(Color.parseColor("#10B981"))
+                textSize = 14f
+                setTypeface(null, Typeface.BOLD)
+                setPadding(0, (10 * density).toInt(), 0, (3 * density).toInt())
+            }
+            val secDesc = TextView(this).apply {
+                text = desc
+                setTextColor(Color.parseColor("#D1D5DB"))
+                textSize = 12.5f
+                setLineSpacing(3f, 1.15f)
+            }
+            content.addView(secTitle)
+            content.addView(secDesc)
+        }
+
+        if (isUk) {
+            addSection(
+                "🗺️", "Офлайн-карта та навігація",
+                "• Повний автономний перегляд векторних карт OpenStreetMap без підключення до інтернету.\n" +
+                "• Масштабування двома пальцями (pinch-to-zoom), обертання карти жестом або за компасом.\n" +
+                "• Кнопка «Центрувати на мені» миттєво центрує екран на поточному GPS-місцезнаходженні.\n" +
+                "• Кнопка компаса вказує напрямок на північ; натискання на неї вирівнює карту на північ."
+            )
+            addSection(
+                "📍", "Грибні точки та маркери",
+                "• Додавання нової точки на карті: тривале натискання (довгий тап) або швидкий подвійний тап на потрібному місці.\n" +
+                "• Також точку можна створити за поточними GPS-координатами через круглу плаваючу кнопку «+».\n" +
+                "• Редагування назви, висоти, нотаток та вибір типу гриба (білий, лисичка, опеньок, маслюк тощо).\n" +
+                "• Список усіх маркерів у меню: фільтрація за назвою, сортування за відстанню, приховування/показ та експорт у GPX."
+            )
+            addSection(
+                "🧭", "Запис та аналіз GPS-треків",
+                "• Надійний фоновий запис маршруту навіть при заблокованому екрані смартфона у кишені.\n" +
+                "• Інформаційний бейдж у верхній частині показує подолану відстань і точний час походу.\n" +
+                "• Автоматичне збереження у вбудовану базу даних та експорт треків у стандартний формат GPX.\n" +
+                "• Керування треками: перегляд маршрутів на карті, центрування на межах треку та статистика."
+            )
+            addSection(
+                "📥", "Завантаження офлайн-карт",
+                "• Попереднє завантаження карт областей України або інших країн світу перед виходом у ліс.\n" +
+                "• 100% захист від втрати орієнтації за повної відсутності стільникового зв'язку."
+            )
+            addSection(
+                "🔬", "AI Визначник грибів (Нейромережа)",
+                "• Розпізнавання грибів за фотографіями автономною нейромережею MobileNet ONNX.\n" +
+                "• Підтримка до 3-х різних фото (капелюшок, ніжка, зріз) для комбінованого точного аналізу.\n" +
+                "• Визначення Top-5 найімовірніших видів із зазначенням відсотка впевненості та статусу їстівності.\n" +
+                "• Швидкий перехід з картки результату до пошуку в енциклопедії."
+            )
+            addSection(
+                "📖", "Енциклопедія та безпека",
+                "• Детальні картки видів з фотографіями та морфологічними характеристиками.\n" +
+                "• Єдині статуси їстівності: 🟢 Їстівний, 🟡 Умовно-їстівний, 🟠 Отруйний, 🔴 Смертельно отруйний.\n" +
+                "• Попередження про небезпечні та смертельні двійники (бліда поганка, галерина тощо).\n" +
+                "• Зручні фільтри за їстівністю та типом гіменофора (трубчасті / пластинчасті)."
+            )
+            addSection(
+                "🔋", "Оптимізація батареї",
+                "• Для безперервного фонового запису треків рекомендується вимкнути оптимізацію батареї у меню."
+            )
+        } else {
+            addSection(
+                "🗺️", "Offline Map & Navigation",
+                "• Offline OpenStreetMap rendering with zero cellular connection needed.\n" +
+                "• Smooth pinch-to-zoom, manual or compass map rotation, follow-user positioning.\n" +
+                "• Center button instantly snaps the camera to your real-time GPS coordinates.\n" +
+                "• Compass button points north; tapping aligns the map view to north."
+            )
+            addSection(
+                "📍", "Mushroom Markers & Waypoints",
+                "• Add new marker: long press or quick double tap anywhere on the map.\n" +
+                "• Or tap the floating '+' button to pin your current GPS coordinates.\n" +
+                "• Edit marker name, notes, elevation, and assign mushroom species icons.\n" +
+                "• Markers manager: search filter, proximity sorting, visibility toggle, GPX export."
+            )
+            addSection(
+                "🧭", "Track Recording & GPS Logging",
+                "• Reliable background track recording even with screen turned off.\n" +
+                "• Live status badge displays elapsed distance and duration.\n" +
+                "• Automatic local database storage and full GPX export support.\n" +
+                "• Inspect routes, auto-fit track boundaries, and track management."
+            )
+            addSection(
+                "📥", "Offline Map Downloads",
+                "• Download regional map packages over Wi-Fi before heading into deep woods.\n" +
+                "• Guaranteed orientation with zero cellular reception."
+            )
+            addSection(
+                "🔬", "AI Mushroom Classifier",
+                "• Identify mushrooms offline using an embedded MobileNet ONNX model.\n" +
+                "• Combine up to 3 photos (cap, stem, slice) for ensemble confidence analysis.\n" +
+                "• View Top-5 species candidates with confidence scores and edibility badges.\n" +
+                "• Tap any result card to jump directly into the encyclopedia."
+            )
+            addSection(
+                "📖", "Encyclopedia & Safety Guide",
+                "• Comprehensive species cards with high-res photos and morphology.\n" +
+                "• Standardized edibility badges: 🟢 Edible, 🟡 Cond. Edible, 🟠 Toxic, 🔴 Deadly Toxic.\n" +
+                "• Lookalike safety alerts for fatal lookalikes (Death Cap, Funeral Bell, etc.).\n" +
+                "• Filter by edibility level and hymenophore structure (tubes / gills)."
+            )
+            addSection(
+                "🔋", "Battery Optimization",
+                "• Disable battery optimization via the menu for uninterrupted background recording."
+            )
+        }
+
+        // Repository Link section at the bottom
+        val repoSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (12 * density).toInt()
+            setPadding(p, p, p, p)
+            setBackgroundColor(Color.parseColor("#1F3327"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, (14 * density).toInt(), 0, (6 * density).toInt())
+            }
+        }
+
+        val tvRepoTitle = TextView(this).apply {
+            text = if (isUk) "🌐 Вихідний код проєкту (GitHub):" else "🌐 Open Source Repository (GitHub):"
+            setTextColor(Color.parseColor("#10B981"))
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+        }
+        val tvRepoLink = TextView(this).apply {
+            text = "https://github.com/OlegSkalGit/mushroom"
+            setTextColor(Color.parseColor("#60A5FA"))
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, (4 * density).toInt(), 0, 0)
+            isClickable = true
+            setOnClickListener {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/OlegSkalGit/mushroom")))
+                } catch (e: Exception) {
+                    Toast.makeText(this@MushroomMapActivity, "Could not open browser", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        repoSection.addView(tvRepoTitle)
+        repoSection.addView(tvRepoLink)
+        content.addView(repoSection)
+
+        scroll.addView(content)
+        root.addView(scroll)
+
+        dialog.setContentView(root)
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            (resources.displayMetrics.heightPixels * 0.85).toInt()
+        )
         dialog.show()
     }
 
@@ -849,42 +1085,60 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         private var downX = 0f
         private var downY = 0f
         private var isDoubleTapDrag = false
+        private var isDoubleTapCandidate = false
+        private var hasDoubleTapMoved = false
         private var anchorX = 0f
         private var anchorY = 0f
 
         private var isLongPressTriggered = false
         private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+        private val longPressSlop = maxOf(touchSlop * 2.2f, 24f * resources.displayMetrics.density)
         private val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
+
+        private fun handlePointActionAt(screenX: Float, screenY: Float, isFromDoubleTap: Boolean) {
+            val hitMarker = findMarkerAt(screenX, screenY, 32f * resources.displayMetrics.density)
+            if (hitMarker != null) {
+                if (isFromDoubleTap) {
+                    ItemEditDialog.showEditMarker(this@MushroomMapActivity, dbHelper, hitMarker) {
+                        reloadMarkers()
+                    }
+                } else {
+                    val lang = AppPrefs.getAppLang(this@MushroomMapActivity)
+                    val title = if (lang == "uk") "Видалити маркер?" else "Delete marker?"
+                    val msg = if (lang == "uk") "Видалити \"${hitMarker.name}\"?" else "Delete \"${hitMarker.name}\"?"
+                    val delBtn = if (lang == "uk") "Видалити" else "Delete"
+                    val cancelBtn = if (lang == "uk") "Скасувати" else "Cancel"
+                    AlertDialog.Builder(this@MushroomMapActivity)
+                        .setTitle(title)
+                        .setMessage(msg)
+                        .setPositiveButton(delBtn) { _, _ ->
+                            dbHelper.deleteMarker(hitMarker.id)
+                            reloadMarkers()
+                            val tMsg = if (lang == "uk") "Маркер \"${hitMarker.name}\" видалено" else "Marker \"${hitMarker.name}\" deleted"
+                            Toast.makeText(this@MushroomMapActivity, tMsg, Toast.LENGTH_SHORT).show()
+                        }
+                        .setNegativeButton(cancelBtn, null)
+                        .show()
+                }
+            } else {
+                val coords = screenToLatLon(screenX, screenY)
+                ItemEditDialog.showAddMarker(
+                    this@MushroomMapActivity,
+                    dbHelper,
+                    coords.first,
+                    coords.second,
+                    altitude = 0.0
+                ) {
+                    reloadMarkers()
+                }
+            }
+        }
 
         private val longPressRunnable = Runnable {
             if (!isDragging && !isMultiTouch && !isDoubleTapDrag) {
                 isLongPressTriggered = true
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-
-                val hitMarker = findMarkerAt(downX, downY, 40f * resources.displayMetrics.density)
-                if (hitMarker != null) {
-                    AlertDialog.Builder(this@MushroomMapActivity)
-                        .setTitle("Delete marker?")
-                        .setMessage("Delete \"${hitMarker.name}\"?")
-                        .setPositiveButton("Delete") { _, _ ->
-                            dbHelper.deleteMarker(hitMarker.id)
-                            reloadMarkers()
-                            Toast.makeText(this@MushroomMapActivity, "Marker \"${hitMarker.name}\" deleted", Toast.LENGTH_SHORT).show()
-                        }
-                        .setNegativeButton("Cancel", null)
-                        .show()
-                } else {
-                    val coords = screenToLatLon(downX, downY)
-                    ItemEditDialog.showAddMarker(
-                        this@MushroomMapActivity,
-                        dbHelper,
-                        coords.first,
-                        coords.second,
-                        altitude = 0.0
-                    ) {
-                        reloadMarkers()
-                    }
-                }
+                handlePointActionAt(downX, downY, isFromDoubleTap = false)
             }
         }
 
@@ -978,13 +1232,17 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     val now = SystemClock.uptimeMillis()
-                    val tapDist = hypot((event.x - lastTapUpX).toDouble(), (event.y - lastTapUpY).toDouble()).toFloat()
+                    val tapDeltaTime = now - lastTapUpTime
+                    val tapDeltaDist = hypot((event.x - lastTapUpX).toDouble(), (event.y - lastTapUpY).toDouble()).toFloat()
 
                     isLongPressTriggered = false
                     removeCallbacks(longPressRunnable)
 
-                    if (now - lastTapUpTime < 350L && tapDist < 80f * density) {
+                    // Double-tap criteria: time delta in [40ms, 380ms] and distance delta < 45dp
+                    if (lastTapUpTime > 0L && tapDeltaTime in 40L..380L && tapDeltaDist < 45f * density) {
                         isDoubleTapDrag = true
+                        isDoubleTapCandidate = true
+                        hasDoubleTapMoved = false
                         isDragging = false
                         isMultiTouch = false
                         anchorX = lastTapUpX
@@ -996,6 +1254,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         lastTapUpTime = 0L
                     } else {
                         isDoubleTapDrag = false
+                        isDoubleTapCandidate = false
+                        hasDoubleTapMoved = false
                         lastTouchX = event.x
                         lastTouchY = event.y
                         isDragging = false
@@ -1011,6 +1271,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     removeCallbacks(longPressRunnable)
                     if (isDoubleTapDrag) {
                         isDoubleTapDrag = false
+                        isDoubleTapCandidate = false
                     }
                     if (count >= 2) {
                         isMultiTouch = true
@@ -1028,56 +1289,64 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
                 MotionEvent.ACTION_MOVE -> {
                     val moveDist = hypot((event.x - downX).toDouble(), (event.y - downY).toDouble()).toFloat()
-                    if (moveDist > touchSlop) {
+
+                    // Only cancel long-press if movement exceeds generous longPressSlop (tolerates micro-shifts)
+                    if (moveDist > longPressSlop) {
                         removeCallbacks(longPressRunnable)
                     }
                     if (isLongPressTriggered) {
                         return true
                     }
+
                     if (isDoubleTapDrag) {
-                        isFollowLocation = false
-                        AppPrefs.setFollowUser(context, false)
-                        val curX = event.x
-                        val curY = event.y
-                        val dx = curX - lastTouchX
-                        val dy = curY - lastTouchY
-
-                        // 1. Pan with moving touch
-                        if (abs(dx) > 1f || abs(dy) > 1f) {
-                            panMap(dx, dy)
-                            lastTouchX = curX
-                            lastTouchY = curY
+                        if (!hasDoubleTapMoved && moveDist > longPressSlop) {
+                            hasDoubleTapMoved = true
                         }
+                        if (hasDoubleTapMoved) {
+                            isFollowLocation = false
+                            AppPrefs.setFollowUser(context, false)
+                            val curX = event.x
+                            val curY = event.y
+                            val dx = curX - lastTouchX
+                            val dy = curY - lastTouchY
 
-                        // 2. Zoom and Rotate relative to anchor
-                        val curDist = hypot((curX - anchorX).toDouble(), (curY - anchorY).toDouble()).toFloat()
-                        val minGestureDist = 20f * density
-
-                        if (curDist >= minGestureDist) {
-                            if (prevDist >= minGestureDist) {
-                                // Smooth zoom
-                                val factor = curDist / prevDist
-                                val zoomDelta = (ln(factor.toDouble()) / ln(2.0)).toFloat()
-                                zoomLevel = (zoomLevel + zoomDelta).coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM)
-
-                                // Rotation
-                                val curAngle = Math.toDegrees(atan2((curY - anchorY).toDouble(), (curX - anchorX).toDouble())).toFloat()
-                                var deltaAngle = curAngle - prevAngle
-                                while (deltaAngle < -180f) deltaAngle += 360f
-                                while (deltaAngle > 180f) deltaAngle -= 360f
-
-                                if (abs(deltaAngle) > 0.3f) {
-                                    mapBearing = (mapBearing - deltaAngle) % 360f
-                                    if (mapBearing < 0f) mapBearing += 360f
-                                    prevAngle = curAngle
-                                    compassButton.setBearing(-mapBearing)
-                                }
-                            } else {
-                                prevAngle = Math.toDegrees(atan2((curY - anchorY).toDouble(), (curX - anchorX).toDouble())).toFloat()
+                            // 1. Pan with moving touch
+                            if (abs(dx) > 1f || abs(dy) > 1f) {
+                                panMap(dx, dy)
+                                lastTouchX = curX
+                                lastTouchY = curY
                             }
-                            prevDist = curDist
+
+                            // 2. Zoom and Rotate relative to anchor
+                            val curDist = hypot((curX - anchorX).toDouble(), (curY - anchorY).toDouble()).toFloat()
+                            val minGestureDist = 20f * density
+
+                            if (curDist >= minGestureDist) {
+                                if (prevDist >= minGestureDist) {
+                                    // Smooth zoom
+                                    val factor = curDist / prevDist
+                                    val zoomDelta = (ln(factor.toDouble()) / ln(2.0)).toFloat()
+                                    zoomLevel = (zoomLevel + zoomDelta).coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM)
+
+                                    // Rotation
+                                    val curAngle = Math.toDegrees(atan2((curY - anchorY).toDouble(), (curX - anchorX).toDouble())).toFloat()
+                                    var deltaAngle = curAngle - prevAngle
+                                    while (deltaAngle < -180f) deltaAngle += 360f
+                                    while (deltaAngle > 180f) deltaAngle -= 360f
+
+                                    if (abs(deltaAngle) > 0.3f) {
+                                        mapBearing = (mapBearing - deltaAngle) % 360f
+                                        if (mapBearing < 0f) mapBearing += 360f
+                                        prevAngle = curAngle
+                                        compassButton.setBearing(-mapBearing)
+                                    }
+                                } else {
+                                    prevAngle = Math.toDegrees(atan2((curY - anchorY).toDouble(), (curX - anchorX).toDouble())).toFloat()
+                                }
+                                prevDist = curDist
+                            }
+                            invalidate()
                         }
-                        invalidate()
                     } else if (count >= 2 && isMultiTouch) {
                         val x0 = event.getX(0)
                         val y0 = event.getY(0)
@@ -1122,15 +1391,23 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
                         invalidate()
                     } else if (count == 1 && !isMultiTouch && !isDoubleTapDrag) {
-                        val dx = event.x - lastTouchX
-                        val dy = event.y - lastTouchY
-                        if (abs(dx) > 3f || abs(dy) > 3f) {
+                        // Start dragging only once movement exceeds longPressSlop to protect long-press from micro-shifts
+                        if (!isDragging && moveDist > longPressSlop) {
                             isDragging = true
-                            isFollowLocation = false
-                            AppPrefs.setFollowUser(context, false)
-                            panMap(dx, dy)
+                            removeCallbacks(longPressRunnable)
                             lastTouchX = event.x
                             lastTouchY = event.y
+                        }
+                        if (isDragging) {
+                            val dx = event.x - lastTouchX
+                            val dy = event.y - lastTouchY
+                            if (abs(dx) > 0.5f || abs(dy) > 0.5f) {
+                                isFollowLocation = false
+                                AppPrefs.setFollowUser(context, false)
+                                panMap(dx, dy)
+                                lastTouchX = event.x
+                                lastTouchY = event.y
+                            }
                         }
                     }
                 }
@@ -1156,6 +1433,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     }
                     if (isDoubleTapDrag) {
                         isDoubleTapDrag = false
+                        val upDist = hypot((event.x - downX).toDouble(), (event.y - downY).toDouble()).toFloat()
+                        if (isDoubleTapCandidate && !hasDoubleTapMoved && upDist <= longPressSlop) {
+                            // Confirmed double-tap without drag -> add or edit marker!
+                            performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            handlePointActionAt(event.x, event.y, isFromDoubleTap = true)
+                        }
+                        isDoubleTapCandidate = false
+                        hasDoubleTapMoved = false
                         lastTapUpTime = 0L
                         saveMapState()
                         invalidate()
@@ -1164,7 +1449,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         isMultiTouch = false
                         val now = SystemClock.uptimeMillis()
                         val tapDist = hypot((event.x - downX).toDouble(), (event.y - downY).toDouble()).toFloat()
-                        if (now - downTime < 300L && tapDist < 30f * density) {
+                        if (now - downTime < 320L && tapDist <= longPressSlop) {
                             lastTapUpTime = now
                             lastTapUpX = event.x
                             lastTapUpY = event.y
@@ -1181,6 +1466,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     isDragging = false
                     isMultiTouch = false
                     isDoubleTapDrag = false
+                    isDoubleTapCandidate = false
+                    hasDoubleTapMoved = false
                     lastTapUpTime = 0L
                     saveMapState()
                 }
