@@ -43,7 +43,9 @@ class MushroomClassifierTab(
     private val btnAnalyze: Button
     private val tvWarning: TextView
     private val tvStatus: TextView
+    private val modelStatusRow: LinearLayout
     private val tvModelStatus: TextView
+    private val btnDownloadModel: Button
     private val thumbnailsBar: LinearLayout
     private val resultsContainer: LinearLayout
     private val classifier = MushroomClassifier(activity)
@@ -72,14 +74,47 @@ class MushroomClassifierTab(
         updateWarningText()
         view.addView(tvWarning)
 
-        // 2. Model Local Storage Status Indicator
+        // 2. Model Status Row (hidden if model is ready; if missing: "Модель розпізнавання відсутня" + [Завантажити])
+        modelStatusRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val padH = (10 * density).toInt()
+            val padV = (6 * density).toInt()
+            setPadding(padH, padV, padH, padV)
+            setBackgroundColor(Color.parseColor("#231C14"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, 8)
+            }
+        }
+
         tvModelStatus = TextView(activity).apply {
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 8)
+            setTextColor(Color.parseColor("#F59E0B"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
-        view.addView(tvModelStatus)
+        modelStatusRow.addView(tvModelStatus)
+
+        btnDownloadModel = UiUtils.createStyledButton(activity, if (currentLang == "uk") "Завантажити" else "Download") {
+            promptAndDownloadModel { success ->
+                if (success) {
+                    updateModelStatusBadge()
+                }
+            }
+        }.apply {
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            val padBtnH = (12 * density).toInt()
+            val padBtnV = (4 * density).toInt()
+            setPadding(padBtnH, padBtnV, padBtnH, padBtnV)
+            setBackgroundColor(Color.parseColor("#059669"))
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(6, 0, 0, 0)
+            }
+        }
+        modelStatusRow.addView(btnDownloadModel)
+        view.addView(modelStatusRow)
         updateModelStatusBadge()
 
         // 3. Thumbnails Row (up to 3 photos)
@@ -165,11 +200,11 @@ class MushroomClassifierTab(
     fun updateModelStatusBadge() {
         val isReady = MushroomClassifier.isModelDownloaded(activity)
         if (isReady) {
-            tvModelStatus.text = if (currentLang == "uk") "✅ AI модель готова (локальне сховище)" else "✅ AI model ready (local storage)"
-            tvModelStatus.setTextColor(Color.parseColor("#10B981"))
+            modelStatusRow.visibility = View.GONE
         } else {
-            tvModelStatus.text = if (currentLang == "uk") "⬇️ AI модель відсутня (~280 МБ для завантаження)" else "⬇️ AI model not found (~280 MB to download)"
-            tvModelStatus.setTextColor(Color.parseColor("#F59E0B"))
+            modelStatusRow.visibility = View.VISIBLE
+            tvModelStatus.text = if (currentLang == "uk") "Модель розпізнавання відсутня" else "Recognition model missing"
+            btnDownloadModel.text = if (currentLang == "uk") "Завантажити" else "Download"
         }
     }
 
