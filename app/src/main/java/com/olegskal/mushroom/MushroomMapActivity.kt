@@ -747,97 +747,203 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         if (isUk) {
             addSection(
-                "🗺️", "Офлайн-карта та навігація",
-                "• Повний автономний перегляд векторних карт OpenStreetMap без підключення до інтернету.\n" +
-                "• Масштабування двома пальцями (pinch-to-zoom), обертання карти жестом або за компасом.\n" +
-                "• Кнопка «Центрувати на мені» миттєво центрує екран на поточному GPS-місцезнаходженні.\n" +
-                "• Кнопка компаса вказує напрямок на північ; натискання на неї вирівнює карту на північ."
+                "🗺️", "Офлайн-карта, навігація та жести",
+                "• Жести:\n" +
+                "  — Переміщення: проведення одним пальцем по карті.\n" +
+                "  — Масштаб (Pinch-to-zoom): зведення/розведення двох пальців.\n" +
+                "  — Обертання: поворот двома пальцями для довільного орієнтування карти.\n" +
+                "  — Додавання мітки: тривалий тап (довге натискання) або швидкий подвійний тап у потрібній точці.\n" +
+                "• Кнопки екрана карти:\n" +
+                "  — «Центрувати на мені» (приціл праворуч): миттєво центрує екран на поточному GPS та вмикає автослідування.\n" +
+                "  — «Компас» (стрілка праворуч): показує азимут півночі за сенсорами; одиночний тап вирівнює карту на північ.\n" +
+                "  — «Меню» (зверху ліворуч): відкриває головне меню грибника.\n" +
+                "  — Інформаційний бейдж (зверху): показує подолану відстань і час поточного походу.\n" +
+                "• Режим роботи: 100% ОФЛАЙН. Орієнтація на місцевості, трекінг та компас працюють автономно без мобільного зв'язку.\n" +
+                "• Що завантажується: при активному інтернеті переглянуті тайли карт OpenStreetMap кешуються автоматично."
             )
             addSection(
                 "", "Грибні точки та маркери",
-                "• Додавання нової точки на карті: тривале натискання (довгий тап) або швидкий подвійний тап на потрібному місці.\n" +
-                "• Також точку можна створити за поточними GPS-координатами через круглу плаваючу кнопку з прапорцем.\n" +
-                "• Редагування назви, висоти, нотаток та вибір типу гриба (білий, лисичка, опеньок, маслюк тощо).\n" +
-                "• Список усіх маркерів у меню: фільтрація за назвою, сортування за відстанню, приховування/показ та експорт у GPX.",
+                "• Додавання міток:\n" +
+                "  — Подвійний або довгий тап безпосередньо на карті (створення мітки в точці дотику).\n" +
+                "  — Кругла плаваюча кнопка з прапорцем: збереження точки за поточними GPS-координатами вашого місцезнаходження.\n" +
+                "• Керування в меню «Маркери»:\n" +
+                "  — Кнопка «Створити новий маркер» — ручне введення назви, типу гриба та координат.\n" +
+                "  — Кнопка «Вставити координати з буфера» — швидке додавання локації із повідомлень месенджерів або посилань Google Maps.\n" +
+                "  — Чекбокси: вмикання або вимикання видимості окремих міток на карті.\n" +
+                "  — Натискання на мітку у списку: автоматичне переміщення камери до неї.\n" +
+                "  — Кнопка «✏️»: редагування назви та вибір індивідуального кольору маркера на палітрі.\n" +
+                "  — Кнопка «📤»: експорт та надсилання координат або GPX друзям.\n" +
+                "  — Кнопка «🗑»: безпечне видалення збереженої точки.\n" +
+                "• Режим роботи: 100% ОФЛАЙН. Усі точки записуються локально у вбудовану базу даних SQLite (mushroom.db).",
                 MarkerIconDrawable(density, Color.parseColor("#F44336"), 16)
             )
             addSection(
                 "", "Запис та аналіз GPS-треків",
-                "• Надійний фоновий запис маршруту навіть при заблокованому екрані смартфона у кишені.\n" +
-                "• Інформаційний бейдж у верхній частині показує подолану відстань і точний час походу.\n" +
-                "• Автоматичне збереження у вбудовану базу даних та експорт треків у стандартний формат GPX.\n" +
-                "• Керування треками: перегляд маршрутів на карті, центрування на межах треку та статистика.",
+                "• Керування записом:\n" +
+                "  — Кругла кнопка треку на карті: швидкий старт (синя лінія) та зупинка (червоний бейдж STOP).\n" +
+                "  — У меню треків: «Записати новий трек» або «Зупинити запис треку».\n" +
+                "  — Кнопка «📂 Імпорт GPX файлу»: завантаження зовнішніх маршрутів із пам'яті смартфона.\n" +
+                "  — Тап по треку у списку: автоцентрування та масштабування карти під повні межі вибраного маршруту.\n" +
+                "  — Чекбокс: показ/приховування лінії треку на мапі.\n" +
+                "  — Кнопки «✏️» (зміна назви й кольору), «📤» (експорт у стандартний GPX-файл), «🗑» (видалення).\n" +
+                "• Режим роботи: 100% ОФЛАЙН. Фоновий сервіс, антидребезгова фільтрація GPS-координат та розрахунок дистанції працюють автономно у лісі.",
                 TrackIconDrawable(density, Color.parseColor("#2196F3"), 16)
             )
             addSection(
                 "📥", "Завантаження офлайн-карт",
-                "• Попереднє завантаження карт областей України або інших країн світу перед виходом у ліс.\n" +
-                "• 100% захист від втрати орієнтації за повної відсутності стільникового зв'язку."
+                "• Керування:\n" +
+                "  — Пункт «🗺️ Карти» в меню: відкриває вибір країн та областей України.\n" +
+                "  — Кнопка «Завантажити обрані регіони»: завантаження пакетів карт для повністю автономного походу.\n" +
+                "  — Кнопки процесу: «Сховати у фон» (завантаження продовжується згорнутим) та «Зупинити».\n" +
+                "• Що завантажується: готові векторні пакети тайлів OpenStreetMap для обраних областей. Зберігаються на накопичувач пристрою.\n" +
+                "• Режим роботи: ПОТРЕБУЄ ОНЛАЙН лише під час початкового завантаження файлів (рекомендовано через Wi-Fi перед виходом у ліс)."
             )
             addSection(
                 "🔬", "AI Визначник грибів (Нейромережа)",
-                "• Розпізнавання грибів за фотографіями автономною нейромережею MobileNet ONNX.\n" +
-                "• Підтримка до 3-х різних фото (капелюшок, ніжка, зріз) для комбінованого точного аналізу.\n" +
-                "• Визначення Top-5 найімовірніших видів із зазначенням відсотка впевненості та статусу їстівності.\n" +
-                "• Швидкий перехід з картки результату до пошуку в енциклопедії."
+                "• Керування та процес розпізнавання:\n" +
+                "  — Кнопка «📷 Камера»: миттєвий знімок гриба.\n" +
+                "  — Кнопка «🖼️ Галерея»: вибір наявних фото з пам'яті телефону.\n" +
+                "  — Підтримка до 3-х фото (капелюшок, ніжка, зріз) для комбінованого нейромережевого аналізу.\n" +
+                "  — Кнопка «🗑️» (у панелі мініатюр): швидке очищення завантажених фото.\n" +
+                "  — Кнопка «🔍 Визначити гриб»: запуск автономного класифікатора.\n" +
+                "  — Тап по картці результату: перехід до детальної довідки цього виду в Енциклопедії.\n" +
+                "  — Кнопка «✕» на червоному банері: приховує застереження про небезпеку до наступного перезапуску додатку.\n" +
+                "• Що завантажується: файл моделі нейромережі model.onnx (~280 МБ). Завантажується один раз кнопкою «Завантажити».\n" +
+                "• Режим роботи: 100% ОФЛАЙН. Після одноразового завантаження моделі інтернет для розпізнавання грибів більше не потрібен взагалі."
             )
             addSection(
                 "📖", "Енциклопедія та безпека",
-                "• Детальні картки видів з фотографіями та морфологічними характеристиками.\n" +
-                "• Єдині статуси їстівності: 🟢 Їстівний, 🟡 Умовно-їстівний, 🟠 Отруйний, 🔴 Смертельно отруйний.\n" +
-                "• Попередження про небезпечні та смертельні двійники (бліда поганка, галерина тощо).\n" +
-                "• Зручні фільтри за їстівністю та типом гіменофора (трубчасті / пластинчасті)."
+                "• Керування та пошук:\n" +
+                "  — Пошуковий рядок: швидкий пошук за українською або науковою латинською назвою.\n" +
+                "  — Фільтри гіменофора: розділення на трубчасті та пластинчасті гриби.\n" +
+                "  — Фільтри їстівності: 🟢 Їстівні, 🟡 Умовно-їстівні, 🟠 Отруйні, 🔴 Смертельно отруйні.\n" +
+                "  — Картка виду: фотографії, морфологічні ознаки, період збору та застереження про смертельні двійники.\n" +
+                "  — Кнопки «🌐 iNaturalist» та «📖 Вікіпедія»: перехід до детальних наукових онлайн-джерел.\n" +
+                "• Режим роботи: ГІБРИДНИЙ.\n" +
+                "  — Текстова база знань, фільтри, класифікація їстівності та двійники — 100% ОФЛАЙН (вбудовано в apk).\n" +
+                "  — Фотографії видів завантажуються з мережі при перегляді та кешуються у пам'ять для подальшого офлайн-перегляду."
             )
             addSection(
-                "🔋", "Оптимізація батареї",
-                "• Для безперервного фонового запису треків рекомендується вимкнути оптимізацію батареї у меню."
+                "🔋", "Фоновий режим та оптимізація батареї",
+                "• Керування:\n" +
+                "  — Пункт меню «🔋 Робота у фоні (без обмежень)» відкриває налаштування Doze Mode Android.\n" +
+                "  — Необхідно дозволити додатку працювати без обмежень батареї, щоб операційна система не присипляла GPS-модуль при вимкненому екрані.\n" +
+                "• Режим роботи: 100% ОФЛАЙН."
+            )
+            addSection(
+                "🌐", "Зведення: Що працює Офлайн, а що Онлайн",
+                "• Працює 100% ОФЛАЙН (у лісі без зв'язку):\n" +
+                "  ✓ Перегляд збережених карт, масштабування, обертання, компас.\n" +
+                "  ✓ Визначення точних координат за супутниками GPS.\n" +
+                "  ✓ Створення, редагування, пошук і експорт грибних міток.\n" +
+                "  ✓ Фоновий запис та перегляд GPS-треків.\n" +
+                "  ✓ AI розпізнавання грибів нейромережею (з локальною моделлю).\n" +
+                "  ✓ Енциклопедія: тексти, статуси їстівності, попередження про двійники.\n" +
+                "• Потребує ОНЛАЙН (інтернет):\n" +
+                "  ✓ Одноразове завантаження пакетів карт обраних областей.\n" +
+                "  ✓ Одноразове завантаження файлу моделі нейромережі (~280 МБ).\n" +
+                "  ✓ Первинне завантаження ілюстрацій для нових видів в Енциклопедії.\n" +
+                "  ✓ Автоматична перевірка та оновлення версії додатку через GitHub."
             )
         } else {
             addSection(
-                "🗺️", "Offline Map & Navigation",
-                "• Offline OpenStreetMap rendering with zero cellular connection needed.\n" +
-                "• Smooth pinch-to-zoom, manual or compass map rotation, follow-user positioning.\n" +
-                "• Center button instantly snaps the camera to your real-time GPS coordinates.\n" +
-                "• Compass button points north; tapping aligns the map view to north."
+                "🗺️", "Offline Map, Navigation & Gestures",
+                "• Gestures:\n" +
+                "  — Pan: drag with a single finger to navigate the map.\n" +
+                "  — Pinch-to-zoom: spread or pinch two fingers to zoom in/out smoothly.\n" +
+                "  — Rotation: rotate with two fingers to orient the map at any angle.\n" +
+                "  — Add marker: long press or quick double tap anywhere on the map.\n" +
+                "• Map Screen Buttons:\n" +
+                "  — Center on Me (crosshair on right): instantly snaps camera to GPS location and enables follow mode.\n" +
+                "  — Compass (arrow on right): shows magnetic/sensor heading; tap once to align map to North.\n" +
+                "  — Menu (top left): opens the main Mushroom menu.\n" +
+                "  — Live Recording Badge (top): displays elapsed distance and duration of the active trip.\n" +
+                "• Operating Mode: 100% OFFLINE. Orientation, tracking, and compass work with zero cellular coverage.\n" +
+                "• What is Downloaded: when an internet connection is available, viewed OpenStreetMap tiles are cached automatically."
             )
             addSection(
                 "", "Mushroom Markers & Waypoints",
-                "• Add new marker: long press or quick double tap anywhere on the map.\n" +
-                "• Or tap the floating flag button to pin your current GPS coordinates.\n" +
-                "• Edit marker name, notes, elevation, and assign mushroom species icons.\n" +
-                "• Markers manager: search filter, proximity sorting, visibility toggle, GPX export.",
+                "• Adding Markers:\n" +
+                "  — Double tap or long press directly on the map (places marker at touched position).\n" +
+                "  — Floating Flag Button: saves marker at your current real-time GPS coordinates.\n" +
+                "• Management in 'Markers' Menu:\n" +
+                "  — 'Create New Marker' button: manual entry for name, mushroom type, and coordinates.\n" +
+                "  — 'Paste Coordinates from Clipboard': quick import from messengers or Google Maps shared links.\n" +
+                "  — Checkboxes: toggle visibility of individual markers on the map.\n" +
+                "  — Tap marker name: camera centers onto that marker.\n" +
+                "  — '✏️' button: edit title and pick custom marker color from the palette.\n" +
+                "  — '📤' button: export coordinates or GPX to friends via messaging apps.\n" +
+                "  — '🗑' button: delete saved marker.\n" +
+                "• Operating Mode: 100% OFFLINE. All data is saved into local SQLite database (mushroom.db).",
                 MarkerIconDrawable(density, Color.parseColor("#F44336"), 16)
             )
             addSection(
                 "", "Track Recording & GPS Logging",
-                "• Reliable background track recording even with screen turned off.\n" +
-                "• Live status badge displays elapsed distance and duration.\n" +
-                "• Automatic local database storage and full GPX export support.\n" +
-                "• Inspect routes, auto-fit track boundaries, and track management.",
+                "• Recording Controls:\n" +
+                "  — Floating Track Button on map: start logging (blue polyline) and stop (red STOP square).\n" +
+                "  — In Tracks Menu: 'Record New Track' or 'Stop Recording Track'.\n" +
+                "  — '📂 Import GPX File' button: load external tracks from storage.\n" +
+                "  — Tap track in list: camera automatically fits to the entire track boundaries.\n" +
+                "  — Checkbox: show/hide track route on map.\n" +
+                "  — '✏️' (rename and change color), '📤' (export to standard GPX file), '🗑' (delete).\n" +
+                "• Operating Mode: 100% OFFLINE. Background service, Kalman/trajectory noise filtering, and distance calculations run autonomously in deep woods.",
                 TrackIconDrawable(density, Color.parseColor("#2196F3"), 16)
             )
             addSection(
                 "📥", "Offline Map Downloads",
-                "• Download regional map packages over Wi-Fi before heading into deep woods.\n" +
-                "• Guaranteed orientation with zero cellular reception."
+                "• Controls & Downloads:\n" +
+                "  — '🗺️ Maps' menu item: browse available countries and regions of Ukraine.\n" +
+                "  — 'Download Selected Regions' button: batch download map packages for full offline autonomy.\n" +
+                "  — Download buttons: 'Hide to background' and 'Stop'.\n" +
+                "• What is Downloaded: offline OpenStreetMap tile packs saved directly to device storage.\n" +
+                "• Operating Mode: REQUIRES ONLINE solely during initial download (Wi-Fi recommended before trip)."
             )
             addSection(
-                "🔬", "AI Mushroom Classifier",
-                "• Identify mushrooms offline using an embedded MobileNet ONNX model.\n" +
-                "• Combine up to 3 photos (cap, stem, slice) for ensemble confidence analysis.\n" +
-                "• View Top-5 species candidates with confidence scores and edibility badges.\n" +
-                "• Tap any result card to jump directly into the encyclopedia."
+                "🔬", "AI Mushroom Classifier (Neural Network)",
+                "• Workflow & Controls:\n" +
+                "  — '📷 Camera' button: snap a live photo of the mushroom.\n" +
+                "  — '🖼️ Gallery' button: choose photos from device storage.\n" +
+                "  — Multi-photo ensemble: combine up to 3 photos (cap, stem, slice) for maximum classification accuracy.\n" +
+                "  — '🗑️' button in thumbnails: clear selected photos.\n" +
+                "  — '🔍 Identify Mushroom' button: execute on-device MobileNet inference.\n" +
+                "  — Tap result card: view detailed encyclopedia article for this species.\n" +
+                "  — '✕' on red banner: dismiss safety inaccuracy warning until next app restart.\n" +
+                "• What is Downloaded: neural network model model.onnx (~280 MB). Downloaded once via 'Download' button.\n" +
+                "• Operating Mode: 100% OFFLINE. Once model file is present, recognition works completely offline with zero internet."
             )
             addSection(
                 "📖", "Encyclopedia & Safety Guide",
-                "• Comprehensive species cards with high-res photos and morphology.\n" +
-                "• Standardized edibility badges: 🟢 Edible, 🟡 Cond. Edible, 🟠 Toxic, 🔴 Deadly Toxic.\n" +
-                "• Lookalike safety alerts for fatal lookalikes (Death Cap, Funeral Bell, etc.).\n" +
-                "• Filter by edibility level and hymenophore structure (tubes / gills)."
+                "• Search & Filters:\n" +
+                "  — Search bar: instant lookup by Ukrainian or Latin scientific name.\n" +
+                "  — Hymenophore filters: filter by tubes or gills.\n" +
+                "  — Edibility filters: 🟢 Edible, 🟡 Cond. Edible, 🟠 Toxic, 🔴 Deadly Toxic.\n" +
+                "  — Species Card: morphological characteristics, cap, stem, flesh, season, and fatal lookalikes.\n" +
+                "  — '🌐 iNaturalist' and '📖 Wikipedia' buttons: external scientific references.\n" +
+                "• Operating Mode: HYBRID.\n" +
+                "  — Knowledge base, morphology, edibility statuses, and warnings: 100% OFFLINE (embedded in apk).\n" +
+                "  — Species photos load online on first view and cache to disk for subsequent offline viewing."
             )
             addSection(
-                "🔋", "Battery Optimization",
-                "• Disable battery optimization via the menu for uninterrupted background recording."
+                "🔋", "Background Run & Battery Optimization",
+                "• Controls:\n" +
+                "  — '🔋 Background Run (Unrestricted)' menu item opens system battery settings.\n" +
+                "  — Disabling battery optimization ensures Android does not sleep the GPS receiver during screen-off recording.\n" +
+                "• Operating Mode: 100% OFFLINE."
+            )
+            addSection(
+                "🌐", "Summary: Offline vs Online Operations",
+                "• 100% OFFLINE Operations (zero connection needed):\n" +
+                "  ✓ Offline map viewing, panning, zooming, rotation, compass.\n" +
+                "  ✓ Real-time GPS location positioning.\n" +
+                "  ✓ Creating, editing, searching, and exporting markers.\n" +
+                "  ✓ Background track recording and route inspection.\n" +
+                "  ✓ AI neural network mushroom identification (with local model).\n" +
+                "  ✓ Full encyclopedia text descriptions, edibility labels, and lookalike safety alerts.\n" +
+                "• REQUIRES ONLINE (internet connection):\n" +
+                "  ✓ One-time download of regional map packages.\n" +
+                "  ✓ One-time download of AI classifier model (~280 MB).\n" +
+                "  ✓ Initial fetch of high-res species photos in Encyclopedia.\n" +
+                "  ✓ Checking and updating app releases from GitHub."
             )
         }
 
