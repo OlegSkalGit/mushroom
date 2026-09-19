@@ -55,64 +55,29 @@ class MushroomClassifierTab(
     init {
         val density = activity.resources.displayMetrics.density
 
-        // 1. Actions Row: Camera, Gallery, Add (+), Clear
-        val actionsRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
+        // 1. Inaccuracy Warning (Red) - at the top
+        tvWarning = TextView(activity).apply {
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#FF5252"))
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#2A1215"))
+            val padH = (12 * density).toInt()
+            val padV = (8 * density).toInt()
+            setPadding(padH, padV, padH, padV)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, 8)
             }
         }
-
-        val btnCamera = UiUtils.createStyledButton(activity, if (currentLang == "uk") "📷 Камера" else "📷 Camera") {
-            dispatchCameraIntent()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(0, 0, 4, 0)
-            }
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-        }
-
-        val btnGallery = UiUtils.createStyledButton(activity, if (currentLang == "uk") "🖼️ Галерея" else "🖼️ Gallery") {
-            dispatchGalleryIntent()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(4, 0, 4, 0)
-            }
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-        }
-
-        val btnAddPhoto = UiUtils.createStyledButton(activity, "➕") {
-            showAddPhotoDialog()
-        }.apply {
-            val btnW = (48 * density).toInt()
-            layoutParams = LinearLayout.LayoutParams(btnW, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(4, 0, 4, 0)
-            }
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-        }
-
-        val btnClear = UiUtils.createStyledButton(activity, "🗑") {
-            clearPhotos()
-        }.apply {
-            val btnW = (48 * density).toInt()
-            layoutParams = LinearLayout.LayoutParams(btnW, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(4, 0, 0, 0)
-            }
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-        }
-
-        actionsRow.addView(btnCamera)
-        actionsRow.addView(btnGallery)
-        actionsRow.addView(btnAddPhoto)
-        actionsRow.addView(btnClear)
-        view.addView(actionsRow)
+        updateWarningText()
+        view.addView(tvWarning)
 
         // 2. Model Local Storage Status Indicator
         tvModelStatus = TextView(activity).apply {
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 6)
+            setPadding(0, 0, 0, 8)
         }
         view.addView(tvModelStatus)
         updateModelStatusBadge()
@@ -134,6 +99,12 @@ class MushroomClassifierTab(
                 setMargins(0, 0, 0, 10)
             }
             setBackgroundColor(Color.parseColor("#111915"))
+            isClickable = true
+            setOnClickListener {
+                if (loadedBitmaps.size < 3) {
+                    showAddPhotoDialog()
+                }
+            }
         }
 
         previewImageView = ImageView(activity).apply {
@@ -169,23 +140,6 @@ class MushroomClassifierTab(
             }
         }
         view.addView(btnAnalyze)
-
-        // 6. Inaccuracy Warning (Red)
-        tvWarning = TextView(activity).apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#FF5252"))
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#2A1215"))
-            val padH = (12 * density).toInt()
-            val padV = (8 * density).toInt()
-            setPadding(padH, padV, padH, padV)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, 8)
-            }
-        }
-        updateWarningText()
-        view.addView(tvWarning)
 
         // 7. Status text
         tvStatus = TextView(activity).apply {
