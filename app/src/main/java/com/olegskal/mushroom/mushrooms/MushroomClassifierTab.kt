@@ -194,6 +194,8 @@ class MushroomClassifierTab(
             loadedBitmaps.add(bitmap)
             activeIndex = loadedBitmaps.size - 1
             updatePhotosUi()
+            resultsContainer.removeAllViews()
+            tvStatus.visibility = View.GONE
         } else {
             val msg = if (currentLang == "uk") "Вже додано максимум 3 фото" else "Maximum 3 photos reached"
             Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
@@ -206,6 +208,8 @@ class MushroomClassifierTab(
             loadedBitmaps.addAll(bitmaps.take(remaining))
             activeIndex = loadedBitmaps.size - 1
             updatePhotosUi()
+            resultsContainer.removeAllViews()
+            tvStatus.visibility = View.GONE
         } else {
             val msg = if (currentLang == "uk") "Вже додано максимум 3 фото" else "Maximum 3 photos reached"
             Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
@@ -232,6 +236,8 @@ class MushroomClassifierTab(
                 activeIndex = maxOf(0, loadedBitmaps.size - 1)
             }
             updatePhotosUi()
+            resultsContainer.removeAllViews()
+            tvStatus.visibility = View.GONE
         }
     }
 
