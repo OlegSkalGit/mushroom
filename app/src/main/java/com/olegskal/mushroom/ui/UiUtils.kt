@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.text.Spannable
+import android.text.SpannableStringBuilder
 import android.view.Gravity
 import android.view.ScaleGestureDetector
 import android.view.View
@@ -51,16 +53,19 @@ object UiUtils {
         onClick: () -> Unit
     ): Button {
         return Button(context).apply {
-            text = buttonText
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#3A3A3A"))
             textSize = 14f
+            gravity = Gravity.CENTER
             if (icon != null) {
-                icon.setBounds(0, 0, icon.intrinsicWidth, icon.intrinsicHeight)
-                setCompoundDrawables(icon, null, null, null)
-                compoundDrawablePadding = (10 * resources.displayMetrics.density).toInt()
-                setPadding((16 * resources.displayMetrics.density).toInt(), 0, (16 * resources.displayMetrics.density).toInt(), 0)
-                gravity = Gravity.CENTER_VERTICAL or Gravity.LEFT
+                val density = resources.displayMetrics.density
+                val sz = (18 * density).toInt()
+                icon.setBounds(0, 0, sz, sz)
+                val ssb = SpannableStringBuilder("  ").append(buttonText)
+                ssb.setSpan(CenteredImageSpan(icon), 0, 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                text = ssb
+            } else {
+                text = buttonText
             }
             params?.let { layoutParams = it }
             setOnClickListener { onClick() }

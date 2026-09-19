@@ -66,19 +66,21 @@ object TracksListDialog {
             18,
             isRecording = isRecording
         )
-        btnIcon.setBounds(0, 0, btnIcon.intrinsicWidth, btnIcon.intrinsicHeight)
+        val btnSize = (18 * density).toInt()
+        btnIcon.setBounds(0, 0, btnSize, btnSize)
+        val recText = if (isRecording) {
+            if (lang == "uk") "Зупинити запис треку" else "Stop Recording Track"
+        } else {
+            if (lang == "uk") "Записати новий трек" else "Record New Track"
+        }
+        val recSsb = android.text.SpannableStringBuilder("  ").append(recText)
+        recSsb.setSpan(CenteredImageSpan(btnIcon), 0, 1, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val btnRecordTrack = Button(activity).apply {
-            text = if (isRecording) {
-                if (lang == "uk") "Зупинити запис треку" else "Stop Recording Track"
-            } else {
-                if (lang == "uk") "Записати новий трек" else "Record New Track"
-            }
+            text = recSsb
             setTextColor(Color.WHITE)
             setBackgroundColor(if (isRecording) Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
-            setCompoundDrawables(btnIcon, null, null, null)
-            compoundDrawablePadding = (10 * density).toInt()
             gravity = Gravity.CENTER
             val btnParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, 8)

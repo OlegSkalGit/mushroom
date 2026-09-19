@@ -215,3 +215,52 @@ class TrackIconDrawable(
     @Deprecated("Deprecated in Java")
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
+
+/**
+ * ImageSpan that centers the drawable vertically with the text line.
+ */
+class CenteredImageSpan(private val drawable: Drawable) : android.text.style.DynamicDrawableSpan() {
+
+    override fun getDrawable(): Drawable = drawable
+
+    override fun getSize(
+        paint: Paint,
+        text: CharSequence?,
+        start: Int,
+        end: Int,
+        fm: Paint.FontMetricsInt?
+    ): Int {
+        val rect = drawable.bounds
+        if (fm != null) {
+            val fontHeight = fm.descent - fm.ascent
+            val drHeight = rect.height()
+            val centerY = fm.ascent + fontHeight / 2
+            fm.ascent = centerY - drHeight / 2
+            fm.top = fm.ascent
+            fm.bottom = centerY + drHeight / 2
+            fm.descent = fm.bottom
+        }
+        return rect.width()
+    }
+
+    override fun draw(
+        canvas: Canvas,
+        text: CharSequence?,
+        start: Int,
+        end: Int,
+        x: Float,
+        top: Int,
+        y: Int,
+        bottom: Int,
+        paint: Paint
+    ) {
+        canvas.save()
+        val fontMetrics = paint.fontMetricsInt
+        val fontHeight = fontMetrics.descent - fontMetrics.ascent
+        val centerY = y + fontMetrics.ascent + fontHeight / 2
+        val transY = centerY - drawable.bounds.height() / 2
+        canvas.translate(x, transY.toFloat())
+        drawable.draw(canvas)
+        canvas.restore()
+    }
+}

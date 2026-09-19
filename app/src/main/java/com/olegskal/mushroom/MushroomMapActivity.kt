@@ -717,17 +717,19 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         fun addSection(icon: String, title: String, desc: String, iconDrawable: Drawable? = null) {
             val secTitle = TextView(this).apply {
-                text = if (iconDrawable != null) title else "$icon $title"
+                if (iconDrawable != null) {
+                    val sz = (16 * density).toInt()
+                    iconDrawable.setBounds(0, 0, sz, sz)
+                    val ssb = android.text.SpannableStringBuilder("  ").append(title)
+                    ssb.setSpan(CenteredImageSpan(iconDrawable), 0, 1, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    text = ssb
+                } else {
+                    text = "$icon $title"
+                }
                 setTextColor(Color.parseColor("#10B981"))
                 textSize = 14f
                 setTypeface(null, Typeface.BOLD)
                 setPadding(0, (10 * density).toInt(), 0, (3 * density).toInt())
-                if (iconDrawable != null) {
-                    iconDrawable.setBounds(0, 0, iconDrawable.intrinsicWidth, iconDrawable.intrinsicHeight)
-                    setCompoundDrawables(iconDrawable, null, null, null)
-                    compoundDrawablePadding = (8 * density).toInt()
-                    gravity = Gravity.CENTER_VERTICAL
-                }
             }
             val secDesc = TextView(this).apply {
                 text = desc

@@ -63,15 +63,17 @@ object MarkersListDialog {
         container.addView(headerRow)
 
         val addIcon = MarkerIconDrawable(density, Color.WHITE, 18)
-        addIcon.setBounds(0, 0, addIcon.intrinsicWidth, addIcon.intrinsicHeight)
+        val addSize = (18 * density).toInt()
+        addIcon.setBounds(0, 0, addSize, addSize)
+        val addText = if (lang == "uk") "Створити новий маркер" else "Create New Marker"
+        val addSsb = android.text.SpannableStringBuilder("  ").append(addText)
+        addSsb.setSpan(CenteredImageSpan(addIcon), 0, 1, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val btnAddMarker = Button(activity).apply {
-            text = if (lang == "uk") "Створити новий маркер" else "Create New Marker"
+            text = addSsb
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#2E7D32"))
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
-            setCompoundDrawables(addIcon, null, null, null)
-            compoundDrawablePadding = (10 * density).toInt()
             gravity = Gravity.CENTER
             val addParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, 8)
