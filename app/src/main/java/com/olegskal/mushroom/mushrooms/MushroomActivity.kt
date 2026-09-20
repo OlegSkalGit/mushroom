@@ -35,7 +35,7 @@ class MushroomActivity : Activity() {
         currentLang = com.olegskal.mushroom.util.AppPrefs.getAppLang(this)
 
         // Initialize disk cache for images
-        MushroomApiClient.initDiskCache(filesDir)
+        MushroomApiClient.initDiskCache(filesDir, this)
         MycoKnowledge.init(this)
 
         val rootLayout = LinearLayout(this).apply {

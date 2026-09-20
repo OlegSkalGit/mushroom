@@ -50,8 +50,16 @@ object MushroomApiClient {
     }
 
     private var diskCacheDir: File? = null
+    var appContext: android.content.Context? = null
 
-    fun initDiskCache(baseDir: File) {
+    fun setContext(context: android.content.Context) {
+        appContext = context.applicationContext
+    }
+
+    fun initDiskCache(baseDir: File, context: android.content.Context? = null) {
+        if (context != null) {
+            appContext = context.applicationContext
+        }
         val dir = File(baseDir, "cache/mushrooms")
         if (!dir.exists()) {
             dir.mkdirs()
@@ -69,7 +77,7 @@ object MushroomApiClient {
         executor.execute {
             val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
             val urlString = "https://api.inaturalist.org/v1/taxa?taxon_id=47170&q=$encodedQuery&has[]=photos&locale=$lang&per_page=$perPage&page=$page"
-            executeTaxaRequest(urlString, lang, onResult)
+            executeTaxaRequest(urlString, onResult)
         }
     }
 
@@ -88,7 +96,7 @@ object MushroomApiClient {
                 // Worldwide popular Agaricomycetes (rank=species, taxon_id=50814)
                 "https://api.inaturalist.org/v1/taxa?taxon_id=50814&rank=species&is_active=true&order_by=observations_count&order=desc&has[]=photos&locale=$lang&per_page=$perPage&page=$page"
             }
-            executeTaxaRequest(urlString, lang, onResult)
+            executeTaxaRequest(urlString, onResult)
         }
     }
 
@@ -119,7 +127,7 @@ object MushroomApiClient {
                     val resArr = root.optJSONArray("results")
                     if (resArr != null && resArr.length() > 0) {
                         val obj = resArr.getJSONObject(0)
-                        var taxon = parseTaxonObject(obj, lang)
+                        var taxon = parseTaxonObject(obj)
 
                         // If Wikipedia summary is missing in current language, fallback to English
                         val currentSummary = taxon.wikipediaSummary?.takeIf { !it.equals("null", ignoreCase = true) && it.isNotBlank() }
@@ -159,7 +167,7 @@ object MushroomApiClient {
         }
     }
 
-    private fun executeTaxaRequest(urlString: String, lang: String, onResult: (List<MushroomTaxon>, Boolean) -> Unit) {
+    private fun executeTaxaRequest(urlString: String, onResult: (List<MushroomTaxon>, Boolean) -> Unit) {
         try {
             val jsonStr = fetchUrlString(urlString)
             val root = JSONObject(jsonStr)
@@ -173,7 +181,7 @@ object MushroomApiClient {
             for (i in 0 until resultsArr.length()) {
                 val item = resultsArr.getJSONObject(i)
                 val taxonObj = if (item.has("taxon")) item.getJSONObject("taxon") else item
-                val taxon = parseTaxonObject(taxonObj, lang)
+                val taxon = parseTaxonObject(taxonObj)
                 if (taxon.scientificName != "Unknown species") {
                     list.add(taxon)
                 }
@@ -196,7 +204,7 @@ object MushroomApiClient {
         return if (v.isEmpty() || v.equals("null", ignoreCase = true)) null else v
     }
 
-    private fun parseTaxonObject(obj: JSONObject, lang: String): MushroomTaxon {
+    private fun parseTaxonObject(obj: JSONObject): MushroomTaxon {
         val id = obj.optInt("id", 0)
         val scientificName = obj.optCleanString("name") ?: "Unknown species"
         val preferredCommon = obj.optCleanString("preferred_common_name")
@@ -338,6 +346,26 @@ object MushroomApiClient {
         val cached = memoryCache.get(urlString)
         if (cached != null) {
             callback(cached)
+            return
+        }
+
+        if (urlString.startsWith("db://photo/")) {
+            val photoId = urlString.removePrefix("db://photo/").toIntOrNull()
+            executor.execute {
+                val ctx = appContext
+                if (photoId != null && ctx != null) {
+                    val blob = MushroomDatabaseManager.loadPhotoBlob(ctx, photoId)
+                    if (blob != null) {
+                        val bmp = BitmapFactory.decodeByteArray(blob, 0, blob.size)
+                        if (bmp != null) {
+                            memoryCache.put(urlString, bmp)
+                            mainHandler.post { callback(bmp) }
+                            return@execute
+                        }
+                    }
+                }
+                mainHandler.post { callback(null) }
+            }
             return
         }
 

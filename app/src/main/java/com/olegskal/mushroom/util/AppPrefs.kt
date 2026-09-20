@@ -236,4 +236,10 @@ object AppPrefs {
     fun setMushroomViewMode(context: Context, mode: String) {
         getPrefs(context).edit().putString(KEY_MUSHROOM_VIEW_MODE, mode).apply()
     }
+
+    const val KEY_MUSHROOM_OFFLINE_MODE = "mushroom_offline_mode"
+    fun getMushroomOfflineMode(context: Context): Boolean = getPrefs(context).getBoolean(KEY_MUSHROOM_OFFLINE_MODE, false)
+    fun setMushroomOfflineMode(context: Context, isOffline: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_MUSHROOM_OFFLINE_MODE, isOffline).apply()
+    }
 }

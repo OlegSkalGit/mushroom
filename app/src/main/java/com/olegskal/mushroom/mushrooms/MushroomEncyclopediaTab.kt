@@ -1,6 +1,7 @@
 package com.olegskal.mushroom.mushrooms
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Handler
@@ -29,13 +30,16 @@ class MushroomEncyclopediaTab(
     private val searchEditText: EditText
     private val itemsContainer: LinearLayout
     private val statusTextView: TextView
-    private val regionToggleBtn: Button
+    private val modeToggleBtn: Button
     private val filterSpinner: Spinner
     private val viewModeSpinner: Spinner
+    private val dbStatusRow: LinearLayout
+    private val tvDbStatus: TextView
+    private val btnDownloadDb: Button
     private val scrollView: ScrollView
 
     private var currentQuery = ""
-    private var isUkraineOnly = true
+    private var isOfflineMode = false
     private var currentFilter = "all"
     private var currentViewMode = "list"
     private val viewModeKeys = listOf("list", "grid")
@@ -61,13 +65,104 @@ class MushroomEncyclopediaTab(
 
     init {
         val density = activity.resources.displayMetrics.density
+        MushroomApiClient.setContext(activity)
 
         // Load saved preferences
-        isUkraineOnly = AppPrefs.getMushroomIsUkraine(activity)
+        isOfflineMode = AppPrefs.getMushroomOfflineMode(activity)
         currentFilter = AppPrefs.getMushroomFilter(activity)
         currentViewMode = AppPrefs.getMushroomViewMode(activity)
 
-        // 1. Search Bar & Clear Button
+        // 1. Controls Row (Mode Toggle, Filter & View Mode) - Placed ABOVE search bar
+        val controlsRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, 8)
+            }
+        }
+
+        modeToggleBtn = Button(activity).apply {
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setBackgroundColor(Color.parseColor("#22362C"))
+            val padH = (8 * density).toInt()
+            val padV = (6 * density).toInt()
+            setPadding(padH, padV, padH, padV)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 6, 0)
+            }
+            setOnClickListener {
+                isOfflineMode = !isOfflineMode
+                AppPrefs.setMushroomOfflineMode(activity, isOfflineMode)
+                updateModeToggleText()
+                updateDbStatusBadge()
+                resetAndReload()
+            }
+        }
+        updateModeToggleText()
+        controlsRow.addView(modeToggleBtn)
+
+        filterSpinner = Spinner(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(0, 0, 6, 0)
+            }
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+            setPadding(6, 6, 6, 6)
+        }
+        setupFilterSpinner()
+        controlsRow.addView(filterSpinner)
+
+        viewModeSpinner = Spinner(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+            setPadding(6, 6, 6, 6)
+        }
+        setupViewModeSpinner()
+        controlsRow.addView(viewModeSpinner)
+        view.addView(controlsRow)
+
+        // 2. Database Status Banner (shown in offline mode when DB is missing)
+        dbStatusRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val padH = (10 * density).toInt()
+            val padV = (6 * density).toInt()
+            setPadding(padH, padV, padH, padV)
+            setBackgroundColor(Color.parseColor("#231C14"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, 8)
+            }
+            visibility = View.GONE
+        }
+
+        tvDbStatus = TextView(activity).apply {
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#F59E0B"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        dbStatusRow.addView(tvDbStatus)
+
+        btnDownloadDb = UiUtils.createStyledButton(activity, if (currentLang == "uk") "Завантажити" else "Download") {
+            promptAndDownloadDatabase()
+        }.apply {
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            val padBtnH = (12 * density).toInt()
+            val padBtnV = (4 * density).toInt()
+            setPadding(padBtnH, padBtnV, padBtnH, padBtnV)
+            setBackgroundColor(Color.parseColor("#059669"))
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(6, 0, 0, 0)
+            }
+        }
+        dbStatusRow.addView(btnDownloadDb)
+        view.addView(dbStatusRow)
+        updateDbStatusBadge()
+
+        // 3. Search Bar & Clear Button (Placed BELOW controls)
         val searchRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -103,55 +198,6 @@ class MushroomEncyclopediaTab(
         searchRow.addView(searchEditText)
         searchRow.addView(btnClearSearch)
         view.addView(searchRow)
-
-        // 2. Region Toggle, Filter & View Mode Row
-        val controlsRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, 10)
-            }
-        }
-
-        regionToggleBtn = Button(activity).apply {
-            text = if (isUkraineOnly) "🇺🇦 Україна" else "🌍 Світ"
-            setTextColor(Color.WHITE)
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-            setBackgroundColor(Color.parseColor("#22362C"))
-            val padH = (8 * density).toInt()
-            val padV = (6 * density).toInt()
-            setPadding(padH, padV, padH, padV)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 6, 0)
-            }
-            setOnClickListener {
-                isUkraineOnly = !isUkraineOnly
-                text = if (isUkraineOnly) "🇺🇦 Україна" else "🌍 Світ"
-                AppPrefs.setMushroomIsUkraine(activity, isUkraineOnly)
-                resetAndReload()
-            }
-        }
-        controlsRow.addView(regionToggleBtn)
-
-        filterSpinner = Spinner(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(0, 0, 6, 0)
-            }
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-            setPadding(6, 6, 6, 6)
-        }
-        setupFilterSpinner()
-        controlsRow.addView(filterSpinner)
-
-        viewModeSpinner = Spinner(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-            setPadding(6, 6, 6, 6)
-        }
-        setupViewModeSpinner()
-        controlsRow.addView(viewModeSpinner)
-        view.addView(controlsRow)
 
         // 3. Status text
         statusTextView = TextView(activity).apply {
@@ -272,11 +318,132 @@ class MushroomEncyclopediaTab(
                 if (newFilter != currentFilter) {
                     currentFilter = newFilter
                     AppPrefs.setMushroomFilter(activity, currentFilter)
-                    applyFilter()
+                    if (isOfflineMode) {
+                        resetAndReload()
+                    } else {
+                        applyFilter()
+                    }
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+    }
+
+    private fun updateModeToggleText() {
+        modeToggleBtn.text = if (isOfflineMode) {
+            if (currentLang == "uk") "💾 Без інтернету" else "💾 Offline"
+        } else {
+            if (currentLang == "uk") "🌐 Інтернет" else "🌐 Online"
+        }
+    }
+
+    private fun updateDbStatusBadge() {
+        if (!isOfflineMode) {
+            dbStatusRow.visibility = View.GONE
+            return
+        }
+        val available = MushroomDatabaseManager.isDatabaseAvailable(activity)
+        if (available) {
+            dbStatusRow.visibility = View.GONE
+        } else {
+            dbStatusRow.visibility = View.VISIBLE
+            tvDbStatus.text = if (currentLang == "uk") {
+                "База не завантажена. Потрібно завантажити базу для офлайн-режиму."
+            } else {
+                "Database not downloaded. Please download database for offline mode."
+            }
+            btnDownloadDb.text = if (currentLang == "uk") "Завантажити" else "Download"
+        }
+    }
+
+    private fun promptAndDownloadDatabase(onReady: ((Boolean) -> Unit)? = null) {
+        val title = if (currentLang == "uk") "Завантаження бази грибів" else "Download Mushroom Database"
+        val msg = if (currentLang == "uk") {
+            "Для роботи енциклопедії без інтернету потрібна локальна база даних (~80 МБ). Завантажити зараз?"
+        } else {
+            "Offline mushroom encyclopedia requires local database (~80 MB). Download now?"
+        }
+
+        AlertDialog.Builder(activity)
+            .setTitle(title)
+            .setMessage(msg)
+            .setCancelable(false)
+            .setNegativeButton(if (currentLang == "uk") "Скасувати" else "Cancel") { d, _ ->
+                d.dismiss()
+                onReady?.invoke(false)
+            }
+            .setPositiveButton(if (currentLang == "uk") "Завантажити" else "Download") { d, _ ->
+                d.dismiss()
+                showDbDownloadProgressDialog(onReady)
+            }
+            .show()
+    }
+
+    private fun showDbDownloadProgressDialog(onReady: ((Boolean) -> Unit)? = null) {
+        val progressDialogView = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(30, 24, 30, 24)
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+        }
+
+        val tvTitle = TextView(activity).apply {
+            text = if (currentLang == "uk") "Завантаження бази даних..." else "Downloading database..."
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 12)
+        }
+
+        val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = 100
+            progress = 0
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, 8)
+            }
+        }
+
+        val tvPercent = TextView(activity).apply {
+            text = "0%"
+            setTextColor(Color.parseColor("#10B981"))
+            textSize = 13f
+            gravity = Gravity.RIGHT
+        }
+
+        progressDialogView.addView(tvTitle)
+        progressDialogView.addView(progressBar)
+        progressDialogView.addView(tvPercent)
+
+        val dialog = AlertDialog.Builder(activity)
+            .setView(progressDialogView)
+            .setCancelable(false)
+            .create()
+
+        dialog.show()
+
+        MushroomDatabaseManager.downloadDatabase(
+            context = activity,
+            onProgress = { percent, statusText ->
+                mainHandler.post {
+                    progressBar.progress = percent
+                    tvPercent.text = statusText
+                }
+            },
+            onComplete = { success, errorMsg ->
+                mainHandler.post {
+                    dialog.dismiss()
+                    if (success) {
+                        updateDbStatusBadge()
+                        Toast.makeText(activity, if (currentLang == "uk") "Базу успішно завантажено!" else "Database downloaded successfully!", Toast.LENGTH_SHORT).show()
+                        onReady?.invoke(true)
+                        resetAndReload()
+                    } else {
+                        Toast.makeText(activity, "Download failed: $errorMsg", Toast.LENGTH_LONG).show()
+                        onReady?.invoke(false)
+                    }
+                }
+            }
+        )
     }
 
     private fun getViewModeLabels(): List<String> {
@@ -331,7 +498,8 @@ class MushroomEncyclopediaTab(
     fun setLanguage(lang: String) {
         currentLang = lang
         searchEditText.hint = if (currentLang == "uk") "Пошук (білий, печериця, boletus, amanita)..." else "Search (porcini, amanita, boletus)..."
-        regionToggleBtn.text = if (isUkraineOnly) "🇺🇦 Україна" else "🌍 Світ"
+        updateModeToggleText()
+        updateDbStatusBadge()
         setupFilterSpinner()
         setupViewModeSpinner()
         resetAndReload()
@@ -363,7 +531,11 @@ class MushroomEncyclopediaTab(
         isLoading = true
         val requestGen = searchGeneration
         statusTextView.visibility = View.VISIBLE
-        statusTextView.text = if (currentLang == "uk") "Завантаження з iNaturalist..." else "Loading from iNaturalist..."
+        statusTextView.text = if (isOfflineMode) {
+            if (currentLang == "uk") "Завантаження з локальної бази..." else "Loading from local database..."
+        } else {
+            if (currentLang == "uk") "Завантаження з iNaturalist..." else "Loading from iNaturalist..."
+        }
 
         val callback: (List<MushroomTaxon>, Boolean) -> Unit = { taxa, moreAvailable ->
             if (requestGen == searchGeneration) {
@@ -384,16 +556,45 @@ class MushroomEncyclopediaTab(
             }
         }
 
+        if (isOfflineMode) {
+            if (!MushroomDatabaseManager.isDatabaseAvailable(activity)) {
+                isLoading = false
+                hasMore = false
+                statusTextView.visibility = View.VISIBLE
+                statusTextView.text = if (currentLang == "uk") {
+                    "База не завантажена. Натисніть 'Завантажити' вище."
+                } else {
+                    "Database not downloaded. Click 'Download' above."
+                }
+                return
+            }
+
+            Thread {
+                val (taxa, moreAvailable) = MushroomDatabaseManager.queryTaxa(
+                    context = activity,
+                    query = currentQuery,
+                    filterKey = currentFilter,
+                    lang = currentLang,
+                    page = currentPage,
+                    perPage = 24
+                )
+                mainHandler.post {
+                    callback(taxa, moreAvailable)
+                }
+            }.start()
+            return
+        }
+
         if (currentQuery.isNotEmpty()) {
             MushroomApiClient.searchTaxa(currentQuery, currentLang, currentPage, 24, callback)
         } else {
-            MushroomApiClient.getPopularTaxa(isUkraineOnly, currentLang, currentPage, 24, callback)
+            MushroomApiClient.getPopularTaxa(false, currentLang, currentPage, 24, callback)
         }
     }
 
     private fun matchesFilter(taxon: MushroomTaxon, filterKey: String): Boolean {
         val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = meta.edibility
+        val edibility = if (meta.edibility != "unknown") meta.edibility else taxon.edibility
         val hymenium = if (meta.hymenium != "other") meta.hymenium else taxon.hymenium
 
         return when (filterKey) {
@@ -475,8 +676,12 @@ class MushroomEncyclopediaTab(
                 setMargins(margin, 0, margin, 0)
             }
             setOnClickListener {
-                MushroomApiClient.getTaxonDetails(taxon.id, taxon.scientificName, currentLang) { detailedTaxon ->
-                    MushroomDetailDialog.show(activity, detailedTaxon ?: taxon, currentLang)
+                if (isOfflineMode) {
+                    MushroomDetailDialog.show(activity, taxon, currentLang)
+                } else {
+                    MushroomApiClient.getTaxonDetails(taxon.id, taxon.scientificName, currentLang) { detailedTaxon ->
+                        MushroomDetailDialog.show(activity, detailedTaxon ?: taxon, currentLang)
+                    }
                 }
             }
         }
@@ -573,8 +778,12 @@ class MushroomEncyclopediaTab(
                 setMargins(0, 4, 0, 6)
             }
             setOnClickListener {
-                MushroomApiClient.getTaxonDetails(taxon.id, taxon.scientificName, currentLang) { detailedTaxon ->
-                    MushroomDetailDialog.show(activity, detailedTaxon ?: taxon, currentLang)
+                if (isOfflineMode) {
+                    MushroomDetailDialog.show(activity, taxon, currentLang)
+                } else {
+                    MushroomApiClient.getTaxonDetails(taxon.id, taxon.scientificName, currentLang) { detailedTaxon ->
+                        MushroomDetailDialog.show(activity, detailedTaxon ?: taxon, currentLang)
+                    }
                 }
             }
         }
