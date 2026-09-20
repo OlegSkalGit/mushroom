@@ -31,3 +31,4 @@ local.properties
 *.db.gz
 *.db-wal
 *.db-shm
+!downloads/mushrooms.db
