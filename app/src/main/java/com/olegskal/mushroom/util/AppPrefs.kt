@@ -231,6 +231,19 @@ object AppPrefs {
         getPrefs(context).edit().putString(KEY_MUSHROOM_FILTER, filter).apply()
     }
 
+    const val KEY_MUSHROOM_EDIBILITY_FILTER = "mushroom_edibility_filter"
+    const val KEY_MUSHROOM_HYMENIUM_FILTER = "mushroom_hymenium_filter"
+
+    fun getMushroomEdibilityFilter(context: Context): String = getPrefs(context).getString(KEY_MUSHROOM_EDIBILITY_FILTER, "all") ?: "all"
+    fun setMushroomEdibilityFilter(context: Context, filter: String) {
+        getPrefs(context).edit().putString(KEY_MUSHROOM_EDIBILITY_FILTER, filter).apply()
+    }
+
+    fun getMushroomHymeniumFilter(context: Context): String = getPrefs(context).getString(KEY_MUSHROOM_HYMENIUM_FILTER, "all") ?: "all"
+    fun setMushroomHymeniumFilter(context: Context, filter: String) {
+        getPrefs(context).edit().putString(KEY_MUSHROOM_HYMENIUM_FILTER, filter).apply()
+    }
+
     const val KEY_MUSHROOM_VIEW_MODE = "mushroom_view_mode"
     fun getMushroomViewMode(context: Context): String = getPrefs(context).getString(KEY_MUSHROOM_VIEW_MODE, "list") ?: "list"
     fun setMushroomViewMode(context: Context, mode: String) {

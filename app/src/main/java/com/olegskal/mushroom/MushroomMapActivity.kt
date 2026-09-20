@@ -910,8 +910,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "• Керування та пошук:\n" +
                 "  — Перемикач «🌐 Інтернет / 💾 Без інтернету»: миттєвий перехід між онлайн-каталогом iNaturalist та автономною базою.\n" +
                 "  — Пошуковий рядок: швидкий пошук за українською, латинською або англійською назвою.\n" +
-                "  — Фільтри гіменофора: розділення на трубчасті та пластинчасті гриби.\n" +
-                "  — Фільтри їстівності: 🟢 Їстівні, 🟡 Умовно-їстівні, 🟠 Отруйні, 🔴 Смертельно отруйні.\n" +
+                "  — Комплексний фільтр: одночасний вибір їстівності (🟢 Їстівні, 🟡 Умовно-їстівні, 🟠 Отруйні, 🔴 Смертельні) та будови гіменофора (🧽 Трубчасті, 🍂 Пластинчасті).\n" +
                 "  — Картка виду: фотографії, морфологічні ознаки, період збору та застереження про смертельні двійники.\n" +
                 "  — Кнопки «🌐 iNaturalist» та «📖 Вікіпедія»: перехід до детальних онлайн-джерел.\n" +
                 "• Режим роботи: ГІБРИДНИЙ (підтримує як онлайн з iNaturalist, так і повністю автономну роботу через локальну SQLite базу mushrooms.db ~547 МБ)."
@@ -1031,8 +1030,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "• Navigation & Search:\n" +
                 "  — Toggle '🌐 Online / 💾 Offline': instant switch between online iNaturalist catalog and offline database.\n" +
                 "  — Search Bar: search by Ukrainian, English or Latin scientific names.\n" +
-                "  — Hymenophore Filters: separate mushrooms into pored/tubed or gilled.\n" +
-                "  — Edibility Filters: 🟢 Edible, 🟡 Conditionally Edible, 🟠 Inedible/Poisonous, 🔴 Deadly.\n" +
+                "  — Combined Filter: simultaneous selection of edibility (🟢 Edible, 🟡 Cond. Edible, 🟠 Toxic, 🔴 Deadly) and hymenophore (🧽 Tubes, 🍂 Gilled).\n" +
                 "  — Species Card: photo gallery, key identification traits, fruiting season, and deadly lookalike alerts.\n" +
                 "  — '🌐 iNaturalist' and '📖 Wikipedia' buttons: direct access to scientific reference sources.\n" +
                 "• Operating Mode: HYBRID (supports both online browsing via iNaturalist and 100% offline encyclopedia via mushrooms.db ~547 MB SQLite database)."

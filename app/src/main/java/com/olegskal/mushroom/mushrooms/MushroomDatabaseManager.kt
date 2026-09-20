@@ -248,7 +248,8 @@ object MushroomDatabaseManager {
     fun queryTaxa(
         context: Context,
         query: String,
-        filterKey: String,
+        edibilityFilter: String = "all",
+        hymeniumFilter: String = "all",
         lang: String,
         page: Int = 1,
         perPage: Int = 24
@@ -268,12 +269,17 @@ object MushroomDatabaseManager {
             whereArgs.add(pattern)
         }
 
-        when (filterKey) {
+        when (edibilityFilter) {
             "edible" -> whereClauses.add("edibility = 'edible'")
             "cond-edible" -> whereClauses.add("edibility = 'cond-edible'")
             "toxic" -> whereClauses.add("edibility = 'toxic'")
             "deadly" -> whereClauses.add("edibility = 'deadly'")
             "toxic_deadly" -> whereClauses.add("(edibility = 'toxic' OR edibility = 'deadly')")
+            "tubes" -> whereClauses.add("hymenium = 'tubes'")
+            "gills" -> whereClauses.add("hymenium = 'gills'")
+        }
+
+        when (hymeniumFilter) {
             "tubes" -> whereClauses.add("hymenium = 'tubes'")
             "gills" -> whereClauses.add("hymenium = 'gills'")
         }

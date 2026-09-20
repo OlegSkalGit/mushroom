@@ -2,6 +2,7 @@ package com.olegskal.mushroom.mushrooms
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Handler
@@ -31,7 +32,8 @@ class MushroomEncyclopediaTab(
     private val itemsContainer: LinearLayout
     private val statusTextView: TextView
     private val modeToggleBtn: Button
-    private val filterSpinner: Spinner
+    private val filterButton: LinearLayout
+    private val tvFilterLabel: TextView
     private val viewModeSpinner: Spinner
     private val dbStatusRow: LinearLayout
     private val tvDbStatus: TextView
@@ -40,7 +42,8 @@ class MushroomEncyclopediaTab(
 
     private var currentQuery = ""
     private var isOfflineMode = false
-    private var currentFilter = "all"
+    private var currentEdibilityFilter = "all"
+    private var currentHymeniumFilter = "all"
     private var currentViewMode = "list"
     private val viewModeKeys = listOf("list", "grid")
     private var currentPage = 1
@@ -52,24 +55,22 @@ class MushroomEncyclopediaTab(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var searchDebounceRunnable: Runnable? = null
 
-    private val filterKeys = listOf(
-        "all",
-        "edible",
-        "cond-edible",
-        "toxic",
-        "deadly",
-        "toxic_deadly",
-        "tubes",
-        "gills"
-    )
-
     init {
         val density = activity.resources.displayMetrics.density
         MushroomApiClient.setContext(activity)
 
         // Load saved preferences
         isOfflineMode = AppPrefs.getMushroomOfflineMode(activity)
-        currentFilter = AppPrefs.getMushroomFilter(activity)
+        val legacyFilter = AppPrefs.getMushroomFilter(activity)
+        currentEdibilityFilter = AppPrefs.getMushroomEdibilityFilter(activity)
+        currentHymeniumFilter = AppPrefs.getMushroomHymeniumFilter(activity)
+        if (currentEdibilityFilter == "all" && currentHymeniumFilter == "all" && legacyFilter != "all") {
+            if (legacyFilter == "tubes" || legacyFilter == "gills") {
+                currentHymeniumFilter = legacyFilter
+            } else {
+                currentEdibilityFilter = legacyFilter
+            }
+        }
         currentViewMode = AppPrefs.getMushroomViewMode(activity)
 
         // 1. Controls Row (Mode Toggle, Filter & View Mode) - Placed ABOVE search bar
@@ -103,15 +104,41 @@ class MushroomEncyclopediaTab(
         updateModeToggleText()
         controlsRow.addView(modeToggleBtn)
 
-        filterSpinner = Spinner(activity).apply {
+        filterButton = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+            val padH = (10 * density).toInt()
+            val padV = (8 * density).toInt()
+            setPadding(padH, padV, padH, padV)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 setMargins(0, 0, 6, 0)
             }
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-            setPadding(6, 6, 6, 6)
+            setOnClickListener {
+                showFilterDialog()
+            }
         }
-        setupFilterSpinner()
-        controlsRow.addView(filterSpinner)
+
+        tvFilterLabel = TextView(activity).apply {
+            setTextColor(Color.WHITE)
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        filterButton.addView(tvFilterLabel)
+
+        val tvFilterArrow = TextView(activity).apply {
+            text = "▾"
+            setTextColor(Color.parseColor("#9CA3AF"))
+            textSize = 12f
+            setPadding((4 * density).toInt(), 0, 0, 0)
+        }
+        filterButton.addView(tvFilterArrow)
+
+        updateFilterButtonText()
+        controlsRow.addView(filterButton)
 
         viewModeSpinner = Spinner(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -239,12 +266,6 @@ class MushroomEncyclopediaTab(
                 val runnable = Runnable {
                     if (query != currentQuery) {
                         currentQuery = query
-                        if (currentQuery.isNotEmpty()) {
-                            if (currentFilter != "all") {
-                                currentFilter = "all"
-                                filterSpinner.setSelection(0, false)
-                            }
-                        }
                         resetAndReload()
                     }
                 }
@@ -258,75 +279,172 @@ class MushroomEncyclopediaTab(
         resetAndReload()
     }
 
-    private fun getFilterLabels(): List<String> {
-        return if (currentLang == "uk") {
-            listOf(
-                "📋 Всі види",
-                "🟢 Їстівні",
-                "🟡 Умовно-їстівні",
-                "🟠 Отруйні",
-                "🔴 Смертельно отруйні",
-                "⚠️ Отруйні та смертельні",
-                "🧽 Трубчасті (губка)",
-                "🍂 Пластинчасті"
-            )
-        } else {
-            listOf(
-                "📋 All species",
-                "🟢 Edible",
-                "🟡 Cond. Edible",
-                "🟠 Toxic",
-                "🔴 Deadly",
-                "⚠️ Toxic & Deadly",
-                "🧽 Tubes / Porous",
-                "🍂 Gilled"
-            )
+    private fun getEdibilityTitle(key: String): String {
+        return when (key) {
+            "edible" -> if (currentLang == "uk") "🟢 Їстівні" else "🟢 Edible"
+            "cond-edible" -> if (currentLang == "uk") "🟡 Умовно-їстівні" else "🟡 Cond. Edible"
+            "toxic" -> if (currentLang == "uk") "🟠 Отруйні" else "🟠 Toxic"
+            "deadly" -> if (currentLang == "uk") "🔴 Смертельно отруйні" else "🔴 Deadly"
+            "toxic_deadly" -> if (currentLang == "uk") "⚠️ Отруйні/Смертельні" else "⚠️ Toxic & Deadly"
+            else -> if (currentLang == "uk") "Всі види" else "All species"
         }
     }
 
-    private fun setupFilterSpinner() {
-        val labels = getFilterLabels()
-        val adapter = object : ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item, labels) {
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val tv = super.getView(position, convertView, parent) as TextView
-                tv.setTextColor(Color.WHITE)
-                tv.textSize = 12.5f
-                tv.setTypeface(null, Typeface.BOLD)
-                tv.setPadding(6, 6, 6, 6)
-                return tv
-            }
+    private fun getHymeniumTitle(key: String): String {
+        return when (key) {
+            "tubes" -> if (currentLang == "uk") "🧽 Трубчасті" else "🧽 Tubes"
+            "gills" -> if (currentLang == "uk") "🍂 Пластинчасті" else "🍂 Gilled"
+            else -> if (currentLang == "uk") "Всі типи" else "All types"
+        }
+    }
 
-            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val tv = super.getDropDownView(position, convertView, parent) as TextView
-                tv.setTextColor(Color.WHITE)
-                tv.setBackgroundColor(Color.parseColor("#1B2A22"))
-                tv.textSize = 13.5f
-                val pad = (10 * activity.resources.displayMetrics.density).toInt()
-                tv.setPadding(pad, pad, pad, pad)
-                return tv
+    private fun updateFilterButtonText() {
+        val text = when {
+            currentEdibilityFilter == "all" && currentHymeniumFilter == "all" -> {
+                if (currentLang == "uk") "📋 Всі види" else "📋 All species"
+            }
+            currentEdibilityFilter != "all" && currentHymeniumFilter == "all" -> {
+                getEdibilityTitle(currentEdibilityFilter)
+            }
+            currentEdibilityFilter == "all" && currentHymeniumFilter != "all" -> {
+                getHymeniumTitle(currentHymeniumFilter)
+            }
+            else -> {
+                "${getEdibilityTitle(currentEdibilityFilter)} • ${getHymeniumTitle(currentHymeniumFilter)}"
             }
         }
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        filterSpinner.adapter = adapter
+        tvFilterLabel.text = text
+    }
 
-        val initialIdx = filterKeys.indexOf(currentFilter).let { if (it >= 0) it else 0 }
-        filterSpinner.setSelection(initialIdx, false)
+    private fun showFilterDialog() {
+        val density = activity.resources.displayMetrics.density
+        var tempEdibility = currentEdibilityFilter
+        var tempHymenium = currentHymeniumFilter
 
-        filterSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val newFilter = filterKeys.getOrElse(position) { "all" }
-                if (newFilter != currentFilter) {
-                    currentFilter = newFilter
-                    AppPrefs.setMushroomFilter(activity, currentFilter)
-                    if (isOfflineMode) {
-                        resetAndReload()
-                    } else {
-                        applyFilter()
-                    }
+        val scroll = ScrollView(activity)
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#1B2A22"))
+            val pad = (16 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        scroll.addView(container)
+
+        val emerald = ColorStateList.valueOf(Color.parseColor("#10B981"))
+
+        // Section 1: Їстівність
+        val tvHeader1 = TextView(activity).apply {
+            text = if (currentLang == "uk") "Їстівність:" else "Edibility:"
+            setTextColor(Color.parseColor("#10B981"))
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, (6 * density).toInt())
+        }
+        container.addView(tvHeader1)
+
+        val edibilityOptions = listOf(
+            "all" to (if (currentLang == "uk") "📋 Всі види (без обмежень)" else "📋 All species"),
+            "edible" to (if (currentLang == "uk") "🟢 Їстівні" else "🟢 Edible"),
+            "cond-edible" to (if (currentLang == "uk") "🟡 Умовно-їстівні" else "🟡 Conditionally Edible"),
+            "toxic" to (if (currentLang == "uk") "🟠 Отруйні" else "🟠 Toxic"),
+            "deadly" to (if (currentLang == "uk") "🔴 Смертельно отруйні" else "🔴 Deadly"),
+            "toxic_deadly" to (if (currentLang == "uk") "⚠️ Отруйні та смертельні" else "⚠️ Toxic & Deadly")
+        )
+
+        val edibilityRadioGroup = RadioGroup(activity).apply {
+            orientation = RadioGroup.VERTICAL
+            setPadding(0, 0, 0, (14 * density).toInt())
+        }
+
+        for ((key, label) in edibilityOptions) {
+            val rb = RadioButton(activity).apply {
+                text = label
+                setTextColor(Color.WHITE)
+                textSize = 13.5f
+                buttonTintList = emerald
+                id = View.generateViewId()
+                isChecked = (key == tempEdibility)
+                setPadding((6 * density).toInt(), (4 * density).toInt(), (6 * density).toInt(), (4 * density).toInt())
+                setOnClickListener {
+                    tempEdibility = key
                 }
             }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+            edibilityRadioGroup.addView(rb)
         }
+        container.addView(edibilityRadioGroup)
+
+        // Divider
+        val divider = View(activity).apply {
+            setBackgroundColor(Color.parseColor("#2D3748"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (1 * density).toInt()).apply {
+                setMargins(0, 0, 0, (12 * density).toInt())
+            }
+        }
+        container.addView(divider)
+
+        // Section 2: Гіменофор
+        val tvHeader2 = TextView(activity).apply {
+            text = if (currentLang == "uk") "Гіменофор (будова шапинки знизу):" else "Hymenophore (underside):"
+            setTextColor(Color.parseColor("#10B981"))
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, (6 * density).toInt())
+        }
+        container.addView(tvHeader2)
+
+        val hymeniumOptions = listOf(
+            "all" to (if (currentLang == "uk") "📋 Всі типи" else "📋 All types"),
+            "tubes" to (if (currentLang == "uk") "🧽 Трубчасті (губка, пори)" else "🧽 Tubes / Porous"),
+            "gills" to (if (currentLang == "uk") "🍂 Пластинчасті" else "🍂 Gilled")
+        )
+
+        val hymeniumRadioGroup = RadioGroup(activity).apply {
+            orientation = RadioGroup.VERTICAL
+            setPadding(0, 0, 0, (8 * density).toInt())
+        }
+
+        for ((key, label) in hymeniumOptions) {
+            val rb = RadioButton(activity).apply {
+                text = label
+                setTextColor(Color.WHITE)
+                textSize = 13.5f
+                buttonTintList = emerald
+                id = View.generateViewId()
+                isChecked = (key == tempHymenium)
+                setPadding((6 * density).toInt(), (4 * density).toInt(), (6 * density).toInt(), (4 * density).toInt())
+                setOnClickListener {
+                    tempHymenium = key
+                }
+            }
+            hymeniumRadioGroup.addView(rb)
+        }
+        container.addView(hymeniumRadioGroup)
+
+        AlertDialog.Builder(activity)
+            .setTitle(if (currentLang == "uk") "Фільтри енциклопедії" else "Encyclopedia Filters")
+            .setView(scroll)
+            .setNeutralButton(if (currentLang == "uk") "Скинути всі" else "Reset") { _, _ ->
+                currentEdibilityFilter = "all"
+                currentHymeniumFilter = "all"
+                AppPrefs.setMushroomEdibilityFilter(activity, "all")
+                AppPrefs.setMushroomHymeniumFilter(activity, "all")
+                AppPrefs.setMushroomFilter(activity, "all")
+                updateFilterButtonText()
+                if (isOfflineMode) resetAndReload() else applyFilter()
+            }
+            .setNegativeButton(if (currentLang == "uk") "Скасувати" else "Cancel", null)
+            .setPositiveButton(if (currentLang == "uk") "Застосувати" else "Apply") { _, _ ->
+                if (tempEdibility != currentEdibilityFilter || tempHymenium != currentHymeniumFilter) {
+                    currentEdibilityFilter = tempEdibility
+                    currentHymeniumFilter = tempHymenium
+                    AppPrefs.setMushroomEdibilityFilter(activity, currentEdibilityFilter)
+                    AppPrefs.setMushroomHymeniumFilter(activity, currentHymeniumFilter)
+                    AppPrefs.setMushroomFilter(activity, currentEdibilityFilter)
+                    updateFilterButtonText()
+                    if (isOfflineMode) resetAndReload() else applyFilter()
+                }
+            }
+            .show()
     }
 
     private fun updateModeToggleText() {
@@ -500,7 +618,7 @@ class MushroomEncyclopediaTab(
         searchEditText.hint = if (currentLang == "uk") "Пошук (білий, печериця, boletus, amanita)..." else "Search (porcini, amanita, boletus)..."
         updateModeToggleText()
         updateDbStatusBadge()
-        setupFilterSpinner()
+        updateFilterButtonText()
         setupViewModeSpinner()
         resetAndReload()
     }
@@ -509,8 +627,12 @@ class MushroomEncyclopediaTab(
         val clean = query.trim()
         searchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
         currentQuery = clean
-        currentFilter = "all"
-        filterSpinner.setSelection(0, false)
+        currentEdibilityFilter = "all"
+        currentHymeniumFilter = "all"
+        AppPrefs.setMushroomEdibilityFilter(activity, "all")
+        AppPrefs.setMushroomHymeniumFilter(activity, "all")
+        AppPrefs.setMushroomFilter(activity, "all")
+        updateFilterButtonText()
         searchEditText.setText(clean)
         searchEditText.setSelection(clean.length)
         resetAndReload()
@@ -573,7 +695,8 @@ class MushroomEncyclopediaTab(
                 val (taxa, moreAvailable) = MushroomDatabaseManager.queryTaxa(
                     context = activity,
                     query = currentQuery,
-                    filterKey = currentFilter,
+                    edibilityFilter = currentEdibilityFilter,
+                    hymeniumFilter = currentHymeniumFilter,
                     lang = currentLang,
                     page = currentPage,
                     perPage = 24
@@ -592,28 +715,35 @@ class MushroomEncyclopediaTab(
         }
     }
 
-    private fun matchesFilter(taxon: MushroomTaxon, filterKey: String): Boolean {
+    private fun matchesFilter(taxon: MushroomTaxon): Boolean {
         val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
         val edibility = if (meta.edibility != "unknown") meta.edibility else taxon.edibility
         val hymenium = if (meta.hymenium != "other") meta.hymenium else taxon.hymenium
 
-        return when (filterKey) {
+        val matchesEdibility = when (currentEdibilityFilter) {
             "all" -> true
             "edible" -> edibility == "edible"
             "cond-edible" -> edibility == "cond-edible"
             "toxic" -> edibility == "toxic"
             "deadly" -> edibility == "deadly"
             "toxic_deadly" -> edibility == "toxic" || edibility == "deadly"
+            else -> true
+        }
+
+        val matchesHymenium = when (currentHymeniumFilter) {
+            "all" -> true
             "tubes" -> hymenium == "tubes"
             "gills" -> hymenium == "gills"
             else -> true
         }
+
+        return matchesEdibility && matchesHymenium
     }
 
     private fun applyFilter() {
         itemsContainer.removeAllViews()
 
-        val matching = allLoadedTaxa.filter { matchesFilter(it, currentFilter) }
+        val matching = allLoadedTaxa.filter { matchesFilter(it) }
 
         if (matching.isEmpty()) {
             if (isLoading) {
