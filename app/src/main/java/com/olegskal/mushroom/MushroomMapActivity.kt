@@ -913,9 +913,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — Фільтри їстівності: 🟢 Їстівні, 🟡 Умовно-їстівні, 🟠 Отруйні, 🔴 Смертельно отруйні.\n" +
                 "  — Картка виду: фотографії, морфологічні ознаки, період збору та застереження про смертельні двійники.\n" +
                 "  — Кнопки «🌐 iNaturalist» та «📖 Вікіпедія»: перехід до детальних наукових онлайн-джерел.\n" +
-                "• Режим роботи: ГІБРИДНИЙ.\n" +
-                "  — Текстова база знань, фільтри, класифікація їстівності та двійники — 100% ОФЛАЙН (вбудовано в apk).\n" +
-                "  — Фотографії видів завантажуються з мережі при перегляді та кешуються у пам'ять для подальшого офлайн-перегляду."
+                "• Режим роботи: ПОТРЕБУЄ ОНЛАЙН (каталог, динамічний пошук видів та фотографії завантажуються через інтернет із серверів iNaturalist; раніше переглянуті фотографії кешуються на диск)."
             )
             addSection(
                 "🔋", "Фоновий режим та оптимізація батареї",
@@ -933,11 +931,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  ✓ Фоновий запис та перегляд GPS-треків.\n" +
                 "  ✓ Інтерактивна лінійка вимірювання відстаней та збереження у трек.\n" +
                 "  ✓ AI розпізнавання грибів нейромережею (з локальною моделлю).\n" +
-                "  ✓ Енциклопедія: тексти, статуси їстівності, попередження про двійники.\n" +
                 "• Потребує ОНЛАЙН (інтернет):\n" +
+                "  ✓ Енциклопедія грибів (каталог видів, динамічний пошук та фотографії iNaturalist).\n" +
                 "  ✓ Одноразове завантаження пакетів карт обраних областей.\n" +
                 "  ✓ Одноразове завантаження файлу моделі нейромережі (~280 МБ).\n" +
-                "  ✓ Первинне завантаження ілюстрацій для нових видів в Енциклопедії.\n" +
                 "  ✓ Автоматична перевірка та оновлення версії додатку через GitHub."
             )
         } else {
@@ -1034,9 +1031,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — Edibility Filters: 🟢 Edible, 🟡 Conditionally Edible, 🟠 Inedible/Poisonous, 🔴 Deadly.\n" +
                 "  — Species Card: photo gallery, key identification traits, fruiting season, and deadly lookalike alerts.\n" +
                 "  — '🌐 iNaturalist' and '📖 Wikipedia' buttons: direct access to scientific reference sources.\n" +
-                "• Operating Mode: HYBRID.\n" +
-                "  — Knowledge base, search, filters, traits, and lookalikes — 100% OFFLINE (bundled in apk).\n" +
-                "  — Photos are fetched on demand and cached locally on disk for subsequent offline viewing."
+                "• Operating Mode: REQUIRES ONLINE (species catalog, dynamic search, and photos are fetched online from iNaturalist; previously viewed photos are cached locally)."
             )
             addSection(
                 "🔋", "Background Execution & Battery Optimization",
@@ -1054,11 +1049,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  ✓ Background track recording and route inspection.\n" +
                 "  ✓ Interactive distance measuring ruler and track conversion.\n" +
                 "  ✓ AI neural network mushroom identification (with local model).\n" +
-                "  ✓ Full encyclopedia text descriptions, edibility labels, and lookalike safety alerts.\n" +
                 "• REQUIRES ONLINE (internet connection):\n" +
+                "  ✓ Mushroom Encyclopedia (species catalog, search, and iNaturalist photos).\n" +
                 "  ✓ One-time download of regional map packages.\n" +
                 "  ✓ One-time download of AI classifier model (~280 MB).\n" +
-                "  ✓ Initial fetch of high-res species photos in Encyclopedia.\n" +
                 "  ✓ Checking and updating app releases from GitHub."
             )
         }
