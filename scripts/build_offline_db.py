@@ -605,10 +605,17 @@ def process_species(
 
 
 def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(script_dir) if os.path.basename(script_dir) == "scripts" else script_dir
+
+    default_classes = "classes.json" if os.path.exists("classes.json") else os.path.join(repo_root, "classes.json")
+    default_labels = "app/src/main/assets/labels.txt" if os.path.exists("app/src/main/assets/labels.txt") else os.path.join(repo_root, "app", "src", "main", "assets", "labels.txt")
+    default_db = "mushrooms_offline.db" if os.path.exists("classes.json") else os.path.join(repo_root, "mushrooms_offline.db")
+
     parser = argparse.ArgumentParser(description="Mushroom Offline Database Builder")
-    parser.add_argument("--classes", default="classes.json", help="Path to classes.json")
-    parser.add_argument("--labels", default="app/src/main/assets/labels.txt", help="Path to labels.txt")
-    parser.add_argument("--db", default="mushrooms_offline.db", help="Path to output SQLite database")
+    parser.add_argument("--classes", default=default_classes, help="Path to classes.json")
+    parser.add_argument("--labels", default=default_labels, help="Path to labels.txt")
+    parser.add_argument("--db", default=default_db, help="Path to output SQLite database")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of species to process (for testing)")
     parser.add_argument("--delay", type=float, default=1.0, help="Delay between API calls in seconds (default: 1.0)")
     parser.add_argument("--compress", action="store_true", help="Gzip compress the final database")
