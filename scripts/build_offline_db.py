@@ -194,34 +194,75 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous = NORMAL;")
     conn.execute("PRAGMA foreign_keys = ON;")
 
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS taxa (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inat_id INTEGER UNIQUE,
-            scientific_name TEXT UNIQUE NOT NULL,
-            name_uk TEXT,
-            name_en TEXT,
-            family TEXT,
-            order_name TEXT,
-            genus TEXT,
-            edibility TEXT,
-            hymenium TEXT,
-            desc_uk TEXT,
-            desc_en TEXT,
-            lookalikes_uk TEXT,
-            lookalikes_en TEXT,
-            props_cap TEXT,
-            props_hymenium TEXT,
-            props_stem TEXT,
-            props_flesh TEXT,
-            props_season TEXT,
-            props_habitat TEXT,
-            wiki_url_uk TEXT,
-            wiki_url_en TEXT,
-            photos_count INTEGER DEFAULT 0,
-            updated_at INTEGER
-        );
-    """)
+    # Check if taxa table already exists with UNIQUE constraint on inat_id
+    cur = conn.cursor()
+    cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='taxa'")
+    row = cur.fetchone()
+    if row and "inat_id INTEGER UNIQUE" in row[0]:
+        print("Migrating database: removing UNIQUE constraint from inat_id...")
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        conn.execute("ALTER TABLE taxa RENAME TO taxa_old;")
+        conn.execute("""
+            CREATE TABLE taxa (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inat_id INTEGER,
+                scientific_name TEXT UNIQUE NOT NULL,
+                name_uk TEXT,
+                name_en TEXT,
+                family TEXT,
+                order_name TEXT,
+                genus TEXT,
+                edibility TEXT,
+                hymenium TEXT,
+                desc_uk TEXT,
+                desc_en TEXT,
+                lookalikes_uk TEXT,
+                lookalikes_en TEXT,
+                props_cap TEXT,
+                props_hymenium TEXT,
+                props_stem TEXT,
+                props_flesh TEXT,
+                props_season TEXT,
+                props_habitat TEXT,
+                wiki_url_uk TEXT,
+                wiki_url_en TEXT,
+                photos_count INTEGER DEFAULT 0,
+                updated_at INTEGER
+            );
+        """)
+        conn.execute("INSERT OR IGNORE INTO taxa SELECT * FROM taxa_old;")
+        conn.execute("DROP TABLE taxa_old;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.commit()
+    else:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS taxa (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inat_id INTEGER,
+                scientific_name TEXT UNIQUE NOT NULL,
+                name_uk TEXT,
+                name_en TEXT,
+                family TEXT,
+                order_name TEXT,
+                genus TEXT,
+                edibility TEXT,
+                hymenium TEXT,
+                desc_uk TEXT,
+                desc_en TEXT,
+                lookalikes_uk TEXT,
+                lookalikes_en TEXT,
+                props_cap TEXT,
+                props_hymenium TEXT,
+                props_stem TEXT,
+                props_flesh TEXT,
+                props_season TEXT,
+                props_habitat TEXT,
+                wiki_url_uk TEXT,
+                wiki_url_en TEXT,
+                photos_count INTEGER DEFAULT 0,
+                updated_at INTEGER
+            );
+        """)
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS photos (
@@ -239,6 +280,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
     """)
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_taxa_sci_name ON taxa(scientific_name);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_taxa_inat_id ON taxa(inat_id);")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_taxa_name_uk ON taxa(name_uk);")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_taxa_name_en ON taxa(name_en);")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_taxa_edibility ON taxa(edibility);")
