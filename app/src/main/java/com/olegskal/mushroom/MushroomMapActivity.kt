@@ -60,6 +60,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private lateinit var tvRecordingBadge: TextView
     private lateinit var btnCenter: CenterLocationButton
     private lateinit var compassButton: CompassButton
+    private lateinit var btnRuler: RulerButton
     private lateinit var btnAddMarker: FlagMarkerButton
     private lateinit var btnRecordTrack: TrackRecordButton
     private lateinit var btnMenu: Button
@@ -172,6 +173,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
+        btnRuler = RulerButton(this).apply {
+            layoutParams = ctrlParams
+            contentDescription = "Ruler"
+            setOnClickListener {
+                toggleRulerMode()
+            }
+        }
+
         btnAddMarker = FlagMarkerButton(this).apply {
             layoutParams = ctrlParams
             contentDescription = "Create Marker"
@@ -227,6 +236,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         topHeaderRow.addView(View(this).apply {
             layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
         })
+        topHeaderRow.addView(btnRuler)
         topHeaderRow.addView(btnAddMarker)
         topHeaderRow.addView(btnRecordTrack)
         topHeaderRow.addView(btnCenter)
@@ -434,6 +444,68 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 startTrackRecording(title, color)
             }
         }
+    }
+
+    fun toggleRulerMode() {
+        if (!mapView.isRulerMode) {
+            mapView.isRulerMode = true
+            btnRuler.setRulerActive(true)
+            val msg = if (AppPrefs.isUk(this)) "Режим лінійки увімкнено" else "Ruler mode enabled"
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        } else {
+            if (mapView.rulerPoints.isEmpty()) {
+                mapView.isRulerMode = false
+                btnRuler.setRulerActive(false)
+            } else {
+                showRulerActionDialog()
+            }
+        }
+    }
+
+    private fun showRulerActionDialog() {
+        val lang = AppPrefs.getAppLang(this)
+        val title = if (lang == "uk") "Лінійка вимірювань" else "Measurement Ruler"
+        val totalKm = mapView.calculateRulerTotalDistanceMeters() / 1000f
+        val msg = if (lang == "uk") {
+            String.format(Locale.US, "Точок: %d | Дистанція: %.2f км\nОберіть дію:", mapView.rulerPoints.size, totalKm)
+        } else {
+            String.format(Locale.US, "Points: %d | Distance: %.2f km\nChoose action:", mapView.rulerPoints.size, totalKm)
+        }
+        val btnSave = if (lang == "uk") "Зберегти трек" else "Save Track"
+        val btnDelete = if (lang == "uk") "Видалити" else "Delete"
+        val btnCancel = if (lang == "uk") "Скасувати" else "Cancel"
+
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(msg)
+            .setPositiveButton(btnSave) { _, _ ->
+                val trackPts = mapView.rulerPoints.map { pt ->
+                    com.olegskal.mushroom.model.TrackPoint(pt.lat, pt.lon)
+                }
+                val distMeters = mapView.calculateRulerTotalDistanceMeters()
+                ItemEditDialog.showSaveTrackFromRuler(
+                    activity = this,
+                    dbHelper = dbHelper,
+                    points = trackPts,
+                    distanceMeters = distMeters
+                ) {
+                    mapView.rulerPoints.clear()
+                    mapView.isRulerMode = false
+                    btnRuler.setRulerActive(false)
+                    mapView.reloadTracks()
+                    mapView.invalidate()
+                }
+            }
+            .setNeutralButton(btnDelete) { _, _ ->
+                mapView.rulerPoints.clear()
+                mapView.isRulerMode = false
+                btnRuler.setRulerActive(false)
+                mapView.invalidate()
+                val tMsg = if (lang == "uk") "Лінійку очищено" else "Ruler cleared"
+                Toast.makeText(this, tMsg, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(btnCancel, null)
+            .show()
     }
 
     private fun updateRecordingUi(isRec: Boolean, distMeters: Float, durationSec: Long) {
@@ -756,6 +828,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — Обертання: поворот двома пальцями для довільного орієнтування карти.\n" +
                 "  — Додавання мітки: тривалий тап (довге натискання) або швидкий подвійний тап у потрібній точці.\n" +
                 "• Кнопки екрана карти:\n" +
+                "  — «Лінійка» (зліва від мітки): вмикає режим вимірювання дистанції. Одинарний тап додає точку з бейджем (відстань від попередньої / від першої точки). Тап по точці видаляє її, тап з протяжкою — переміщує точку, тап на лінію — вставляє проміжну точку. Повторний тап по значку лінійки відкриває збереження у трек або видалення.\n" +
                 "  — «Центрувати на мені» (приціл праворуч): миттєво центрує екран на поточному GPS та вмикає автослідування.\n" +
                 "  — «Компас» (стрілка праворуч): показує азимут півночі за сенсорами; одиночний тап вирівнює карту на північ.\n" +
                 "  — «Меню» (зверху ліворуч): відкриває головне меню грибника.\n" +
@@ -839,6 +912,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  ✓ Визначення точних координат за супутниками GPS.\n" +
                 "  ✓ Створення, редагування, пошук і експорт грибних міток.\n" +
                 "  ✓ Фоновий запис та перегляд GPS-треків.\n" +
+                "  ✓ Інтерактивна лінійка вимірювання відстаней та збереження у трек.\n" +
                 "  ✓ AI розпізнавання грибів нейромережею (з локальною моделлю).\n" +
                 "  ✓ Енциклопедія: тексти, статуси їстівності, попередження про двійники.\n" +
                 "• Потребує ОНЛАЙН (інтернет):\n" +
@@ -856,6 +930,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — Rotation: rotate with two fingers to orient the map at any angle.\n" +
                 "  — Add marker: long press or quick double tap anywhere on the map.\n" +
                 "• Map Screen Buttons:\n" +
+                "  — Ruler (left of marker): activates distance measurement mode. Single tap places a point with a distance badge (from previous / from start). Tapping an existing point deletes it, dragging a point moves it, tapping a line inserts an intermediate point. Tapping the ruler button again prompts saving as track or clearing.\n" +
                 "  — Center on Me (crosshair on right): instantly snaps camera to GPS location and enables follow mode.\n" +
                 "  — Compass (arrow on right): shows magnetic/sensor heading; tap once to align map to North.\n" +
                 "  — Menu (top left): opens the main Mushroom menu.\n" +
@@ -896,40 +971,40 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "• Controls & Downloads:\n" +
                 "  — '🗺️ Maps' menu item: browse available countries and regions of Ukraine.\n" +
                 "  — 'Download Selected Regions' button: batch download map packages for full offline autonomy.\n" +
-                "  — Download buttons: 'Hide to background' and 'Stop'.\n" +
-                "• What is Downloaded: offline OpenStreetMap tile packs saved directly to device storage.\n" +
-                "• Operating Mode: REQUIRES ONLINE solely during initial download (Wi-Fi recommended before trip)."
+                "  — In-progress buttons: 'Hide to Background' (download continues in background) and 'Stop'.\n" +
+                "• What is Downloaded: packaged OpenStreetMap map tiles for chosen regions stored locally on the device.\n" +
+                "• Operating Mode: REQUIRES ONLINE only during the initial download (Wi-Fi recommended before hiking)."
             )
             addSection(
-                "🔬", "AI Mushroom Classifier (Neural Network)",
-                "• Workflow & Controls:\n" +
-                "  — '📷 Camera' button: snap a live photo of the mushroom.\n" +
+                "🔬", "AI Mushroom Identifier (Neural Network)",
+                "• Controls & Identification Flow:\n" +
+                "  — '📷 Camera' button: capture mushroom photo directly.\n" +
                 "  — '🖼️ Gallery' button: choose photos from device storage.\n" +
-                "  — Multi-photo ensemble: combine up to 3 photos (cap, stem, slice) for maximum classification accuracy.\n" +
-                "  — '🗑️' button in thumbnails: clear selected photos.\n" +
-                "  — '🔍 Identify Mushroom' button: execute on-device MobileNet inference.\n" +
-                "  — Tap result card: view detailed encyclopedia article for this species.\n" +
-                "  — '✕' on red banner: dismiss safety inaccuracy warning until next app restart.\n" +
-                "• What is Downloaded: neural network model model.onnx (~280 MB). Downloaded once via 'Download' button.\n" +
-                "• Operating Mode: 100% OFFLINE. Once model file is present, recognition works completely offline with zero internet."
+                "  — Supports up to 3 photos (cap, stem, cross-section) for multi-angle ensemble inference.\n" +
+                "  — '🗑️' button (in thumbnail tray): clear all loaded photos.\n" +
+                "  — '🔍 Identify Mushroom' button: execute on-device neural network classifier.\n" +
+                "  — Tap on result card: opens species details in the Encyclopedia.\n" +
+                "  — '✕' button on red warning banner: dismisses safety warning until next app restart.\n" +
+                "• What is Downloaded: model.onnx neural network weights (~280 MB), downloaded once via 'Download' button.\n" +
+                "• Operating Mode: 100% OFFLINE. Once model file is downloaded, zero internet connection is required."
             )
             addSection(
-                "📖", "Encyclopedia & Safety Guide",
-                "• Search & Filters:\n" +
-                "  — Search bar: instant lookup by Ukrainian or Latin scientific name.\n" +
-                "  — Hymenophore filters: filter by tubes or gills.\n" +
-                "  — Edibility filters: 🟢 Edible, 🟡 Cond. Edible, 🟠 Toxic, 🔴 Deadly Toxic.\n" +
-                "  — Species Card: morphological characteristics, cap, stem, flesh, season, and fatal lookalikes.\n" +
-                "  — '🌐 iNaturalist' and '📖 Wikipedia' buttons: external scientific references.\n" +
+                "📖", "Encyclopedia & Foraging Safety",
+                "• Navigation & Search:\n" +
+                "  — Search Bar: search by Ukrainian or Latin scientific names.\n" +
+                "  — Hymenophore Filters: separate mushrooms into pored/tubed or gilled.\n" +
+                "  — Edibility Filters: 🟢 Edible, 🟡 Conditionally Edible, 🟠 Inedible/Poisonous, 🔴 Deadly.\n" +
+                "  — Species Card: photo gallery, key identification traits, fruiting season, and deadly lookalike alerts.\n" +
+                "  — '🌐 iNaturalist' and '📖 Wikipedia' buttons: direct access to scientific reference sources.\n" +
                 "• Operating Mode: HYBRID.\n" +
-                "  — Knowledge base, morphology, edibility statuses, and warnings: 100% OFFLINE (embedded in apk).\n" +
-                "  — Species photos load online on first view and cache to disk for subsequent offline viewing."
+                "  — Knowledge base, search, filters, traits, and lookalikes — 100% OFFLINE (bundled in apk).\n" +
+                "  — Photos are fetched on demand and cached locally on disk for subsequent offline viewing."
             )
             addSection(
-                "🔋", "Background Run & Battery Optimization",
-                "• Controls:\n" +
-                "  — '🔋 Background Run (Unrestricted)' menu item opens system battery settings.\n" +
-                "  — Disabling battery optimization ensures Android does not sleep the GPS receiver during screen-off recording.\n" +
+                "🔋", "Background Execution & Battery Optimization",
+                "• Setup:\n" +
+                "  — Menu item '🔋 Background Service (Unrestricted)' opens Android Doze Mode battery settings.\n" +
+                "  — Exempting the app from battery restrictions ensures continuous GPS tracking while screen is off.\n" +
                 "• Operating Mode: 100% OFFLINE."
             )
             addSection(
@@ -939,6 +1014,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  ✓ Real-time GPS location positioning.\n" +
                 "  ✓ Creating, editing, searching, and exporting markers.\n" +
                 "  ✓ Background track recording and route inspection.\n" +
+                "  ✓ Interactive distance measuring ruler and track conversion.\n" +
                 "  ✓ AI neural network mushroom identification (with local model).\n" +
                 "  ✓ Full encyclopedia text descriptions, edibility labels, and lookalike safety alerts.\n" +
                 "• REQUIRES ONLINE (internet connection):\n" +
@@ -1063,6 +1139,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        if (::mapView.isInitialized && mapView.isRulerMode) {
+            if (mapView.rulerPoints.isNotEmpty()) {
+                showRulerActionDialog()
+            } else {
+                toggleRulerMode()
+            }
+            return
+        }
         moveTaskToBack(true)
     }
 
@@ -1212,6 +1296,110 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             style = Paint.Style.STROKE
             strokeWidth = 2f
             pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+        }
+
+        // Ruler mode
+        inner class RulerPoint(var lat: Double, var lon: Double)
+        val rulerPoints = mutableListOf<RulerPoint>()
+        var isRulerMode: Boolean = false
+            set(value) {
+                field = value
+                if (!value) {
+                    draggedRulerPointIndex = -1
+                    isRulerPointDragging = false
+                }
+                invalidate()
+            }
+        private var draggedRulerPointIndex = -1
+        private var isRulerPointDragging = false
+        private var rulerDownX = 0f
+        private var rulerDownY = 0f
+
+        private val rulerShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#99000000")
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val rulerLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#00E5FF")
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val rulerNodeRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#00E5FF")
+            style = Paint.Style.FILL
+        }
+        private val rulerNodeCenterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        private val rulerBadgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#EE1A1A1A")
+            style = Paint.Style.FILL
+        }
+        private val rulerBadgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#6600E5FF")
+            style = Paint.Style.STROKE
+        }
+        private val rulerBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        private val rulerBadgeRect = RectF()
+
+        fun calculateRulerTotalDistanceMeters(): Float {
+            var total = 0f
+            for (i in 1 until rulerPoints.size) {
+                total += GeoMath.calculateDistance(
+                    rulerPoints[i - 1].lat, rulerPoints[i - 1].lon,
+                    rulerPoints[i].lat, rulerPoints[i].lon
+                )
+            }
+            return total
+        }
+
+        fun findRulerPointAt(screenX: Float, screenY: Float, maxDistPx: Float): Int {
+            var closest = -1
+            var minDist = maxDistPx
+            for (i in rulerPoints.indices) {
+                val (sx, sy) = latLonToScreen(rulerPoints[i].lat, rulerPoints[i].lon)
+                val d = hypot((screenX - sx).toDouble(), (screenY - sy).toDouble()).toFloat()
+                if (d < minDist) {
+                    minDist = d
+                    closest = i
+                }
+            }
+            return closest
+        }
+
+        fun findRulerSegmentAt(screenX: Float, screenY: Float, maxDistPx: Float): Int {
+            if (rulerPoints.size < 2) return -1
+            var closestSeg = -1
+            var minDist = maxDistPx
+
+            for (i in 0 until rulerPoints.size - 1) {
+                val (x1, y1) = latLonToScreen(rulerPoints[i].lat, rulerPoints[i].lon)
+                val (x2, y2) = latLonToScreen(rulerPoints[i + 1].lat, rulerPoints[i + 1].lon)
+
+                val l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)
+                val d = if (l2 == 0f) {
+                    hypot((screenX - x1).toDouble(), (screenY - y1).toDouble()).toFloat()
+                } else {
+                    val t = (((screenX - x1) * (x2 - x1) + (screenY - y1) * (y2 - y1)) / l2).coerceIn(0f, 1f)
+                    val projX = x1 + t * (x2 - x1)
+                    val projY = y1 + t * (y2 - y1)
+                    hypot((screenX - projX).toDouble(), (screenY - projY).toDouble()).toFloat()
+                }
+
+                if (d < minDist) {
+                    minDist = d
+                    closestSeg = i
+                }
+            }
+            return closestSeg
         }
 
         var mapBearing: Float = 0f
@@ -1378,6 +1566,168 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         override fun onTouchEvent(event: MotionEvent): Boolean {
             val count = event.pointerCount
             val density = resources.displayMetrics.density
+
+            if (isRulerMode) {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        removeCallbacks(longPressRunnable)
+                        isLongPressTriggered = false
+                        isDoubleTapDrag = false
+                        isDoubleTapCandidate = false
+                        hasDoubleTapMoved = false
+                        rulerDownX = event.x
+                        rulerDownY = event.y
+                        draggedRulerPointIndex = findRulerPointAt(event.x, event.y, 28f * density)
+                        isRulerPointDragging = false
+                        lastTouchX = event.x
+                        lastTouchY = event.y
+                        isDragging = false
+                        isMultiTouch = false
+                        downTime = SystemClock.uptimeMillis()
+                        downX = event.x
+                        downY = event.y
+                    }
+                    MotionEvent.ACTION_POINTER_DOWN -> {
+                        if (count >= 2) {
+                            isMultiTouch = true
+                            isDragging = false
+                            draggedRulerPointIndex = -1
+                            isRulerPointDragging = false
+                            val x0 = event.getX(0)
+                            val y0 = event.getY(0)
+                            val x1 = event.getX(1)
+                            val y1 = event.getY(1)
+                            prevFocusX = (x0 + x1) / 2f
+                            prevFocusY = (y0 + y1) / 2f
+                            prevDist = hypot((x1 - x0).toDouble(), (y1 - y0).toDouble()).toFloat().coerceAtLeast(20f)
+                            prevAngle = Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
+                        }
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val moveDist = hypot((event.x - rulerDownX).toDouble(), (event.y - rulerDownY).toDouble()).toFloat()
+                        if (draggedRulerPointIndex != -1) {
+                            if (!isRulerPointDragging && moveDist > touchSlop) {
+                                isRulerPointDragging = true
+                            }
+                            if (isRulerPointDragging) {
+                                val coords = screenToLatLon(event.x, event.y)
+                                rulerPoints[draggedRulerPointIndex].lat = coords.first
+                                rulerPoints[draggedRulerPointIndex].lon = coords.second
+                                invalidate()
+                            }
+                        } else if (count >= 2 && isMultiTouch) {
+                            val x0 = event.getX(0)
+                            val y0 = event.getY(0)
+                            val x1 = event.getX(1)
+                            val y1 = event.getY(1)
+                            val focusX = (x0 + x1) / 2f
+                            val focusY = (y0 + y1) / 2f
+                            val dist = hypot((x1 - x0).toDouble(), (y1 - y0).toDouble()).toFloat().coerceAtLeast(20f)
+                            val angle = Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
+
+                            isFollowLocation = false
+                            AppPrefs.setFollowUser(context, false)
+
+                            // 1. Two-finger Pan
+                            val dFocusX = focusX - prevFocusX
+                            val dFocusY = focusY - prevFocusY
+                            if (abs(dFocusX) > 1f || abs(dFocusY) > 1f) {
+                                panMap(dFocusX, dFocusY)
+                                prevFocusX = focusX
+                                prevFocusY = focusY
+                            }
+
+                            // 2. Rotation
+                            var deltaAngle = angle - prevAngle
+                            while (deltaAngle < -180f) deltaAngle += 360f
+                            while (deltaAngle > 180f) deltaAngle -= 360f
+
+                            if (abs(deltaAngle) > 0.3f) {
+                                mapBearing = (mapBearing - deltaAngle) % 360f
+                                if (mapBearing < 0f) mapBearing += 360f
+                                prevAngle = angle
+                                compassButton.setBearing(-mapBearing)
+                            }
+
+                            // 3. Smooth Continuous Pinch Zoom
+                            if (prevDist > 20f && dist > 20f) {
+                                val factor = dist / prevDist
+                                val zoomDelta = (ln(factor.toDouble()) / ln(2.0)).toFloat()
+                                zoomLevel = (zoomLevel + zoomDelta).coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM)
+                                prevDist = dist
+                            }
+                            invalidate()
+                        } else if (count == 1 && !isMultiTouch) {
+                            if (!isDragging && moveDist > touchSlop * 1.2f) {
+                                isDragging = true
+                                lastTouchX = event.x
+                                lastTouchY = event.y
+                            }
+                            if (isDragging) {
+                                val dx = event.x - lastTouchX
+                                val dy = event.y - lastTouchY
+                                if (abs(dx) > 0.5f || abs(dy) > 0.5f) {
+                                    isFollowLocation = false
+                                    AppPrefs.setFollowUser(context, false)
+                                    panMap(dx, dy)
+                                    lastTouchX = event.x
+                                    lastTouchY = event.y
+                                }
+                            }
+                        }
+                    }
+                    MotionEvent.ACTION_POINTER_UP -> {
+                        if (count <= 2) {
+                            isMultiTouch = false
+                            val remIdx = if (event.actionIndex == 0) 1 else 0
+                            if (remIdx < count) {
+                                lastTouchX = event.getX(remIdx)
+                                lastTouchY = event.getY(remIdx)
+                            }
+                            saveMapState()
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        val upDist = hypot((event.x - rulerDownX).toDouble(), (event.y - rulerDownY).toDouble()).toFloat()
+                        if (draggedRulerPointIndex != -1) {
+                            if (isRulerPointDragging) {
+                                val coords = screenToLatLon(event.x, event.y)
+                                rulerPoints[draggedRulerPointIndex].lat = coords.first
+                                rulerPoints[draggedRulerPointIndex].lon = coords.second
+                                performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            } else {
+                                rulerPoints.removeAt(draggedRulerPointIndex)
+                                performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            }
+                            draggedRulerPointIndex = -1
+                            isRulerPointDragging = false
+                            invalidate()
+                        } else {
+                            if (!isDragging && upDist <= touchSlop * 1.5f) {
+                                val segIdx = findRulerSegmentAt(event.x, event.y, 22f * density)
+                                val coords = screenToLatLon(event.x, event.y)
+                                if (segIdx != -1) {
+                                    rulerPoints.add(segIdx + 1, RulerPoint(coords.first, coords.second))
+                                } else {
+                                    rulerPoints.add(RulerPoint(coords.first, coords.second))
+                                }
+                                performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                invalidate()
+                            }
+                            isDragging = false
+                        }
+                        saveMapState()
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        draggedRulerPointIndex = -1
+                        isRulerPointDragging = false
+                        isDragging = false
+                        isMultiTouch = false
+                        saveMapState()
+                    }
+                }
+                return true
+            }
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -1812,6 +2162,95 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 canvas.drawLine(anchorX, anchorY, lastTouchX, lastTouchY, anchorLinePaint)
                 canvas.drawCircle(anchorX, anchorY, 18f, anchorPaint)
                 canvas.drawCircle(anchorX, anchorY, 5f, anchorCenterPaint)
+            }
+
+            // 6. Draw Ruler
+            if (isRulerMode || rulerPoints.isNotEmpty()) {
+                drawRuler(canvas)
+            }
+        }
+
+        private fun drawRuler(canvas: Canvas) {
+            if (rulerPoints.isEmpty()) return
+            val density = resources.displayMetrics.density
+
+            // 1. Draw connecting lines between consecutive points
+            if (rulerPoints.size >= 2) {
+                for (i in 0 until rulerPoints.size - 1) {
+                    val (x1, y1) = latLonToScreen(rulerPoints[i].lat, rulerPoints[i].lon)
+                    val (x2, y2) = latLonToScreen(rulerPoints[i + 1].lat, rulerPoints[i + 1].lon)
+
+                    rulerShadowPaint.strokeWidth = 6f * density
+                    canvas.drawLine(x1, y1, x2, y2, rulerShadowPaint)
+
+                    rulerLinePaint.strokeWidth = 3f * density
+                    canvas.drawLine(x1, y1, x2, y2, rulerLinePaint)
+                }
+            }
+
+            // 2. Draw nodes and distance badges
+            val isUk = AppPrefs.isUk(context)
+            val unit = if (isUk) "км" else "km"
+            var cumulativeDistMeters = 0f
+
+            for (i in rulerPoints.indices) {
+                val pt = rulerPoints[i]
+                val (x, y) = latLonToScreen(pt.lat, pt.lon)
+
+                val segDistMeters = if (i > 0) {
+                    GeoMath.calculateDistance(
+                        rulerPoints[i - 1].lat, rulerPoints[i - 1].lon,
+                        pt.lat, pt.lon
+                    )
+                } else 0f
+                cumulativeDistMeters += segDistMeters
+
+                // Node circle
+                val isDragged = (i == draggedRulerPointIndex && isRulerPointDragging)
+                val outerR = if (isDragged) 10f * density else 7f * density
+                val innerR = if (isDragged) 5f * density else 3.5f * density
+
+                // Node shadow
+                canvas.drawCircle(x, y, outerR + 1.5f * density, rulerShadowPaint)
+                // Node outer ring
+                canvas.drawCircle(x, y, outerR, rulerNodeRingPaint)
+                // Node center
+                canvas.drawCircle(x, y, innerR, rulerNodeCenterPaint)
+
+                // Distance text badge
+                // Requirement: "відстань від попередньої точки / відстань від першої точки. Або 0 якщо точка перша."
+                val badgeText = if (i == 0) {
+                    "0 $unit"
+                } else {
+                    val segKm = segDistMeters / 1000f
+                    val totalKm = cumulativeDistMeters / 1000f
+                    String.format(Locale.US, "%.2f / %.2f %s", segKm, totalKm, unit)
+                }
+
+                rulerBadgeTextPaint.textSize = 11.5f * density
+                val textW = rulerBadgeTextPaint.measureText(badgeText)
+                val fontMetrics = rulerBadgeTextPaint.fontMetrics
+                val textH = fontMetrics.descent - fontMetrics.ascent
+                val padH = 6f * density
+                val padV = 3.5f * density
+                val badgeW = textW + padH * 2
+                val badgeH = textH + padV * 2
+
+                // Position badge above node by default, or below if too close to top
+                val badgeY = if (y - outerR - badgeH - 6f * density < 75f * density) {
+                    y + outerR + 6f * density
+                } else {
+                    y - outerR - badgeH - 6f * density
+                }
+                val badgeX = (x - badgeW / 2f).coerceIn(8f * density, width - badgeW - 8f * density)
+
+                rulerBadgeRect.set(badgeX, badgeY, badgeX + badgeW, badgeY + badgeH)
+                val cornerR = 5f * density
+                canvas.drawRoundRect(rulerBadgeRect, cornerR, cornerR, rulerBadgeBgPaint)
+                canvas.drawRoundRect(rulerBadgeRect, cornerR, cornerR, rulerBadgeBorderPaint)
+
+                val textBaseY = badgeY + padV - fontMetrics.ascent
+                canvas.drawText(badgeText, badgeX + badgeW / 2f, textBaseY, rulerBadgeTextPaint)
             }
         }
 

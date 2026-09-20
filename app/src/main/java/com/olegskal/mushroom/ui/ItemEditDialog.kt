@@ -152,6 +152,47 @@ object ItemEditDialog {
         }
     }
 
+    // 5. Save track from ruler points
+    fun showSaveTrackFromRuler(
+        activity: Activity,
+        dbHelper: DatabaseHelper,
+        points: List<com.olegskal.mushroom.model.TrackPoint>,
+        distanceMeters: Float,
+        onTrackSaved: (MushroomTrack) -> Unit
+    ) {
+        val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
+        val defaultTitle = if (lang == "uk") "Трек (${formatDate()})" else "Track (${formatDate()})"
+        val density = activity.resources.displayMetrics.density
+        val trackColor = 0xFF2196F3.toInt()
+        showDialog(
+            activity = activity,
+            dialogTitle = if (lang == "uk") "Зберегти трек" else "Save Track",
+            initialName = defaultTitle,
+            colorTitle = if (lang == "uk") "Колір треку:" else "Track color:",
+            initialColor = trackColor,
+            saveButtonText = if (lang == "uk") "Зберегти" else "Save",
+            iconDrawable = TrackIconDrawable(density, trackColor, 20)
+        ) { title, color ->
+            val now = System.currentTimeMillis()
+            val track = MushroomTrack(
+                id = now,
+                title = title,
+                startTime = now,
+                endTime = now,
+                distanceMeters = distanceMeters,
+                durationSec = 0L,
+                points = points.toMutableList(),
+                color = color,
+                isVisible = true
+            )
+            dbHelper.insertTrack(track)
+            com.olegskal.mushroom.storage.MushroomStorageManager.saveTrackToGpx(track)
+            onTrackSaved(track)
+            val msg = if (lang == "uk") "Трек \"$title\" збережено!" else "Track \"$title\" saved!"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // Unified edit dialog
     private fun showDialog(
         activity: Activity,

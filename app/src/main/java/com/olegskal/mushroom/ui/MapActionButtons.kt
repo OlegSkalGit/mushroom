@@ -439,3 +439,146 @@ class TrackRecordButton(context: Context) : View(context) {
         canvas.restore()
     }
 }
+
+/**
+ * Floating action button for toggling interactive distance measuring Ruler mode.
+ * Features a circular body with a tactical diagonal ruler icon with graduation ticks.
+ * Highlights with #00E5FF (Tactical Cyan) when active.
+ */
+class RulerButton(context: Context) : View(context) {
+
+    var isRulerActive: Boolean = false
+        private set
+    private var isTouchPressed: Boolean = false
+
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
+    private val rulerBodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val rulerBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
+    private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    init {
+        isClickable = true
+        isFocusable = true
+    }
+
+    fun setRulerActive(active: Boolean) {
+        if (isRulerActive != active) {
+            isRulerActive = active
+            invalidate()
+        }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val density = resources.displayMetrics.density
+        val defaultSize = (44 * density).toInt()
+        val w = resolveSize(defaultSize, widthMeasureSpec)
+        val h = resolveSize(defaultSize, heightMeasureSpec)
+        val size = min(w, h).coerceAtLeast(defaultSize)
+        setMeasuredDimension(size, size)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                isTouchPressed = true
+                invalidate()
+            }
+            MotionEvent.ACTION_UP -> {
+                isTouchPressed = false
+                invalidate()
+                performClick()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isTouchPressed = false
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val cx = w / 2f
+        val cy = h / 2f
+        val density = resources.displayMetrics.density
+        val padding = 3f * density
+        val radius = min(cx, cy) - padding
+
+        canvas.save()
+        if (isTouchPressed) {
+            canvas.scale(0.92f, 0.92f, cx, cy)
+        }
+
+        // Circular background
+        bgPaint.color = if (isTouchPressed) Color.parseColor("#80111111") else Color.parseColor("#4D222222")
+        canvas.drawCircle(cx, cy, radius, bgPaint)
+
+        // Border (Active cyan or default subtle)
+        if (isRulerActive) {
+            borderPaint.color = Color.parseColor("#00E5FF") // Active cyan rim
+            borderPaint.strokeWidth = 2.5f * density
+        } else {
+            borderPaint.color = Color.parseColor("#33FFFFFF")
+            borderPaint.strokeWidth = 1.2f * density
+        }
+        canvas.drawCircle(cx, cy, radius, borderPaint)
+
+        // Draw tactical ruler: rotated -45 degrees
+        canvas.save()
+        canvas.rotate(-45f, cx, cy)
+
+        val rulerW = radius * 1.35f
+        val rulerH = 6.5f * density
+        val rLeft = cx - rulerW / 2f
+        val rTop = cy - rulerH / 2f
+        val rRight = cx + rulerW / 2f
+        val rBottom = cy + rulerH / 2f
+        val cornerR = 1.5f * density
+
+        // Ruler body fill
+        rulerBodyPaint.color = if (isRulerActive) Color.parseColor("#3300E5FF") else Color.parseColor("#33FFFFFF")
+        canvas.drawRoundRect(rLeft, rTop, rRight, rBottom, cornerR, cornerR, rulerBodyPaint)
+
+        // Ruler border
+        rulerBorderPaint.color = if (isRulerActive) Color.parseColor("#00E5FF") else Color.parseColor("#CFD8DC")
+        rulerBorderPaint.strokeWidth = 1.2f * density
+        canvas.drawRoundRect(rLeft, rTop, rRight, rBottom, cornerR, cornerR, rulerBorderPaint)
+
+        // Graduation tick marks along top edge of ruler
+        tickPaint.color = if (isRulerActive) Color.parseColor("#00E5FF") else Color.parseColor("#ECEFF1")
+        tickPaint.strokeWidth = 1.2f * density
+
+        val numTicks = 9
+        val step = rulerW / (numTicks + 1)
+        for (i in 1..numTicks) {
+            val tx = rLeft + i * step
+            val isMajor = (i % 2 == 1)
+            val tickLen = if (isMajor) rulerH * 0.55f else rulerH * 0.35f
+            canvas.drawLine(tx, rTop, tx, rTop + tickLen, tickPaint)
+        }
+
+        canvas.restore() // End ruler rotation
+        canvas.restore() // End press scale
+    }
+}
+
