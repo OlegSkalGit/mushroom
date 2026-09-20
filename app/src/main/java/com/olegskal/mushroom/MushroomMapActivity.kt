@@ -902,18 +902,19 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — Кнопка «🔍 Визначити гриб»: запуск автономного класифікатора.\n" +
                 "  — Тап по картці результату: перехід до детальної довідки цього виду в Енциклопедії.\n" +
                 "  — Кнопка «✕» на червоному банері: приховує застереження про небезпеку до наступного перезапуску додатку.\n" +
-                "• Що завантажується: файл моделі нейромережі model.onnx (~280 МБ). Завантажується один раз кнопкою «Завантажити».\n" +
-                "• Режим роботи: 100% ОФЛАЙН. Після одноразового завантаження моделі інтернет для розпізнавання грибів більше не потрібен взагалі."
+                "• Що завантажується: архів моделі нейромережі model.zip (~74 МБ). Автоматично розпаковується один раз кнопкою «Завантажити».\n" +
+                "• Режим роботи: 100% ОФЛАЙН. Після завантаження моделі інтернет для розпізнавання грибів більше не потрібен взагалі."
             )
             addSection(
                 "📖", "Енциклопедія та безпека",
                 "• Керування та пошук:\n" +
-                "  — Пошуковий рядок: швидкий пошук за українською або науковою латинською назвою.\n" +
+                "  — Перемикач «🌐 Інтернет / 💾 Без інтернету»: миттєвий перехід між онлайн-каталогом iNaturalist та автономною базою.\n" +
+                "  — Пошуковий рядок: швидкий пошук за українською, латинською або англійською назвою.\n" +
                 "  — Фільтри гіменофора: розділення на трубчасті та пластинчасті гриби.\n" +
                 "  — Фільтри їстівності: 🟢 Їстівні, 🟡 Умовно-їстівні, 🟠 Отруйні, 🔴 Смертельно отруйні.\n" +
                 "  — Картка виду: фотографії, морфологічні ознаки, період збору та застереження про смертельні двійники.\n" +
-                "  — Кнопки «🌐 iNaturalist» та «📖 Вікіпедія»: перехід до детальних наукових онлайн-джерел.\n" +
-                "• Режим роботи: ПОТРЕБУЄ ОНЛАЙН (каталог, динамічний пошук видів та фотографії завантажуються через інтернет із серверів iNaturalist; раніше переглянуті фотографії кешуються на диск)."
+                "  — Кнопки «🌐 iNaturalist» та «📖 Вікіпедія»: перехід до детальних онлайн-джерел.\n" +
+                "• Режим роботи: ГІБРИДНИЙ (підтримує як онлайн з iNaturalist, так і повністю автономну роботу через локальну SQLite базу mushrooms.db ~80 МБ)."
             )
             addSection(
                 "🔋", "Фоновий режим та оптимізація батареї",
@@ -931,10 +932,12 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  ✓ Фоновий запис та перегляд GPS-треків.\n" +
                 "  ✓ Інтерактивна лінійка вимірювання відстаней та збереження у трек.\n" +
                 "  ✓ AI розпізнавання грибів нейромережею (з локальною моделлю).\n" +
+                "  ✓ Енциклопедія грибів (у режимі «Без інтернету» з локальною базою).\n" +
                 "• Потребує ОНЛАЙН (інтернет):\n" +
-                "  ✓ Енциклопедія грибів (каталог видів, динамічний пошук та фотографії iNaturalist).\n" +
                 "  ✓ Одноразове завантаження пакетів карт обраних областей.\n" +
-                "  ✓ Одноразове завантаження файлу моделі нейромережі (~280 МБ).\n" +
+                "  ✓ Одноразове завантаження архіву моделі нейромережі model.zip (~74 МБ).\n" +
+                "  ✓ Одноразове завантаження локальної бази енциклопедії mushrooms.db (~80 МБ).\n" +
+                "  ✓ Динамічний пошук та повний онлайн-каталог iNaturalist.\n" +
                 "  ✓ Автоматична перевірка та оновлення версії додатку через GitHub."
             )
         } else {
@@ -1020,18 +1023,19 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — '🔍 Identify Mushroom' button: execute on-device neural network classifier.\n" +
                 "  — Tap on result card: opens species details in the Encyclopedia.\n" +
                 "  — '✕' button on red warning banner: dismisses safety warning until next app restart.\n" +
-                "• What is Downloaded: model.onnx neural network weights (~280 MB), downloaded once via 'Download' button.\n" +
-                "• Operating Mode: 100% OFFLINE. Once model file is downloaded, zero internet connection is required."
+                "• What is Downloaded: model.zip neural network archive (~74 MB), auto-unpacked once via 'Download' button.\n" +
+                "• Operating Mode: 100% OFFLINE. Once model archive is downloaded and unpacked, zero internet connection is required."
             )
             addSection(
                 "📖", "Encyclopedia & Foraging Safety",
                 "• Navigation & Search:\n" +
-                "  — Search Bar: search by Ukrainian or Latin scientific names.\n" +
+                "  — Toggle '🌐 Online / 💾 Offline': instant switch between online iNaturalist catalog and offline database.\n" +
+                "  — Search Bar: search by Ukrainian, English or Latin scientific names.\n" +
                 "  — Hymenophore Filters: separate mushrooms into pored/tubed or gilled.\n" +
                 "  — Edibility Filters: 🟢 Edible, 🟡 Conditionally Edible, 🟠 Inedible/Poisonous, 🔴 Deadly.\n" +
                 "  — Species Card: photo gallery, key identification traits, fruiting season, and deadly lookalike alerts.\n" +
                 "  — '🌐 iNaturalist' and '📖 Wikipedia' buttons: direct access to scientific reference sources.\n" +
-                "• Operating Mode: REQUIRES ONLINE (species catalog, dynamic search, and photos are fetched online from iNaturalist; previously viewed photos are cached locally)."
+                "• Operating Mode: HYBRID (supports both online browsing via iNaturalist and 100% offline encyclopedia via mushrooms.db ~80 MB SQLite database)."
             )
             addSection(
                 "🔋", "Background Execution & Battery Optimization",
@@ -1049,10 +1053,12 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  ✓ Background track recording and route inspection.\n" +
                 "  ✓ Interactive distance measuring ruler and track conversion.\n" +
                 "  ✓ AI neural network mushroom identification (with local model).\n" +
+                "  ✓ Mushroom Encyclopedia (in 'Offline' mode with local database).\n" +
                 "• REQUIRES ONLINE (internet connection):\n" +
-                "  ✓ Mushroom Encyclopedia (species catalog, search, and iNaturalist photos).\n" +
                 "  ✓ One-time download of regional map packages.\n" +
-                "  ✓ One-time download of AI classifier model (~280 MB).\n" +
+                "  ✓ One-time download of AI classifier model archive model.zip (~74 MB).\n" +
+                "  ✓ One-time download of local encyclopedia database mushrooms.db (~80 MB).\n" +
+                "  ✓ Dynamic online search and full iNaturalist catalog.\n" +
                 "  ✓ Checking and updating app releases from GitHub."
             )
         }
