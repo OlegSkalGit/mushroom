@@ -1335,20 +1335,20 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             color = Color.WHITE
             style = Paint.Style.FILL
         }
-        private val rulerBadgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EE1A1A1A")
-            style = Paint.Style.FILL
-        }
-        private val rulerBadgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#6600E5FF")
-            style = Paint.Style.STROKE
-        }
-        private val rulerBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val rulerTextHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeJoin = Paint.Join.ROUND
+            strokeCap = Paint.Cap.ROUND
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
         }
-        private val rulerBadgeRect = RectF()
+        private val rulerBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
 
         fun calculateRulerTotalDistanceMeters(): Float {
             var total = 0f
@@ -2217,8 +2217,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 // Node center
                 canvas.drawCircle(x, y, innerR, rulerNodeCenterPaint)
 
-                // Distance text badge
-                // Requirement: "відстань від попередньої точки / відстань від першої точки. Або 0 якщо точка перша."
+                // Distance text label anchored directly to point (no background, no edge clamping)
                 val badgeText = if (i == 0) {
                     "0 $unit"
                 } else {
@@ -2227,30 +2226,17 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     String.format(Locale.US, "%.2f / %.2f %s", segKm, totalKm, unit)
                 }
 
-                rulerBadgeTextPaint.textSize = 11.5f * density
-                val textW = rulerBadgeTextPaint.measureText(badgeText)
+                val textSizePx = 12f * density
+                rulerBadgeTextPaint.textSize = textSizePx
+                rulerTextHaloPaint.textSize = textSizePx
+                rulerTextHaloPaint.strokeWidth = 2.5f * density
+
                 val fontMetrics = rulerBadgeTextPaint.fontMetrics
-                val textH = fontMetrics.descent - fontMetrics.ascent
-                val padH = 6f * density
-                val padV = 3.5f * density
-                val badgeW = textW + padH * 2
-                val badgeH = textH + padV * 2
+                val textY = y - outerR - 4f * density - fontMetrics.descent
 
-                // Position badge above node by default, or below if too close to top
-                val badgeY = if (y - outerR - badgeH - 6f * density < 75f * density) {
-                    y + outerR + 6f * density
-                } else {
-                    y - outerR - badgeH - 6f * density
-                }
-                val badgeX = (x - badgeW / 2f).coerceIn(8f * density, width - badgeW - 8f * density)
-
-                rulerBadgeRect.set(badgeX, badgeY, badgeX + badgeW, badgeY + badgeH)
-                val cornerR = 5f * density
-                canvas.drawRoundRect(rulerBadgeRect, cornerR, cornerR, rulerBadgeBgPaint)
-                canvas.drawRoundRect(rulerBadgeRect, cornerR, cornerR, rulerBadgeBorderPaint)
-
-                val textBaseY = badgeY + padV - fontMetrics.ascent
-                canvas.drawText(badgeText, badgeX + badgeW / 2f, textBaseY, rulerBadgeTextPaint)
+                // Draw black text with crisp white halo directly attached to point
+                canvas.drawText(badgeText, x, textY, rulerTextHaloPaint)
+                canvas.drawText(badgeText, x, textY, rulerBadgeTextPaint)
             }
         }
 
