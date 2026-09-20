@@ -650,9 +650,15 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(script_dir) if os.path.basename(script_dir) == "scripts" else script_dir
 
-    default_classes = "classes.json" if os.path.exists("classes.json") else os.path.join(repo_root, "classes.json")
+    classes_candidates = [
+        "classes.json",
+        "model/classes.json",
+        os.path.join(repo_root, "classes.json"),
+        os.path.join(repo_root, "model", "classes.json")
+    ]
+    default_classes = next((p for p in classes_candidates if os.path.exists(p)), os.path.join(repo_root, "classes.json"))
     default_labels = "app/src/main/assets/labels.txt" if os.path.exists("app/src/main/assets/labels.txt") else os.path.join(repo_root, "app", "src", "main", "assets", "labels.txt")
-    default_db = "mushrooms_offline.db" if os.path.exists("classes.json") else os.path.join(repo_root, "mushrooms_offline.db")
+    default_db = "mushrooms_offline.db" if os.path.exists("mushrooms_offline.db") else os.path.join(repo_root, "mushrooms_offline.db")
 
     parser = argparse.ArgumentParser(description="Mushroom Offline Database Builder")
     parser.add_argument("--classes", default=default_classes, help="Path to classes.json")
