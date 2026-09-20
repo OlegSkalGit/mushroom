@@ -201,6 +201,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
     if row and "inat_id INTEGER UNIQUE" in row[0]:
         print("Migrating database: removing UNIQUE constraint from inat_id...")
         conn.execute("PRAGMA foreign_keys = OFF;")
+        conn.execute("PRAGMA legacy_alter_table = ON;")
         conn.execute("ALTER TABLE taxa RENAME TO taxa_old;")
         conn.execute("""
             CREATE TABLE taxa (
@@ -232,6 +233,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         """)
         conn.execute("INSERT OR IGNORE INTO taxa SELECT * FROM taxa_old;")
         conn.execute("DROP TABLE taxa_old;")
+        conn.execute("PRAGMA legacy_alter_table = OFF;")
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.commit()
     else:
@@ -263,6 +265,34 @@ def init_db(db_path: str) -> sqlite3.Connection:
                 updated_at INTEGER
             );
         """)
+
+    # Check if photos table references taxa_old due to past SQLite table rename
+    cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='photos'")
+    p_row = cur.fetchone()
+    if p_row and "taxa_old" in p_row[0]:
+        print("Migrating photos table: repairing foreign key reference to taxa...")
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        conn.execute("PRAGMA legacy_alter_table = ON;")
+        conn.execute("ALTER TABLE photos RENAME TO photos_broken;")
+        conn.execute("""
+            CREATE TABLE photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                taxon_id INTEGER NOT NULL,
+                photo_index INTEGER NOT NULL,
+                original_url TEXT,
+                attribution TEXT,
+                license_code TEXT,
+                width INTEGER,
+                height INTEGER,
+                image_data BLOB NOT NULL,
+                FOREIGN KEY (taxon_id) REFERENCES taxa(id) ON DELETE CASCADE
+            );
+        """)
+        conn.execute("INSERT INTO photos SELECT * FROM photos_broken;")
+        conn.execute("DROP TABLE photos_broken;")
+        conn.execute("PRAGMA legacy_alter_table = OFF;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.commit()
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS photos (
@@ -517,6 +547,10 @@ def process_species(
     order_name = None
     wiki_summary_inat = None
     wiki_url_inat = None
+    desc_uk = None
+    desc_en = None
+    wiki_url_uk = None
+    wiki_url_en = None
     photos_to_download = []
 
     if inat_taxon:
