@@ -826,7 +826,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — Переміщення: проведення одним пальцем по карті.\n" +
                 "  — Масштаб (Pinch-to-zoom): зведення/розведення двох пальців.\n" +
                 "  — Обертання: поворот двома пальцями для довільного орієнтування карти.\n" +
-                "  — Додавання мітки: тривалий тап (довге натискання) або швидкий подвійний тап у потрібній точці.\n" +
+                "  — Додавання та видалення міток: швидкий подвійний тап або тривале натискання на вільному місці карти створює нову мітку, а безпосередньо по існуючому маркеру — відкриває діалог його видалення або редагування.\n" +
                 "• Кнопки екрана карти:\n" +
                 "  — «Лінійка» (зліва від мітки): вмикає режим вимірювання дистанції. Одинарний тап додає точку з бейджем (відстань від попередньої / від першої точки). Тап по точці видаляє її, тап з протяжкою — переміщує точку, тап на лінію — вставляє проміжну точку. Повторний тап по значку лінійки відкриває збереження у трек або видалення.\n" +
                 "  — «Центрувати на мені» (приціл праворуч): миттєво центрує екран на поточному GPS та вмикає автослідування.\n" +
@@ -838,8 +838,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             )
             addSection(
                 "", "Грибні точки та маркери",
-                "• Додавання міток:\n" +
-                "  — Подвійний або довгий тап безпосередньо на карті (створення мітки в точці дотику).\n" +
+                "• Додавання та видалення на карті:\n" +
+                "  — Створення: швидкий подвійний або довгий тап по карті (створення мітки в точці дотику).\n" +
+                "  — Видалення з карти: швидкий подвійний або довгий тап безпосередньо по маркеру відкриває вікно підтвердження видалення (з можливістю швидкого переходу до редагування).\n" +
                 "  — Кругла плаваюча кнопка з прапорцем: збереження точки за поточними GPS-координатами вашого місцезнаходження.\n" +
                 "• Керування в меню «Маркери»:\n" +
                 "  — Кнопка «Створити новий маркер» — ручне введення назви, типу гриба та координат.\n" +
@@ -946,7 +947,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — Pan: drag with a single finger to navigate the map.\n" +
                 "  — Pinch-to-zoom: spread or pinch two fingers to zoom in/out smoothly.\n" +
                 "  — Rotation: rotate with two fingers to orient the map at any angle.\n" +
-                "  — Add marker: long press or quick double tap anywhere on the map.\n" +
+                "  — Add & delete markers: quick double tap or long press on an empty map spot creates a new marker, while tapping directly on an existing marker prompts to delete or edit it.\n" +
                 "• Map Screen Buttons:\n" +
                 "  — Ruler (left of marker): activates distance measurement mode. Single tap places a point with a distance badge (from previous / from start). Tapping an existing point deletes it, dragging a point moves it, tapping a line inserts an intermediate point. Tapping the ruler button again prompts saving as track or clearing.\n" +
                 "  — Center on Me (crosshair on right): instantly snaps camera to GPS location and enables follow mode.\n" +
@@ -958,8 +959,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             )
             addSection(
                 "", "Mushroom Markers & Waypoints",
-                "• Adding Markers:\n" +
-                "  — Double tap or long press directly on the map (places marker at touched position).\n" +
+                "• Adding & Deleting on Map:\n" +
+                "  — Creation: quick double tap or long press on an empty map area (places marker at touched position).\n" +
+                "  — Deletion: quick double tap or long press directly on an existing marker opens confirmation to delete or edit it.\n" +
                 "  — Floating Flag Button: saves marker at your current real-time GPS coordinates.\n" +
                 "• Management in 'Markers' Menu:\n" +
                 "  — 'Create New Marker' button: manual entry for name, mushroom type, and coordinates.\n" +
@@ -1458,31 +1460,31 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         private val longPressSlop = maxOf(touchSlop * 2.2f, 24f * resources.displayMetrics.density)
         private val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
 
-        private fun handlePointActionAt(screenX: Float, screenY: Float, isFromDoubleTap: Boolean) {
+        private fun handlePointActionAt(screenX: Float, screenY: Float) {
             val hitMarker = findMarkerAt(screenX, screenY, 32f * resources.displayMetrics.density)
             if (hitMarker != null) {
-                if (isFromDoubleTap) {
-                    ItemEditDialog.showEditMarker(this@MushroomMapActivity, dbHelper, hitMarker) {
+                val lang = AppPrefs.getAppLang(this@MushroomMapActivity)
+                val title = if (lang == "uk") "Видалити маркер?" else "Delete marker?"
+                val msg = if (lang == "uk") "Видалити \"${hitMarker.name}\"?" else "Delete \"${hitMarker.name}\"?"
+                val delBtn = if (lang == "uk") "Видалити" else "Delete"
+                val editBtn = if (lang == "uk") "Редагувати" else "Edit"
+                val cancelBtn = if (lang == "uk") "Скасувати" else "Cancel"
+                AlertDialog.Builder(this@MushroomMapActivity)
+                    .setTitle(title)
+                    .setMessage(msg)
+                    .setPositiveButton(delBtn) { _, _ ->
+                        dbHelper.deleteMarker(hitMarker.id)
                         reloadMarkers()
+                        val tMsg = if (lang == "uk") "Маркер \"${hitMarker.name}\" видалено" else "Marker \"${hitMarker.name}\" deleted"
+                        Toast.makeText(this@MushroomMapActivity, tMsg, Toast.LENGTH_SHORT).show()
                     }
-                } else {
-                    val lang = AppPrefs.getAppLang(this@MushroomMapActivity)
-                    val title = if (lang == "uk") "Видалити маркер?" else "Delete marker?"
-                    val msg = if (lang == "uk") "Видалити \"${hitMarker.name}\"?" else "Delete \"${hitMarker.name}\"?"
-                    val delBtn = if (lang == "uk") "Видалити" else "Delete"
-                    val cancelBtn = if (lang == "uk") "Скасувати" else "Cancel"
-                    AlertDialog.Builder(this@MushroomMapActivity)
-                        .setTitle(title)
-                        .setMessage(msg)
-                        .setPositiveButton(delBtn) { _, _ ->
-                            dbHelper.deleteMarker(hitMarker.id)
+                    .setNeutralButton(editBtn) { _, _ ->
+                        ItemEditDialog.showEditMarker(this@MushroomMapActivity, dbHelper, hitMarker) {
                             reloadMarkers()
-                            val tMsg = if (lang == "uk") "Маркер \"${hitMarker.name}\" видалено" else "Marker \"${hitMarker.name}\" deleted"
-                            Toast.makeText(this@MushroomMapActivity, tMsg, Toast.LENGTH_SHORT).show()
                         }
-                        .setNegativeButton(cancelBtn, null)
-                        .show()
-                }
+                    }
+                    .setNegativeButton(cancelBtn, null)
+                    .show()
             } else {
                 val coords = screenToLatLon(screenX, screenY)
                 ItemEditDialog.showAddMarker(
@@ -1501,7 +1503,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             if (!isDragging && !isMultiTouch && !isDoubleTapDrag) {
                 isLongPressTriggered = true
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                handlePointActionAt(downX, downY, isFromDoubleTap = false)
+                handlePointActionAt(downX, downY)
             }
         }
 
@@ -1964,7 +1966,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         if (isDoubleTapCandidate && !hasDoubleTapMoved && upDist <= touchSlop * 1.5f) {
                             // Confirmed double-tap without drag -> add or edit marker!
                             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                            handlePointActionAt(event.x, event.y, isFromDoubleTap = true)
+                            handlePointActionAt(event.x, event.y)
                         }
                         isDoubleTapCandidate = false
                         hasDoubleTapMoved = false
