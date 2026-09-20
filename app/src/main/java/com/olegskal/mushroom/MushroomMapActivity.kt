@@ -865,6 +865,24 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 TrackIconDrawable(density, Color.parseColor("#2196F3"), 16)
             )
             addSection(
+                "📏", "Інтерактивна лінійка вимірювань",
+                "• Активація режиму:\n" +
+                "  — Кнопка з лінійкою у верхньому ряду (зліва від мітки): вмикає режим лінійки (значок підсвічується бірюзовим кольором #00E5FF).\n" +
+                "• Додавання та вимірювання дистанцій:\n" +
+                "  — Одинарний клік по карті: додає точку вимірювання та відображає над нею відстань у км (для першої точки: 0 км; для наступних: відстань від попередньої / сумарна відстань від старту).\n" +
+                "  — Навігація картою: вільне переміщення одним пальцем по вільному місцю карти або двома пальцями (масштаб та обертання).\n" +
+                "• Редагування точок та лінії:\n" +
+                "  — Тап по існуючій точці: видаляє цю точку, з'єднуючи сусідні вузли прямою лінією та миттєво перераховуючи всі дистанції.\n" +
+                "  — Тап із протяжкою (Drag & Drop): вільне переміщення обраної точки картою у реальному часі зі збереженням зв'язків.\n" +
+                "  — Тап на лінію: вставляє нову проміжну точку між вузлами.\n" +
+                "• Збереження у трек або очищення:\n" +
+                "  — Повторний тап по значку лінійки або апаратна кнопка «Назад» відкриває діалог дій:\n" +
+                "    • «Зберегти трек» — вибір назви та кольору й експорт виміряного шляху у базу SQLite та стандартний GPX-файл.\n" +
+                "    • «Видалити» — очищення всіх точок та вимкнення режиму лінійки.\n" +
+                "    • «Скасувати» — повернення до активного режиму лінійки зі збереженням усіх точок.\n" +
+                "• Режим роботи: 100% ОФЛАЙН. Усі вимірювання та перетворення у треки працюють без зв'язку."
+            )
+            addSection(
                 "📥", "Завантаження офлайн-карт",
                 "• Керування:\n" +
                 "  — Пункт «🗺️ Карти» в меню: відкриває вибір країн та областей України.\n" +
@@ -965,6 +983,24 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — '✏️' (rename and change color), '📤' (export to standard GPX file), '🗑' (delete).\n" +
                 "• Operating Mode: 100% OFFLINE. Background service, Kalman/trajectory noise filtering, and distance calculations run autonomously in deep woods.",
                 TrackIconDrawable(density, Color.parseColor("#2196F3"), 16)
+            )
+            addSection(
+                "📏", "Interactive Measurement Ruler",
+                "• Mode Activation:\n" +
+                "  — Ruler button in the top header (left of marker): activates ruler mode (highlights in tactical cyan #00E5FF).\n" +
+                "• Adding Points & Measuring Distance:\n" +
+                "  — Single tap on map: places a measurement point and displays distance in km (first point: 0 km; subsequent points: distance from previous / cumulative distance from start).\n" +
+                "  — Map navigation: pan with one finger on empty map area or use two fingers for smooth zoom and rotation.\n" +
+                "• Editing Points & Route Polyline:\n" +
+                "  — Tap on existing point: deletes the point, reconnects adjacent nodes, and recalculates all distances dynamically.\n" +
+                "  — Drag & Drop point: touch and drag any point to reposition it in real-time.\n" +
+                "  — Tap on line segment: inserts a new intermediate waypoint on that segment.\n" +
+                "• Finishing & Track Conversion:\n" +
+                "  — Tapping the ruler button again or pressing Android Back opens an action prompt:\n" +
+                "    • 'Save Track' — assign title and color, saving the measurement directly into SQLite and standard GPX.\n" +
+                "    • 'Delete' — clear all ruler points and exit ruler mode.\n" +
+                "    • 'Cancel' — return to the active ruler mode with all points intact.\n" +
+                "• Operating Mode: 100% OFFLINE. All calculations and track conversions work with zero cellular network."
             )
             addSection(
                 "📥", "Offline Map Downloads",
@@ -1335,18 +1371,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             color = Color.WHITE
             style = Paint.Style.FILL
         }
-        private val rulerTextHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeJoin = Paint.Join.ROUND
-            strokeCap = Paint.Cap.ROUND
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textAlign = Paint.Align.CENTER
-        }
-        private val rulerBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            style = Paint.Style.FILL
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        private val rulerBadgeTextPaint = Paint(markerTextPaint).apply {
             textAlign = Paint.Align.CENTER
         }
 
@@ -2226,16 +2251,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     String.format(Locale.US, "%.2f / %.2f %s", segKm, totalKm, unit)
                 }
 
-                val textSizePx = 12f * density
-                rulerBadgeTextPaint.textSize = textSizePx
-                rulerTextHaloPaint.textSize = textSizePx
-                rulerTextHaloPaint.strokeWidth = 2.5f * density
-
                 val fontMetrics = rulerBadgeTextPaint.fontMetrics
                 val textY = y - outerR - 4f * density - fontMetrics.descent
-
-                // Draw black text with crisp white halo directly attached to point
-                canvas.drawText(badgeText, x, textY, rulerTextHaloPaint)
                 canvas.drawText(badgeText, x, textY, rulerBadgeTextPaint)
             }
         }
