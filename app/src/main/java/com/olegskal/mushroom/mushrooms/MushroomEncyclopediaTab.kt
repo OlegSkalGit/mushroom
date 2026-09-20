@@ -359,9 +359,9 @@ class MushroomEncyclopediaTab(
     private fun promptAndDownloadDatabase(onReady: ((Boolean) -> Unit)? = null) {
         val title = if (currentLang == "uk") "Завантаження бази грибів" else "Download Mushroom Database"
         val msg = if (currentLang == "uk") {
-            "Для роботи енциклопедії без інтернету потрібна локальна база даних (~80 МБ). Завантажити зараз?"
+            "Для роботи енциклопедії без інтернету потрібна локальна база даних (~547 МБ). Завантажити зараз?"
         } else {
-            "Offline mushroom encyclopedia requires local database (~80 MB). Download now?"
+            "Offline mushroom encyclopedia requires local database (~547 MB). Download now?"
         }
 
         AlertDialog.Builder(activity)
@@ -545,7 +545,7 @@ class MushroomEncyclopediaTab(
 
                 if (taxa.isNotEmpty()) {
                     for (t in taxa) {
-                        if (!allLoadedTaxa.any { it.scientificName.equals(t.scientificName, ignoreCase = true) }) {
+                        if (!allLoadedTaxa.any { it.id == t.id || it.scientificName.equals(t.scientificName, ignoreCase = true) }) {
                             allLoadedTaxa.add(t)
                         }
                     }
@@ -723,7 +723,7 @@ class MushroomEncyclopediaTab(
         }
 
         val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = meta.edibility
+        val edibility = if (meta.edibility != "unknown") meta.edibility else taxon.edibility
 
         val badgeRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -823,7 +823,7 @@ class MushroomEncyclopediaTab(
         }
 
         val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = meta.edibility
+        val edibility = if (meta.edibility != "unknown") meta.edibility else taxon.edibility
 
         val badgeRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL

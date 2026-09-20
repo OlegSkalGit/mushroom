@@ -914,7 +914,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — Фільтри їстівності: 🟢 Їстівні, 🟡 Умовно-їстівні, 🟠 Отруйні, 🔴 Смертельно отруйні.\n" +
                 "  — Картка виду: фотографії, морфологічні ознаки, період збору та застереження про смертельні двійники.\n" +
                 "  — Кнопки «🌐 iNaturalist» та «📖 Вікіпедія»: перехід до детальних онлайн-джерел.\n" +
-                "• Режим роботи: ГІБРИДНИЙ (підтримує як онлайн з iNaturalist, так і повністю автономну роботу через локальну SQLite базу mushrooms.db ~80 МБ)."
+                "• Режим роботи: ГІБРИДНИЙ (підтримує як онлайн з iNaturalist, так і повністю автономну роботу через локальну SQLite базу mushrooms.db ~547 МБ)."
             )
             addSection(
                 "🔋", "Фоновий режим та оптимізація батареї",
@@ -936,7 +936,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "• Потребує ОНЛАЙН (інтернет):\n" +
                 "  ✓ Одноразове завантаження пакетів карт обраних областей.\n" +
                 "  ✓ Одноразове завантаження архіву моделі нейромережі model.zip (~74 МБ).\n" +
-                "  ✓ Одноразове завантаження локальної бази енциклопедії mushrooms.db (~80 МБ).\n" +
+                "  ✓ Одноразове завантаження локальної бази енциклопедії mushrooms.db (~547 МБ).\n" +
                 "  ✓ Динамічний пошук та повний онлайн-каталог iNaturalist.\n" +
                 "  ✓ Автоматична перевірка та оновлення версії додатку через GitHub."
             )
@@ -1035,7 +1035,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "  — Edibility Filters: 🟢 Edible, 🟡 Conditionally Edible, 🟠 Inedible/Poisonous, 🔴 Deadly.\n" +
                 "  — Species Card: photo gallery, key identification traits, fruiting season, and deadly lookalike alerts.\n" +
                 "  — '🌐 iNaturalist' and '📖 Wikipedia' buttons: direct access to scientific reference sources.\n" +
-                "• Operating Mode: HYBRID (supports both online browsing via iNaturalist and 100% offline encyclopedia via mushrooms.db ~80 MB SQLite database)."
+                "• Operating Mode: HYBRID (supports both online browsing via iNaturalist and 100% offline encyclopedia via mushrooms.db ~547 MB SQLite database)."
             )
             addSection(
                 "🔋", "Background Execution & Battery Optimization",
@@ -1057,7 +1057,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 "• REQUIRES ONLINE (internet connection):\n" +
                 "  ✓ One-time download of regional map packages.\n" +
                 "  ✓ One-time download of AI classifier model archive model.zip (~74 MB).\n" +
-                "  ✓ One-time download of local encyclopedia database mushrooms.db (~80 MB).\n" +
+                "  ✓ One-time download of local encyclopedia database mushrooms.db (~547 MB).\n" +
                 "  ✓ Dynamic online search and full iNaturalist catalog.\n" +
                 "  ✓ Checking and updating app releases from GitHub."
             )

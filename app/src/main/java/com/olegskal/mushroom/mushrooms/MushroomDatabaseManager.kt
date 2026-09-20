@@ -14,8 +14,8 @@ object MushroomDatabaseManager {
 
     const val DB_FILE_NAME = "mushrooms.db"
     const val DB_DIR_NAME = "mushrooms"
-    const val DB_MIN_SIZE = 50 * 1024 * 1024L // Min 50 MB to be considered valid
-    const val DB_FULL_SIZE = 634310656L
+    const val DB_MIN_SIZE = 400 * 1024 * 1024L // Min 400 MB to be considered valid
+    const val DB_FULL_SIZE = 573231104L // Exact 546.7 MB (~547 MB)
 
     const val PRIMARY_URL = "https://media.githubusercontent.com/media/OlegSkalGit/mushroom/main/downloads/mushrooms.db"
     const val FALLBACK_URL = "https://github.com/OlegSkalGit/mushroom/raw/main/downloads/mushrooms.db"
@@ -322,6 +322,7 @@ object MushroomDatabaseManager {
         fullArgs.add(offset.toString())
 
         val resultList = mutableListOf<MushroomTaxon>()
+        val seenKeys = HashSet<String>()
 
         try {
             val cursor = db.rawQuery(selectSql, fullArgs.toTypedArray())
@@ -335,13 +336,25 @@ object MushroomDatabaseManager {
                     val family = it.optStringVal(5)
                     val orderName = it.optStringVal(6)
                     val genus = it.optStringVal(7)
-                    val edibility = it.optStringVal(8) ?: "unknown"
-                    val hymenium = it.optStringVal(9) ?: "gills"
+                    val rawEdibility = it.optStringVal(8) ?: "unknown"
+                    val rawHymenium = it.optStringVal(9) ?: "gills"
                     val descUk = it.optStringVal(10)
                     val descEn = it.optStringVal(11)
                     val wikiUrlUk = it.optStringVal(12)
                     val wikiUrlEn = it.optStringVal(13)
                     val photosCount = it.getInt(14)
+
+                    val sciKey = sciName.lowercase().trim()
+                    val inatKey = if (inatId > 0) "inat_$inatId" else "db_$dbId"
+                    if (seenKeys.contains(sciKey) || seenKeys.contains(inatKey)) {
+                        continue
+                    }
+                    seenKeys.add(sciKey)
+                    seenKeys.add(inatKey)
+
+                    val meta = MycoKnowledge.resolveMetadata(sciName)
+                    val edibility = if (meta.edibility != "unknown") meta.edibility else rawEdibility
+                    val hymenium = if (meta.hymenium != "other") meta.hymenium else rawHymenium
 
                     val commonName = if (lang == "uk") {
                         nameUk?.takeIf { s -> s.isNotBlank() } ?: sciName

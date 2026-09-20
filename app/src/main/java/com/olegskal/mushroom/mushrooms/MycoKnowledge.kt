@@ -202,10 +202,24 @@ object MycoKnowledge {
         "lactarius deliciosus" to MycoSpeciesData(edibility = "edible", hymenium = "gills"),
         "lactarius torminosus" to MycoSpeciesData(edibility = "cond-edible", hymenium = "gills"),
         "russula virescens" to MycoSpeciesData(edibility = "edible", hymenium = "gills"),
-        "russula aeruginea" to MycoSpeciesData(edibility = "edible", hymenium = "gills"),
         "fomes fomentarius" to MycoSpeciesData(edibility = "inedible", hymenium = "tubes"),
         "trametes versicolor" to MycoSpeciesData(edibility = "inedible", hymenium = "tubes"),
-        "schizophyllum commune" to MycoSpeciesData(edibility = "inedible", hymenium = "gills")
+        "schizophyllum commune" to MycoSpeciesData(edibility = "inedible", hymenium = "gills"),
+        "cantharellus friesii" to MycoSpeciesData(edibility = "edible", hymenium = "gills"),
+        "craterellus cornucopioides" to MycoSpeciesData(edibility = "edible", hymenium = "gills"),
+        "craterellus tubaeformis" to MycoSpeciesData(edibility = "edible", hymenium = "gills"),
+        "hygrophoropsis aurantiaca" to MycoSpeciesData(edibility = "cond-edible", hymenium = "gills"),
+        "amanita caesarea" to MycoSpeciesData(edibility = "edible", hymenium = "gills"),
+        "amanita rubescens" to MycoSpeciesData(edibility = "cond-edible", hymenium = "gills"),
+        "amanita gemmata" to MycoSpeciesData(edibility = "toxic", hymenium = "gills"),
+        "amanita citrina" to MycoSpeciesData(edibility = "toxic", hymenium = "gills"),
+        "amanita regalis" to MycoSpeciesData(edibility = "toxic", hymenium = "gills"),
+        "amanita strobiliformis" to MycoSpeciesData(edibility = "toxic", hymenium = "gills"),
+        "amanita excelsa" to MycoSpeciesData(edibility = "toxic", hymenium = "gills"),
+        "boletus aereus" to MycoSpeciesData(edibility = "edible", hymenium = "tubes"),
+        "boletus reticulatus" to MycoSpeciesData(edibility = "edible", hymenium = "tubes"),
+        "boletus pinophilus" to MycoSpeciesData(edibility = "edible", hymenium = "tubes"),
+        "hypholoma lateritium" to MycoSpeciesData(edibility = "toxic", hymenium = "gills")
     )
 
     @Volatile
