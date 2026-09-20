@@ -27,3 +27,7 @@ setup/
 .last_state.json
 *.log
 local.properties
+*.db
+*.db.gz
+*.db-wal
+*.db-shm
