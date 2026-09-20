@@ -565,18 +565,34 @@ def process_species(
                     "license_code": photo.get("license_code") or ""
                 })
 
-    # 4. Fetch Wikipedia Descriptions (UA & EN)
-    desc_uk, wiki_url_uk = None, None
-    if name_uk:
-        desc_uk, wiki_url_uk = fetch_wikipedia_summary(name_uk, lang="uk")
-    if not desc_uk:
-        desc_uk, wiki_url_uk = fetch_wikipedia_summary(species_name, lang="uk")
+    # Check if this inat_id already exists in DB with photos (Instant Donor Clone!)
+    donor_id = None
+    if inat_id:
+        cur.execute("SELECT id FROM taxa WHERE inat_id = ? AND updated_at IS NOT NULL AND photos_count > 0 ORDER BY id ASC LIMIT 1", (inat_id,))
+        donor_row = cur.fetchone()
+        if donor_row:
+            donor_id = donor_row[0]
+            cur.execute("SELECT desc_uk, desc_en, wiki_url_uk, wiki_url_en FROM taxa WHERE id = ?", (donor_id,))
+            d_info = cur.fetchone()
+            if d_info:
+                if not desc_uk: desc_uk = d_info[0]
+                if not desc_en: desc_en = d_info[1]
+                if not wiki_url_uk: wiki_url_uk = d_info[2]
+                if not wiki_url_en: wiki_url_en = d_info[3]
 
-    desc_en, wiki_url_en = fetch_wikipedia_summary(species_name, lang="en")
-    if not desc_en and wiki_summary_inat:
-        desc_en = wiki_summary_inat
-    if not wiki_url_en and wiki_url_inat:
-        wiki_url_en = wiki_url_inat
+    # 4. Fetch Wikipedia Descriptions (UA & EN) if not already borrowed from donor
+    if not desc_uk:
+        if name_uk:
+            desc_uk, wiki_url_uk = fetch_wikipedia_summary(name_uk, lang="uk")
+        if not desc_uk:
+            desc_uk, wiki_url_uk = fetch_wikipedia_summary(species_name, lang="uk")
+
+    if not desc_en:
+        desc_en, wiki_url_en = fetch_wikipedia_summary(species_name, lang="en")
+        if not desc_en and wiki_summary_inat:
+            desc_en = wiki_summary_inat
+        if not wiki_url_en and wiki_url_inat:
+            wiki_url_en = wiki_url_inat
 
     # 5. Insert / Update Taxon record
     now_ts = int(time.time())
@@ -623,7 +639,17 @@ def process_species(
     # Clear old photos for this taxon if re-running
     cur.execute("DELETE FROM photos WHERE taxon_id = ?", (taxon_db_id,))
 
-    # 6. Download and save all photos
+    # 6. Save photos: If donor exists, instant clone inside SQLite! Otherwise download from internet.
+    if donor_id:
+        cur.execute("""
+            INSERT INTO photos (taxon_id, photo_index, original_url, attribution, license_code, width, height, image_data)
+            SELECT ?, photo_index, original_url, attribution, license_code, width, height, image_data
+            FROM photos WHERE taxon_id = ?
+        """, (taxon_db_id, donor_id))
+        cur.execute("UPDATE taxa SET photos_count = (SELECT COUNT(*) FROM photos WHERE taxon_id = ?) WHERE id = ?", (taxon_db_id, taxon_db_id))
+        conn.commit()
+        return True
+
     saved_photos_count = 0
     for p_info in photos_to_download:
         img_res = http_get(p_info["url"], timeout=15)
