@@ -22,6 +22,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.zip.ZipInputStream
 import kotlin.math.exp
 
 data class MushroomPrediction(
@@ -34,8 +35,6 @@ data class MushroomPrediction(
 
 data class ModelDownloadItem(
     val fileName: String,
-    val primaryUrl: String,
-    val fallbackUrl: String,
     val minSize: Long
 )
 
@@ -54,31 +53,16 @@ class MushroomClassifier(private val context: Context) {
     companion object {
         private const val BROKEN_MODEL2_SIZE = 280274191L
 
+        const val MODEL_ZIP_NAME = "model.zip"
+        const val MODEL_ZIP_PRIMARY_URL = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/downloads/model.zip"
+        const val MODEL_ZIP_FALLBACK_URL = "https://github.com/OlegSkalGit/mushroom/raw/main/downloads/model.zip"
+        const val MODEL_ZIP_MIN_SIZE = 70 * 1024 * 1024L
+
         val REQUIRED_FILES = listOf(
-            ModelDownloadItem(
-                fileName = "model2.onnx",
-                primaryUrl = "https://media.githubusercontent.com/media/OlegSkalGit/mushroom/main/model2.onnx",
-                fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/model2.onnx",
-                minSize = 250 * 1024 * 1024L
-            ),
-            ModelDownloadItem(
-                fileName = "classes.json",
-                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/classes.json",
-                fallbackUrl = "https://github.com/OlegSkalGit/mushroom/raw/main/classes.json",
-                minSize = 50 * 1024L
-            ),
-            ModelDownloadItem(
-                fileName = "ort.min.js",
-                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/ort.min.js",
-                fallbackUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js",
-                minSize = 100 * 1024L
-            ),
-            ModelDownloadItem(
-                fileName = "ort-wasm-simd.wasm",
-                primaryUrl = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/ort-wasm-simd.wasm",
-                fallbackUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-simd.wasm",
-                minSize = 2 * 1024 * 1024L
-            )
+            ModelDownloadItem("model2.onnx", 250 * 1024 * 1024L),
+            ModelDownloadItem("classes.json", 50 * 1024L),
+            ModelDownloadItem("ort.min.js", 100 * 1024L),
+            ModelDownloadItem("ort-wasm-simd.wasm", 2 * 1024 * 1024L)
         )
 
         fun cleanBrokenModelIfPresent(context: Context) {
@@ -151,104 +135,137 @@ class MushroomClassifier(private val context: Context) {
                     File(context.filesDir, "model").apply { mkdirs() }
                 }
 
-                val totalItems = REQUIRED_FILES.size
-                var downloadedCount = 0
+                val zipFile = File(targetDir, "$MODEL_ZIP_NAME.tmp")
+                val urlsToTry = listOf(MODEL_ZIP_PRIMARY_URL, MODEL_ZIP_FALLBACK_URL)
+                var downloadSuccess = false
+                var lastError: String? = null
 
-                for ((idx, item) in REQUIRED_FILES.withIndex()) {
-                    val targetFile = File(targetDir, item.fileName)
-                    if (targetFile.exists() && targetFile.length() >= item.minSize) {
-                        downloadedCount++
-                        val basePercent = ((downloadedCount * 100) / totalItems)
-                        onProgress(basePercent)
-                        continue
-                    }
+                for (urlCandidate in urlsToTry) {
+                    var conn: HttpURLConnection? = null
+                    var input: InputStream? = null
+                    var output: FileOutputStream? = null
 
-                    val tempFile = File(targetDir, "${item.fileName}.tmp")
-                    val urlsToTry = listOf(item.primaryUrl, item.fallbackUrl)
-                    var fileSuccess = false
-                    var lastError: String? = null
+                    try {
+                        var currentUrl = urlCandidate
+                        var redirects = 0
 
-                    for (urlCandidate in urlsToTry) {
-                        var conn: HttpURLConnection? = null
-                        var input: InputStream? = null
-                        var output: FileOutputStream? = null
+                        while (redirects < 5) {
+                            val url = URL(currentUrl)
+                            conn = url.openConnection() as HttpURLConnection
+                            conn.instanceFollowRedirects = false
+                            conn.connectTimeout = 15000
+                            conn.readTimeout = 30000
+                            conn.setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
+                            conn.connect()
 
-                        try {
-                            var currentUrl = urlCandidate
-                            var redirects = 0
-
-                            while (redirects < 5) {
-                                val url = URL(currentUrl)
-                                conn = url.openConnection() as HttpURLConnection
-                                conn.instanceFollowRedirects = false
-                                conn.connectTimeout = 15000
-                                conn.readTimeout = 30000
-                                conn.setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
-                                conn.connect()
-
-                                val code = conn.responseCode
-                                if (code == HttpURLConnection.HTTP_MOVED_PERM ||
-                                    code == HttpURLConnection.HTTP_MOVED_TEMP ||
-                                    code == 307 || code == 308) {
-                                    val newUrl = conn.getHeaderField("Location")
-                                    conn.disconnect()
-                                    currentUrl = newUrl
-                                    redirects++
-                                } else if (code == 200) {
-                                    break
-                                } else {
-                                    throw Exception("HTTP $code from $currentUrl")
-                                }
-                            }
-
-                            val fileLength = conn!!.contentLengthLong
-                            input = conn.inputStream
-                            output = FileOutputStream(tempFile)
-
-                            val data = ByteArray(16384)
-                            var total: Long = 0
-                            var count: Int
-
-                            while (input.read(data).also { count = it } != -1) {
-                                total += count
-                                output.write(data, 0, count)
-
-                                if (fileLength > 0) {
-                                    val filePercent = ((total * 100) / fileLength).toInt().coerceIn(0, 100)
-                                    val overallPercent = ((idx * 100 + filePercent) / totalItems)
-                                    onProgress(overallPercent)
-                                }
-                            }
-
-                            output.flush()
-                            output.close()
-                            output = null
-                            input.close()
-                            input = null
-                            conn.disconnect()
-
-                            if (tempFile.exists() && tempFile.length() >= item.minSize) {
-                                if (targetFile.exists()) targetFile.delete()
-                                tempFile.renameTo(targetFile)
-                                fileSuccess = true
-                                downloadedCount++
+                            val code = conn.responseCode
+                            if (code == HttpURLConnection.HTTP_MOVED_PERM ||
+                                code == HttpURLConnection.HTTP_MOVED_TEMP ||
+                                code == 307 || code == 308) {
+                                val newUrl = conn.getHeaderField("Location") ?: break
+                                conn.disconnect()
+                                currentUrl = newUrl
+                                redirects++
+                            } else if (code == 200) {
                                 break
                             } else {
-                                throw Exception("Downloaded file ${item.fileName} is incomplete (${tempFile.length()} bytes)")
+                                throw Exception("HTTP $code from $currentUrl")
                             }
-                        } catch (e: Exception) {
-                            lastError = e.localizedMessage ?: e.toString()
-                        } finally {
-                            try { input?.close() } catch (ignored: Exception) {}
-                            try { output?.close() } catch (ignored: Exception) {}
-                            try { conn?.disconnect() } catch (ignored: Exception) {}
                         }
-                    }
 
-                    if (!fileSuccess) {
-                        onComplete(false, lastError ?: "Failed to download ${item.fileName}")
-                        return@Thread
+                        val fileLength = conn!!.contentLengthLong
+                        input = conn.inputStream
+                        output = FileOutputStream(zipFile)
+
+                        val data = ByteArray(16384)
+                        var total: Long = 0
+                        var count: Int
+
+                        while (input.read(data).also { count = it } != -1) {
+                            total += count
+                            output.write(data, 0, count)
+
+                            if (fileLength > 0) {
+                                val downloadPercent = ((total * 85) / fileLength).toInt().coerceIn(0, 85)
+                                onProgress(downloadPercent)
+                            }
+                        }
+
+                        output.flush()
+                        output.close()
+                        output = null
+                        input.close()
+                        input = null
+                        conn.disconnect()
+
+                        if (zipFile.exists() && zipFile.length() >= MODEL_ZIP_MIN_SIZE) {
+                            downloadSuccess = true
+                            break
+                        } else {
+                            throw Exception("Downloaded archive is incomplete (${zipFile.length()} bytes)")
+                        }
+                    } catch (e: Exception) {
+                        lastError = e.localizedMessage ?: e.toString()
+                    } finally {
+                        try { input?.close() } catch (ignored: Exception) {}
+                        try { output?.close() } catch (ignored: Exception) {}
+                        try { conn?.disconnect() } catch (ignored: Exception) {}
                     }
+                }
+
+                if (!downloadSuccess) {
+                    try { if (zipFile.exists()) zipFile.delete() } catch (ignored: Exception) {}
+                    onComplete(false, lastError ?: "Failed to download $MODEL_ZIP_NAME")
+                    return@Thread
+                }
+
+                // Unpack model.zip into target directory
+                onProgress(90)
+                try {
+                    val zipIn = ZipInputStream(FileInputStream(zipFile))
+                    var entry = zipIn.nextEntry
+                    val buffer = ByteArray(16384)
+
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val fileName = File(entry.name).name
+                            if (fileName.isNotEmpty()) {
+                                val targetFile = File(targetDir, fileName)
+                                if (targetFile.canonicalPath.startsWith(targetDir.canonicalPath)) {
+                                    val tempOut = File(targetDir, "$fileName.tmp")
+                                    FileOutputStream(tempOut).use { outStream ->
+                                        var len: Int
+                                        while (zipIn.read(buffer).also { len = it } != -1) {
+                                            outStream.write(buffer, 0, len)
+                                        }
+                                        outStream.flush()
+                                    }
+                                    if (targetFile.exists()) targetFile.delete()
+                                    tempOut.renameTo(targetFile)
+                                }
+                            }
+                        }
+                        zipIn.closeEntry()
+                        entry = zipIn.nextEntry
+                    }
+                    zipIn.close()
+                } catch (e: Exception) {
+                    try { if (zipFile.exists()) zipFile.delete() } catch (ignored: Exception) {}
+                    onComplete(false, "Unpack failed: ${e.localizedMessage ?: e.toString()}")
+                    return@Thread
+                }
+
+                // Delete downloaded model.zip archive after unpacking
+                try {
+                    if (zipFile.exists()) zipFile.delete()
+                } catch (ignored: Exception) {}
+
+                onProgress(98)
+
+                // Verify unpacked files
+                if (!isModelDownloaded(context)) {
+                    onComplete(false, "Unpacked model verification failed")
+                    return@Thread
                 }
 
                 onProgress(100)

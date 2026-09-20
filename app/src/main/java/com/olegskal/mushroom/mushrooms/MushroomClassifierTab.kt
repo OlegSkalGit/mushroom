@@ -501,9 +501,9 @@ class MushroomClassifierTab(
     private fun promptAndDownloadModel(onReady: (Boolean) -> Unit) {
         val title = if (currentLang == "uk") "Завантаження моделі розпізнавання" else "Download Recognition Model"
         val msg = if (currentLang == "uk") {
-            "Для автономного визначення грибів потрібна нейромережа model2.onnx та словник (~280 МБ). Завантажити зараз?"
+            "Для автономного визначення грибів потрібен архів моделі model.zip (~74 МБ). Після завантаження його буде автоматично розпаковано. Завантажити зараз?"
         } else {
-            "Neural network model2.onnx and dictionary (~280 MB) are required for offline identification. Download now?"
+            "Offline mushroom recognition requires model.zip archive (~74 MB). It will be unpacked automatically. Download now?"
         }
 
         val dialogBuilder = AlertDialog.Builder(activity)
