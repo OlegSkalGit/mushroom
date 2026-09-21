@@ -15,7 +15,7 @@ object MushroomDatabaseManager {
     const val DB_FILE_NAME = "mushrooms.db"
     const val DB_DIR_NAME = "mushrooms"
     const val DB_MIN_SIZE = 400 * 1024 * 1024L // Min 400 MB to be considered valid
-    const val DB_FULL_SIZE = 573231104L // Exact 546.7 MB (~547 MB)
+    const val DB_FULL_SIZE = 560164864L // Exact 534 MB (~534 MB)
 
     const val PRIMARY_URL = "https://media.githubusercontent.com/media/OlegSkalGit/mushroom/main/downloads/mushrooms.db"
     const val FALLBACK_URL = "https://github.com/OlegSkalGit/mushroom/raw/main/downloads/mushrooms.db"

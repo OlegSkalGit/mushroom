@@ -477,9 +477,9 @@ class MushroomEncyclopediaTab(
     private fun promptAndDownloadDatabase(onReady: ((Boolean) -> Unit)? = null) {
         val title = if (currentLang == "uk") "Завантаження бази грибів" else "Download Mushroom Database"
         val msg = if (currentLang == "uk") {
-            "Для роботи енциклопедії без інтернету потрібна локальна база даних (~547 МБ). Завантажити зараз?"
+            "Для роботи енциклопедії без інтернету потрібна локальна база даних (~534 МБ). Завантажити зараз?"
         } else {
-            "Offline mushroom encyclopedia requires local database (~547 MB). Download now?"
+            "Offline mushroom encyclopedia requires local database (~534 MB). Download now?"
         }
 
         AlertDialog.Builder(activity)
