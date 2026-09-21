@@ -35,7 +35,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo [*] Відправка змін у віддалений репозиторій (git push)...
-git push
+git push --force origin main
 
 if %ERRORLEVEL% EQU 0 (
     echo.
