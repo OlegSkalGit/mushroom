@@ -21,7 +21,7 @@ if "%COMMIT_MSG%"=="" (
     set /p "COMMIT_MSG=Введіть повідомлення для коміту (Enter для 'Update and refresh cache'): "
 )
 if "!COMMIT_MSG!"=="" (
-    set "COMMIT_MSG=Update and refresh DB"
+    set "COMMIT_MSG=Update and refresh git"
 )
 
 echo [*] Створення коміту: "!COMMIT_MSG!"
