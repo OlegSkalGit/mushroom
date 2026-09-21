@@ -460,44 +460,88 @@ class MushroomEncyclopediaTab(
             dbStatusRow.visibility = View.GONE
             return
         }
-        val available = MushroomDatabaseManager.isDatabaseAvailable(activity)
-        if (available) {
-            dbStatusRow.visibility = View.GONE
-        } else {
-            dbStatusRow.visibility = View.VISIBLE
-            tvDbStatus.text = if (currentLang == "uk") {
-                "База не завантажена. Потрібно завантажити базу для офлайн-режиму."
-            } else {
-                "Database not downloaded. Please download database for offline mode."
+        val status = MushroomDatabaseManager.checkDatabaseStatus(activity)
+        when (status) {
+            MushroomDatabaseManager.DataStatus.READY -> {
+                dbStatusRow.visibility = View.GONE
             }
-            btnDownloadDb.text = if (currentLang == "uk") "Завантажити" else "Download"
+            MushroomDatabaseManager.DataStatus.NEEDS_UPDATE -> {
+                dbStatusRow.visibility = View.VISIBLE
+                tvDbStatus.text = if (currentLang == "uk") {
+                    "⚠️ Розмір бази не співпадає. Потрібно оновити базу грибів."
+                } else {
+                    "⚠️ Database size mismatch. Database update required."
+                }
+                btnDownloadDb.text = if (currentLang == "uk") "Оновити" else "Update"
+            }
+            MushroomDatabaseManager.DataStatus.MISSING -> {
+                dbStatusRow.visibility = View.VISIBLE
+                tvDbStatus.text = if (currentLang == "uk") {
+                    "База не завантажена. Потрібно завантажити базу для офлайн-режиму."
+                } else {
+                    "Database not downloaded. Please download database for offline mode."
+                }
+                btnDownloadDb.text = if (currentLang == "uk") "Завантажити" else "Download"
+            }
         }
     }
 
     private fun promptAndDownloadDatabase(onReady: ((Boolean) -> Unit)? = null) {
-        val title = if (currentLang == "uk") "Завантаження бази грибів" else "Download Mushroom Database"
-        val msg = if (currentLang == "uk") {
-            "Для роботи енциклопедії без інтернету потрібна локальна база даних (~534 МБ). Завантажити зараз?"
+        val status = MushroomDatabaseManager.checkDatabaseStatus(activity)
+        val isUpdate = (status == MushroomDatabaseManager.DataStatus.NEEDS_UPDATE)
+
+        val title = if (isUpdate) {
+            if (currentLang == "uk") "Потрібно оновити базу грибів" else "Update Mushroom Database"
         } else {
-            "Offline mushroom encyclopedia requires local database (~534 MB). Download now?"
+            if (currentLang == "uk") "Завантаження бази грибів" else "Download Mushroom Database"
+        }
+
+        val msg = if (isUpdate) {
+            if (currentLang == "uk") {
+                "Розмір встановленої бази не співпадає з актуальною версією (534 МБ).\n\n" +
+                "Оновлення виправляє дублювання фотографій та містить актуалізовані описи видів.\n\n" +
+                "Оновити базу даних зараз?"
+            } else {
+                "Installed database size differs from current version (534 MB).\n\n" +
+                "The update fixes duplicate photos and contains refreshed descriptions.\n\n" +
+                "Update database now?"
+            }
+        } else {
+            if (currentLang == "uk") {
+                "Для роботи енциклопедії без інтернету потрібна локальна база даних (~534 МБ). Завантажити зараз?"
+            } else {
+                "Offline mushroom encyclopedia requires local database (~534 MB). Download now?"
+            }
+        }
+
+        val positiveBtn = if (isUpdate) {
+            if (currentLang == "uk") "Оновити базу" else "Update"
+        } else {
+            if (currentLang == "uk") "Завантажити" else "Download"
+        }
+
+        val negativeBtn = if (isUpdate) {
+            if (currentLang == "uk") "Пізніше" else "Later"
+        } else {
+            if (currentLang == "uk") "Скасувати" else "Cancel"
         }
 
         AlertDialog.Builder(activity)
             .setTitle(title)
             .setMessage(msg)
-            .setCancelable(false)
-            .setNegativeButton(if (currentLang == "uk") "Скасувати" else "Cancel") { d, _ ->
+            .setCancelable(isUpdate)
+            .setNegativeButton(negativeBtn) { d, _ ->
                 d.dismiss()
                 onReady?.invoke(false)
             }
-            .setPositiveButton(if (currentLang == "uk") "Завантажити" else "Download") { d, _ ->
+            .setPositiveButton(positiveBtn) { d, _ ->
                 d.dismiss()
-                showDbDownloadProgressDialog(onReady)
+                showDbDownloadProgressDialog(isUpdate, onReady)
             }
             .show()
     }
 
-    private fun showDbDownloadProgressDialog(onReady: ((Boolean) -> Unit)? = null) {
+    private fun showDbDownloadProgressDialog(isUpdate: Boolean, onReady: ((Boolean) -> Unit)? = null) {
         val progressDialogView = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(30, 24, 30, 24)
@@ -505,7 +549,11 @@ class MushroomEncyclopediaTab(
         }
 
         val tvTitle = TextView(activity).apply {
-            text = if (currentLang == "uk") "Завантаження бази даних..." else "Downloading database..."
+            text = if (isUpdate) {
+                if (currentLang == "uk") "Оновлення бази даних..." else "Updating database..."
+            } else {
+                if (currentLang == "uk") "Завантаження бази даних..." else "Downloading database..."
+            }
             setTextColor(Color.WHITE)
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
@@ -541,6 +589,7 @@ class MushroomEncyclopediaTab(
 
         MushroomDatabaseManager.downloadDatabase(
             context = activity,
+            forceDownload = isUpdate,
             onProgress = { percent, statusText ->
                 mainHandler.post {
                     progressBar.progress = percent
@@ -552,7 +601,12 @@ class MushroomEncyclopediaTab(
                     dialog.dismiss()
                     if (success) {
                         updateDbStatusBadge()
-                        Toast.makeText(activity, if (currentLang == "uk") "Базу успішно завантажено!" else "Database downloaded successfully!", Toast.LENGTH_SHORT).show()
+                        val successMsg = if (isUpdate) {
+                            if (currentLang == "uk") "Базу успішно оновлено!" else "Database updated successfully!"
+                        } else {
+                            if (currentLang == "uk") "Базу успішно завантажено!" else "Database downloaded successfully!"
+                        }
+                        Toast.makeText(activity, successMsg, Toast.LENGTH_SHORT).show()
                         onReady?.invoke(true)
                         resetAndReload()
                     } else {

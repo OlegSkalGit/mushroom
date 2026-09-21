@@ -35,7 +35,7 @@ data class MushroomPrediction(
 
 data class ModelDownloadItem(
     val fileName: String,
-    val minSize: Long
+    val exactSize: Long
 )
 
 class MushroomClassifier(private val context: Context) {
@@ -51,38 +51,20 @@ class MushroomClassifier(private val context: Context) {
         private set
 
     companion object {
-        private const val BROKEN_MODEL2_SIZE = 280274191L
+        val MODEL_ZIP_NAME get() = MushroomDataConfig.MODEL_ZIP_NAME
+        val MODEL_ZIP_FULL_SIZE get() = MushroomDataConfig.MODEL_ZIP_FULL_SIZE
+        val MODEL_ZIP_PRIMARY_URL get() = MushroomDataConfig.MODEL_ZIP_PRIMARY_URL
+        val MODEL_ZIP_FALLBACK_URL get() = MushroomDataConfig.MODEL_ZIP_FALLBACK_URL
+        val REQUIRED_FILES get() = MushroomDataConfig.MODEL_REQUIRED_FILES
 
-        const val MODEL_ZIP_NAME = "model.zip"
-        const val MODEL_ZIP_PRIMARY_URL = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/downloads/model.zip"
-        const val MODEL_ZIP_FALLBACK_URL = "https://github.com/OlegSkalGit/mushroom/raw/main/downloads/model.zip"
-        const val MODEL_ZIP_MIN_SIZE = 70 * 1024 * 1024L
-
-        val REQUIRED_FILES = listOf(
-            ModelDownloadItem("model2.onnx", 250 * 1024 * 1024L),
-            ModelDownloadItem("classes.json", 50 * 1024L),
-            ModelDownloadItem("ort.min.js", 100 * 1024L),
-            ModelDownloadItem("ort-wasm-simd.wasm", 2 * 1024 * 1024L)
-        )
-
-        fun cleanBrokenModelIfPresent(context: Context) {
-            val candidates = listOf(
-                File(getModelDirectory(), "model2.onnx"),
-                File(getModelDirectory(), "model2.onnx.tmp"),
-                context.getExternalFilesDir(null)?.let { File(it, "model/model2.onnx") },
-                context.getExternalFilesDir(null)?.let { File(it, "model/model2.onnx.tmp") },
-                File(context.filesDir, "model/model2.onnx"),
-                File(context.filesDir, "model/model2.onnx.tmp")
-            )
-            for (f in candidates) {
-                if (f != null && f.exists() && f.length() == BROKEN_MODEL2_SIZE) {
-                    try { f.delete() } catch (ignored: Exception) {}
-                }
-            }
+        enum class ModelStatus {
+            MISSING,
+            NEEDS_UPDATE,
+            READY
         }
 
         fun getModelDirectory(): File {
-            val sdDir = File(Environment.getExternalStorageDirectory(), "mushroom/model")
+            val sdDir = File(Environment.getExternalStorageDirectory(), "mushroom/${MushroomDataConfig.MODEL_DIR_NAME}")
             if (!sdDir.exists()) {
                 sdDir.mkdirs()
             }
@@ -95,34 +77,61 @@ class MushroomClassifier(private val context: Context) {
 
             val extFiles = context.getExternalFilesDir(null)
             if (extFiles != null) {
-                val extFile = File(extFiles, "model/$fileName")
+                val extFile = File(extFiles, "${MushroomDataConfig.MODEL_DIR_NAME}/$fileName")
                 if (extFile.exists() && extFile.length() > 0) return extFile
             }
 
-            val internal = File(context.filesDir, "model/$fileName")
+            val internal = File(context.filesDir, "${MushroomDataConfig.MODEL_DIR_NAME}/$fileName")
             if (internal.exists() && internal.length() > 0) return internal
 
             return primary
         }
 
-        fun isModelDownloaded(context: Context): Boolean {
-            cleanBrokenModelIfPresent(context)
+        fun checkModelStatus(context: Context): ModelStatus {
+            // 1. Перевірка наявності файлів
             for (item in REQUIRED_FILES) {
                 val file = getRequiredFile(context, item.fileName)
-                if (!file.exists() || file.length() < item.minSize) {
+                if (!file.exists() || file.length() == 0L) {
+                    return ModelStatus.MISSING
+                }
+            }
+
+            // 2. Перевірка точного збігу розмірів
+            for (item in REQUIRED_FILES) {
+                val file = getRequiredFile(context, item.fileName)
+                if (file.length() != item.exactSize) {
+                    return ModelStatus.NEEDS_UPDATE
+                }
+            }
+
+            return ModelStatus.READY
+        }
+
+        fun isModelDownloaded(context: Context): Boolean {
+            return checkModelStatus(context) == ModelStatus.READY
+        }
+
+        fun isModelAvailable(context: Context): Boolean {
+            for (item in REQUIRED_FILES) {
+                val file = getRequiredFile(context, item.fileName)
+                if (!file.exists() || file.length() == 0L) {
                     return false
                 }
             }
             return true
         }
 
+        /**
+         * Завантаження моделі з підтримкою докачування (HTTP Range Request)
+         */
         fun downloadModel(
             context: Context,
+            forceDownload: Boolean = false,
             onProgress: (Int) -> Unit,
             onComplete: (Boolean, String?) -> Unit
         ) {
             Thread {
-                if (isModelDownloaded(context)) {
+                if (!forceDownload && isModelDownloaded(context)) {
                     onComplete(true, null)
                     return@Thread
                 }
@@ -136,6 +145,11 @@ class MushroomClassifier(private val context: Context) {
                 }
 
                 val zipFile = File(targetDir, "$MODEL_ZIP_NAME.tmp")
+
+                if (forceDownload && zipFile.exists() && zipFile.length() >= MODEL_ZIP_FULL_SIZE) {
+                    zipFile.delete()
+                }
+
                 val urlsToTry = listOf(MODEL_ZIP_PRIMARY_URL, MODEL_ZIP_FALLBACK_URL)
                 var downloadSuccess = false
                 var lastError: String? = null
@@ -146,8 +160,10 @@ class MushroomClassifier(private val context: Context) {
                     var output: FileOutputStream? = null
 
                     try {
+                        val existingLength = if (zipFile.exists()) zipFile.length() else 0L
                         var currentUrl = urlCandidate
                         var redirects = 0
+                        var responseCode = 0
 
                         while (redirects < 5) {
                             val url = URL(currentUrl)
@@ -156,29 +172,49 @@ class MushroomClassifier(private val context: Context) {
                             conn.connectTimeout = 15000
                             conn.readTimeout = 30000
                             conn.setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
-                            conn.connect()
 
-                            val code = conn.responseCode
-                            if (code == HttpURLConnection.HTTP_MOVED_PERM ||
-                                code == HttpURLConnection.HTTP_MOVED_TEMP ||
-                                code == 307 || code == 308) {
+                            if (existingLength > 0) {
+                                conn.setRequestProperty("Range", "bytes=$existingLength-")
+                            }
+
+                            conn.connect()
+                            responseCode = conn.responseCode
+
+                            if (responseCode == HttpURLConnection.HTTP_MOVED_PERM ||
+                                responseCode == HttpURLConnection.HTTP_MOVED_TEMP ||
+                                responseCode == 307 || responseCode == 308) {
                                 val newUrl = conn.getHeaderField("Location") ?: break
                                 conn.disconnect()
                                 currentUrl = newUrl
                                 redirects++
-                            } else if (code == 200) {
+                            } else if (responseCode == 200 || responseCode == 206) {
                                 break
                             } else {
-                                throw Exception("HTTP $code from $currentUrl")
+                                throw Exception("HTTP $responseCode from $currentUrl")
                             }
                         }
 
-                        val fileLength = conn!!.contentLengthLong
+                        if (responseCode != 200 && responseCode != 206) {
+                            throw Exception("HTTP помилка: $responseCode")
+                        }
+
+                        val isResume = (responseCode == 206)
+                        val append = isResume && existingLength > 0
+                        val startingBytes = if (append) existingLength else 0L
+
+                        val fileLength = if (isResume) {
+                            val contentRange = conn!!.getHeaderField("Content-Range")
+                            val totalFromRange = contentRange?.substringAfterLast('/')?.toLongOrNull()
+                            totalFromRange ?: (startingBytes + conn.contentLengthLong)
+                        } else {
+                            conn!!.contentLengthLong.takeIf { it > 0 } ?: MODEL_ZIP_FULL_SIZE
+                        }
+
                         input = conn.inputStream
-                        output = FileOutputStream(zipFile)
+                        output = FileOutputStream(zipFile, append)
 
                         val data = ByteArray(16384)
-                        var total: Long = 0
+                        var total: Long = startingBytes
                         var count: Int
 
                         while (input.read(data).also { count = it } != -1) {
@@ -198,11 +234,11 @@ class MushroomClassifier(private val context: Context) {
                         input = null
                         conn.disconnect()
 
-                        if (zipFile.exists() && zipFile.length() >= MODEL_ZIP_MIN_SIZE) {
+                        if (zipFile.exists() && zipFile.length() == MODEL_ZIP_FULL_SIZE) {
                             downloadSuccess = true
                             break
                         } else {
-                            throw Exception("Downloaded archive is incomplete (${zipFile.length()} bytes)")
+                            throw Exception("Невірний розмір архіву: ${zipFile.length()} байт (очікувалось $MODEL_ZIP_FULL_SIZE)")
                         }
                     } catch (e: Exception) {
                         lastError = e.localizedMessage ?: e.toString()
@@ -214,12 +250,10 @@ class MushroomClassifier(private val context: Context) {
                 }
 
                 if (!downloadSuccess) {
-                    try { if (zipFile.exists()) zipFile.delete() } catch (ignored: Exception) {}
-                    onComplete(false, lastError ?: "Failed to download $MODEL_ZIP_NAME")
+                    onComplete(false, lastError ?: "Не вдалося завантажити $MODEL_ZIP_NAME")
                     return@Thread
                 }
 
-                // Unpack model.zip into target directory
                 onProgress(90)
                 try {
                     val zipIn = ZipInputStream(FileInputStream(zipFile))
@@ -251,20 +285,18 @@ class MushroomClassifier(private val context: Context) {
                     zipIn.close()
                 } catch (e: Exception) {
                     try { if (zipFile.exists()) zipFile.delete() } catch (ignored: Exception) {}
-                    onComplete(false, "Unpack failed: ${e.localizedMessage ?: e.toString()}")
+                    onComplete(false, "Помилка розпакування: ${e.localizedMessage ?: e.toString()}")
                     return@Thread
                 }
 
-                // Delete downloaded model.zip archive after unpacking
                 try {
                     if (zipFile.exists()) zipFile.delete()
                 } catch (ignored: Exception) {}
 
                 onProgress(98)
 
-                // Verify unpacked files
                 if (!isModelDownloaded(context)) {
-                    onComplete(false, "Unpacked model verification failed")
+                    onComplete(false, "Перевірка розмірів розпакованих файлів не вдалася")
                     return@Thread
                 }
 

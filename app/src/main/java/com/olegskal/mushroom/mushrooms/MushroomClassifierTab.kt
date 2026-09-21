@@ -224,13 +224,25 @@ class MushroomClassifierTab(
     }
 
     fun updateModelStatusBadge() {
-        val isReady = MushroomClassifier.isModelDownloaded(activity)
-        if (isReady) {
-            modelStatusRow.visibility = View.GONE
-        } else {
-            modelStatusRow.visibility = View.VISIBLE
-            tvModelStatus.text = if (currentLang == "uk") "Модель розпізнавання відсутня" else "Recognition model missing"
-            btnDownloadModel.text = if (currentLang == "uk") "Завантажити" else "Download"
+        val status = MushroomClassifier.checkModelStatus(activity)
+        when (status) {
+            MushroomClassifier.ModelStatus.READY -> {
+                modelStatusRow.visibility = View.GONE
+            }
+            MushroomClassifier.ModelStatus.NEEDS_UPDATE -> {
+                modelStatusRow.visibility = View.VISIBLE
+                tvModelStatus.text = if (currentLang == "uk") {
+                    "⚠️ Розмір файлів моделі застарілий. Потрібно оновити модель."
+                } else {
+                    "⚠️ Model files outdated. Model update required."
+                }
+                btnDownloadModel.text = if (currentLang == "uk") "Оновити" else "Update"
+            }
+            MushroomClassifier.ModelStatus.MISSING -> {
+                modelStatusRow.visibility = View.VISIBLE
+                tvModelStatus.text = if (currentLang == "uk") "Модель розпізнавання відсутня" else "Recognition model missing"
+                btnDownloadModel.text = if (currentLang == "uk") "Завантажити" else "Download"
+            }
         }
     }
 
@@ -487,42 +499,75 @@ class MushroomClassifierTab(
             return
         }
 
-        if (!MushroomClassifier.isModelDownloaded(activity)) {
-            promptAndDownloadModel { success ->
+        val status = MushroomClassifier.checkModelStatus(activity)
+        if (status == MushroomClassifier.ModelStatus.READY) {
+            executeClassification()
+        } else {
+            val isUpdate = (status == MushroomClassifier.ModelStatus.NEEDS_UPDATE)
+            promptAndDownloadModel(isUpdate = isUpdate) { success ->
                 if (success) {
+                    executeClassification()
+                } else if (isUpdate && MushroomClassifier.isModelAvailable(activity)) {
                     executeClassification()
                 }
             }
-        } else {
-            executeClassification()
         }
     }
 
-    private fun promptAndDownloadModel(onReady: (Boolean) -> Unit) {
-        val title = if (currentLang == "uk") "Завантаження моделі розпізнавання" else "Download Recognition Model"
-        val msg = if (currentLang == "uk") {
-            "Для автономного визначення грибів потрібен архів моделі model.zip (~74 МБ). Після завантаження його буде автоматично розпаковано. Завантажити зараз?"
+    private fun promptAndDownloadModel(isUpdate: Boolean = false, onReady: (Boolean) -> Unit) {
+        val title = if (isUpdate) {
+            if (currentLang == "uk") "Потрібно оновити модель нейромережі" else "Update Recognition Model"
         } else {
-            "Offline mushroom recognition requires model.zip archive (~74 MB). It will be unpacked automatically. Download now?"
+            if (currentLang == "uk") "Завантаження моделі розпізнавання" else "Download Recognition Model"
+        }
+
+        val msg = if (isUpdate) {
+            if (currentLang == "uk") {
+                "Розмір встановлених файлів моделі не співпадає з актуальною версією.\n\n" +
+                "Оновлення містить актуальні ваги (model2.onnx) та оновлені класифікатори.\n\n" +
+                "Оновити модель зараз (архів ~74 МБ)?"
+            } else {
+                "Installed model files differ from current version.\n\n" +
+                "Update contains fresh neural weights (model2.onnx) and classes.\n\n" +
+                "Update model now (archive ~74 MB)?"
+            }
+        } else {
+            if (currentLang == "uk") {
+                "Для автономного визначення грибів потрібен архів моделі model.zip (~74 МБ). Після завантаження його буде автоматично розпаковано. Завантажити зараз?"
+            } else {
+                "Offline mushroom recognition requires model.zip archive (~74 MB). It will be unpacked automatically. Download now?"
+            }
+        }
+
+        val positiveBtn = if (isUpdate) {
+            if (currentLang == "uk") "Оновити модель" else "Update"
+        } else {
+            if (currentLang == "uk") "Завантажити" else "Download"
+        }
+
+        val negativeBtn = if (isUpdate) {
+            if (currentLang == "uk") "Пізніше" else "Later"
+        } else {
+            if (currentLang == "uk") "Скасувати" else "Cancel"
         }
 
         val dialogBuilder = AlertDialog.Builder(activity)
             .setTitle(title)
             .setMessage(msg)
-            .setCancelable(false)
-            .setNegativeButton(if (currentLang == "uk") "Скасувати" else "Cancel") { d, _ ->
+            .setCancelable(isUpdate)
+            .setNegativeButton(negativeBtn) { d, _ ->
                 d.dismiss()
                 onReady(false)
             }
-            .setPositiveButton(if (currentLang == "uk") "Завантажити" else "Download") { d, _ ->
+            .setPositiveButton(positiveBtn) { d, _ ->
                 d.dismiss()
-                showDownloadProgressDialog(onReady)
+                showDownloadProgressDialog(isUpdate, onReady)
             }
 
         dialogBuilder.show()
     }
 
-    private fun showDownloadProgressDialog(onReady: (Boolean) -> Unit) {
+    private fun showDownloadProgressDialog(isUpdate: Boolean, onReady: (Boolean) -> Unit) {
         val progressDialogView = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(30, 24, 30, 24)
@@ -530,7 +575,11 @@ class MushroomClassifierTab(
         }
 
         val tvTitle = TextView(activity).apply {
-            text = if (currentLang == "uk") "Завантаження нейромережі..." else "Downloading model..."
+            text = if (isUpdate) {
+                if (currentLang == "uk") "Оновлення нейромережі..." else "Updating model..."
+            } else {
+                if (currentLang == "uk") "Завантаження нейромережі..." else "Downloading model..."
+            }
             setTextColor(Color.WHITE)
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
@@ -566,6 +615,7 @@ class MushroomClassifierTab(
 
         MushroomClassifier.downloadModel(
             context = activity,
+            forceDownload = isUpdate,
             onProgress = { percent ->
                 mainHandler.post {
                     progressBar.progress = percent
@@ -577,7 +627,12 @@ class MushroomClassifierTab(
                     dialog.dismiss()
                     if (success) {
                         updateModelStatusBadge()
-                        Toast.makeText(activity, if (currentLang == "uk") "Модель успішно завантажена!" else "Model downloaded successfully!", Toast.LENGTH_SHORT).show()
+                        val okMsg = if (isUpdate) {
+                            if (currentLang == "uk") "Модель успішно оновлено!" else "Model updated successfully!"
+                        } else {
+                            if (currentLang == "uk") "Модель успішно завантажена!" else "Model downloaded successfully!"
+                        }
+                        Toast.makeText(activity, okMsg, Toast.LENGTH_SHORT).show()
                         onReady(true)
                     } else {
                         Toast.makeText(activity, "Download failed: $errorMsg", Toast.LENGTH_LONG).show()

@@ -78,7 +78,7 @@ object MushroomDetailDialog {
         // 1. Photos Section (Multiple photos support)
         val photos = taxon.photoUrls.ifEmpty {
             listOfNotNull(taxon.defaultPhotoUrl)
-        }
+        }.distinct()
 
         if (photos.isNotEmpty()) {
             var currentPhotoIdx = 0
