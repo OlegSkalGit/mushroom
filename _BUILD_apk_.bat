@@ -138,3 +138,5 @@ if exist "app\build\outputs\apk\release\app-release-unsigned.apk" (
 echo [ERROR] Build failed or APK not found.
 
 :END
+
+pause

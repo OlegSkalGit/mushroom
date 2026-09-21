@@ -40,6 +40,13 @@ data class ModelDownloadItem(
 
 class MushroomClassifier(private val context: Context) {
 
+    // ВИНЕСЕНО НА РІВЕНЬ КЛАСУ (тепер доступно як MushroomClassifier.ModelStatus)
+    enum class ModelStatus {
+        MISSING,
+        NEEDS_UPDATE,
+        READY
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
     private var isSessionReady = false
@@ -56,12 +63,6 @@ class MushroomClassifier(private val context: Context) {
         val MODEL_ZIP_PRIMARY_URL get() = MushroomDataConfig.MODEL_ZIP_PRIMARY_URL
         val MODEL_ZIP_FALLBACK_URL get() = MushroomDataConfig.MODEL_ZIP_FALLBACK_URL
         val REQUIRED_FILES get() = MushroomDataConfig.MODEL_REQUIRED_FILES
-
-        enum class ModelStatus {
-            MISSING,
-            NEEDS_UPDATE,
-            READY
-        }
 
         fun getModelDirectory(): File {
             val sdDir = File(Environment.getExternalStorageDirectory(), "mushroom/${MushroomDataConfig.MODEL_DIR_NAME}")
