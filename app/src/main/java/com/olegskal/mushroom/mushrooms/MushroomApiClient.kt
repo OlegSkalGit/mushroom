@@ -1,0 +1,461 @@
+package com.olegskal.mushroom.mushrooms
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Handler
+import android.os.Looper
+import android.util.LruCache
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.security.MessageDigest
+import java.util.concurrent.Executors
+
+data class MushroomTaxon(
+    val id: Int,
+    val scientificName: String,
+    val commonName: String,
+    val defaultPhotoUrl: String?,
+    val photoUrls: List<String> = emptyList(),
+    val wikipediaSummary: String? = null,
+    val wikipediaUrl: String? = null,
+    val edibility: String = "unknown",
+    val hymenium: String = "other",
+    val observationsCount: Int = 0,
+    val rank: String = "species",
+    val family: String? = null,
+    val order: String? = null,
+    val genus: String? = null,
+    val englishCommonName: String? = null,
+    val conservationStatus: String? = null,
+    val phylum: String? = null,
+    val taxonClass: String? = null
+)
+
+object MushroomApiClient {
+
+    private val executor = Executors.newFixedThreadPool(4)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+    private val cacheSize = maxMemory / 8
+    private val memoryCache = object : LruCache<String, Bitmap>(cacheSize) {
+        override fun sizeOf(key: String, bitmap: Bitmap): Int {
+            return bitmap.byteCount / 1024
+        }
+    }
+
+    private var diskCacheDir: File? = null
+    var appContext: android.content.Context? = null
+
+    fun setContext(context: android.content.Context) {
+        appContext = context.applicationContext
+    }
+
+    fun initDiskCache(baseDir: File, context: android.content.Context? = null) {
+        if (context != null) {
+            appContext = context.applicationContext
+        }
+        val dir = File(baseDir, "cache/mushrooms")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        diskCacheDir = dir
+    }
+
+    fun searchTaxaSync(
+        query: String,
+        lang: String,
+        page: Int = 1,
+        perPage: Int = 60,
+        hymeniumFilter: String = "all"
+    ): Pair<List<MushroomTaxon>, Boolean> {
+        val taxonId = when (hymeniumFilter) {
+            "tubes" -> "48701"
+            "gills" -> "47169"
+            else -> "47170"
+        }
+        val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
+        val urlString = "https://api.inaturalist.org/v1/taxa?taxon_id=$taxonId&q=$encodedQuery&has[]=photos&locale=$lang&per_page=$perPage&page=$page"
+        return executeTaxaRequestSync(urlString)
+    }
+
+    fun getPopularTaxaSync(
+        isUkraine: Boolean,
+        lang: String,
+        page: Int = 1,
+        perPage: Int = 100,
+        hymeniumFilter: String = "all"
+    ): Pair<List<MushroomTaxon>, Boolean> {
+        val taxonIds = when (hymeniumFilter) {
+            "tubes" -> "48701"
+            "gills" -> "47169"
+            else -> "50814,57005"
+        }
+        val urlString = if (isUkraine) {
+            // Macrofungi in Ukraine (place_id=8860, Agaricomycetes + Pezizomycetes)
+            "https://api.inaturalist.org/v1/observations/species_counts?taxon_id=$taxonIds&place_id=8860&locale=$lang&per_page=$perPage&page=$page"
+        } else {
+            // Worldwide popular Macrofungi (Agaricomycetes + Pezizomycetes)
+            "https://api.inaturalist.org/v1/taxa?taxon_id=$taxonIds&rank=species&is_active=true&order_by=observations_count&order=desc&has[]=photos&locale=$lang&per_page=$perPage&page=$page"
+        }
+        return executeTaxaRequestSync(urlString)
+    }
+
+    fun searchTaxa(
+        query: String,
+        lang: String,
+        page: Int = 1,
+        perPage: Int = 60,
+        onResult: (List<MushroomTaxon>, Boolean) -> Unit
+    ) {
+        executor.execute {
+            val result = searchTaxaSync(query, lang, page, perPage)
+            mainHandler.post { onResult(result.first, result.second) }
+        }
+    }
+
+    fun getPopularTaxa(
+        isUkraine: Boolean,
+        lang: String,
+        page: Int = 1,
+        perPage: Int = 100,
+        onResult: (List<MushroomTaxon>, Boolean) -> Unit
+    ) {
+        executor.execute {
+            val result = getPopularTaxaSync(isUkraine, lang, page, perPage)
+            mainHandler.post { onResult(result.first, result.second) }
+        }
+    }
+
+    fun getTaxonDetails(
+        taxonId: Int,
+        scientificName: String,
+        lang: String,
+        onResult: (MushroomTaxon?) -> Unit
+    ) {
+        executor.execute {
+            try {
+                val resolvedTaxonId = if (taxonId > 0) {
+                    taxonId
+                } else {
+                    val searchUrl = "https://api.inaturalist.org/v1/taxa?taxon_id=47170&q=${URLEncoder.encode(scientificName, "UTF-8")}&locale=$lang"
+                    val jsonStr = fetchUrlString(searchUrl)
+                    val root = JSONObject(jsonStr)
+                    val resArr = root.optJSONArray("results")
+                    if (resArr != null && resArr.length() > 0) {
+                        resArr.getJSONObject(0).optInt("id", 0)
+                    } else 0
+                }
+
+                if (resolvedTaxonId > 0) {
+                    val detailUrl = "https://api.inaturalist.org/v1/taxa/$resolvedTaxonId?locale=$lang"
+                    val jsonStr = fetchUrlString(detailUrl)
+                    val root = JSONObject(jsonStr)
+                    val resArr = root.optJSONArray("results")
+                    if (resArr != null && resArr.length() > 0) {
+                        val obj = resArr.getJSONObject(0)
+                        var taxon = parseTaxonObject(obj)
+
+                        // If Wikipedia summary is missing in current language, fallback to English
+                        val currentSummary = taxon.wikipediaSummary?.takeIf { !it.equals("null", ignoreCase = true) && it.isNotBlank() }
+                        if (currentSummary == null) {
+                            // 1. Try iNaturalist locale=en
+                            try {
+                                val enUrl = "https://api.inaturalist.org/v1/taxa/$resolvedTaxonId?locale=en"
+                                val enJson = fetchUrlString(enUrl)
+                                val enObj = JSONObject(enJson).optJSONArray("results")?.optJSONObject(0)
+                                val enSummary = enObj?.optCleanString("wikipedia_summary")
+                                if (enSummary != null) {
+                                    taxon = taxon.copy(wikipediaSummary = cleanHtml(enSummary))
+                                }
+                            } catch (ignored: Exception) {}
+
+                            // 2. If still blank, try Wikipedia REST API directly for English summary
+                            if (taxon.wikipediaSummary == null) {
+                                try {
+                                    val wikiRestUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/${URLEncoder.encode(taxon.scientificName, "UTF-8")}"
+                                    val wikiJson = fetchUrlString(wikiRestUrl)
+                                    val extract = JSONObject(wikiJson).optCleanString("extract")
+                                    if (extract != null) {
+                                        taxon = taxon.copy(wikipediaSummary = cleanHtml(extract))
+                                    }
+                                } catch (ignored: Exception) {}
+                            }
+                        }
+
+                        mainHandler.post { onResult(taxon) }
+                        return@execute
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            mainHandler.post { onResult(null) }
+        }
+    }
+
+    fun executeTaxaRequestSync(urlString: String): Pair<List<MushroomTaxon>, Boolean> {
+        return try {
+            val jsonStr = fetchUrlString(urlString)
+            val root = JSONObject(jsonStr)
+            val resultsArr = root.optJSONArray("results") ?: JSONArray()
+            val totalResults = root.optInt("total_results", 0)
+            val perPage = root.optInt("per_page", 24)
+            val page = root.optInt("page", 1)
+            val hasMore = resultsArr.length() >= perPage && ((page * perPage) < totalResults || totalResults == 0)
+
+            val list = mutableListOf<MushroomTaxon>()
+            for (i in 0 until resultsArr.length()) {
+                val item = resultsArr.getJSONObject(i)
+                val taxonObj = if (item.has("taxon")) item.getJSONObject("taxon") else item
+                val taxon = parseTaxonObject(taxonObj)
+                if (taxon.scientificName != "Unknown species") {
+                    list.add(taxon)
+                }
+            }
+            Pair(list, hasMore)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Pair(emptyList(), false)
+        }
+    }
+
+    private fun executeTaxaRequest(urlString: String, onResult: (List<MushroomTaxon>, Boolean) -> Unit) {
+        val result = executeTaxaRequestSync(urlString)
+        mainHandler.post {
+            onResult(result.first, result.second)
+        }
+    }
+
+    private fun JSONObject.optCleanString(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        val v = optString(key, "").trim()
+        return if (v.isEmpty() || v.equals("null", ignoreCase = true)) null else v
+    }
+
+    private fun parseTaxonObject(obj: JSONObject): MushroomTaxon {
+        val id = obj.optInt("id", 0)
+        val scientificName = obj.optCleanString("name") ?: "Unknown species"
+        val preferredCommon = obj.optCleanString("preferred_common_name")
+        val englishCommon = obj.optCleanString("english_common_name")
+        val common = when {
+            !preferredCommon.isNullOrEmpty() -> preferredCommon
+            !englishCommon.isNullOrEmpty() -> englishCommon
+            else -> scientificName
+        }
+
+        var defaultPhotoUrl: String? = null
+        val defaultPhotoObj = obj.optJSONObject("default_photo")
+        if (defaultPhotoObj != null) {
+            val med = defaultPhotoObj.optCleanString("medium_url")
+            val sq = defaultPhotoObj.optCleanString("square_url")
+            val u = defaultPhotoObj.optCleanString("url")
+            defaultPhotoUrl = med ?: sq ?: u
+        }
+        if (defaultPhotoUrl == null) {
+            val photosArr = obj.optJSONArray("photos")
+            if (photosArr != null && photosArr.length() > 0) {
+                val pObj = photosArr.getJSONObject(0)
+                val u = pObj.optCleanString("medium_url") ?: pObj.optCleanString("url")
+                defaultPhotoUrl = u
+            }
+        }
+
+        val photoUrls = mutableListOf<String>()
+        if (defaultPhotoUrl != null) photoUrls.add(defaultPhotoUrl)
+
+        val taxonPhotos = obj.optJSONArray("taxon_photos")
+        if (taxonPhotos != null) {
+            for (j in 0 until taxonPhotos.length()) {
+                val pObj = taxonPhotos.getJSONObject(j).optJSONObject("photo")
+                val url = pObj?.optCleanString("medium_url") ?: pObj?.optCleanString("large_url")
+                if (!url.isNullOrEmpty() && !photoUrls.contains(url)) {
+                    photoUrls.add(url)
+                }
+            }
+        }
+
+        val wikiSummary = obj.optCleanString("wikipedia_summary")
+        val wikiUrl = obj.optCleanString("wikipedia_url")
+        val observationsCount = obj.optInt("observations_count", 0)
+        val rank = obj.optCleanString("rank") ?: "species"
+
+        // Parse taxonomic hierarchy from ancestors
+        var phylum: String? = null
+        var taxonClass: String? = null
+        var order: String? = null
+        var family: String? = null
+        var genus: String? = null
+        val ancestors = obj.optJSONArray("ancestors")
+        if (ancestors != null) {
+            for (i in 0 until ancestors.length()) {
+                val anc = ancestors.getJSONObject(i)
+                val r = anc.optCleanString("rank")
+                val n = anc.optCleanString("name")
+                when (r) {
+                    "phylum" -> phylum = n
+                    "class" -> taxonClass = n
+                    "order" -> order = n
+                    "family" -> family = n
+                    "genus" -> genus = n
+                }
+            }
+        }
+
+        // Parse conservation status
+        val conservationStatuses = obj.optJSONArray("conservation_statuses")
+        var conservationStatus: String? = null
+        if (conservationStatuses != null && conservationStatuses.length() > 0) {
+            val cs = conservationStatuses.getJSONObject(0)
+            val st = cs.optCleanString("status")
+            val auth = cs.optCleanString("authority")
+            if (st != null) {
+                conservationStatus = if (auth != null) "$st ($auth)" else st
+            }
+        }
+
+        val meta = MycoKnowledge.resolveMetadata(scientificName)
+
+        return MushroomTaxon(
+            id = id,
+            scientificName = scientificName,
+            commonName = common,
+            defaultPhotoUrl = defaultPhotoUrl,
+            photoUrls = photoUrls,
+            wikipediaSummary = cleanHtml(wikiSummary),
+            wikipediaUrl = wikiUrl,
+            edibility = meta.edibility,
+            hymenium = meta.hymenium,
+            observationsCount = observationsCount,
+            rank = rank,
+            family = family,
+            order = order,
+            genus = genus,
+            englishCommonName = englishCommon,
+            conservationStatus = conservationStatus,
+            phylum = phylum,
+            taxonClass = taxonClass
+        )
+    }
+
+    private fun cleanHtml(html: String?): String? {
+        if (html == null) return null
+        val cleaned = html.replace(Regex("<[^>]*>"), "").trim()
+        return if (cleaned.isEmpty() || cleaned.equals("null", ignoreCase = true)) null else cleaned
+    }
+
+    private fun fetchUrlString(urlString: String): String {
+        val url = URL(urlString)
+        val conn = url.openConnection() as HttpURLConnection
+        conn.connectTimeout = 10000
+        conn.readTimeout = 15000
+        conn.requestMethod = "GET"
+        conn.setRequestProperty("User-Agent", "MushroomApp/1.0 (Android; Contact: olegskal)")
+        conn.connect()
+
+        val responseCode = conn.responseCode
+        if (responseCode != 200) {
+            conn.disconnect()
+            throw Exception("HTTP Error: $responseCode")
+        }
+
+        val reader = conn.inputStream.bufferedReader()
+        val content = reader.readText()
+        reader.close()
+        conn.disconnect()
+        return content
+    }
+
+    fun loadBitmap(urlString: String?, callback: (Bitmap?) -> Unit) {
+        if (urlString.isNullOrEmpty()) {
+            callback(null)
+            return
+        }
+
+        val cached = memoryCache.get(urlString)
+        if (cached != null) {
+            callback(cached)
+            return
+        }
+
+        if (urlString.startsWith("db://photo/")) {
+            val photoId = urlString.removePrefix("db://photo/").toIntOrNull()
+            executor.execute {
+                val ctx = appContext
+                if (photoId != null && ctx != null) {
+                    val blob = MushroomDatabaseManager.loadPhotoBlob(ctx, photoId)
+                    if (blob != null) {
+                        val bmp = BitmapFactory.decodeByteArray(blob, 0, blob.size)
+                        if (bmp != null) {
+                            memoryCache.put(urlString, bmp)
+                            mainHandler.post { callback(bmp) }
+                            return@execute
+                        }
+                    }
+                }
+                mainHandler.post { callback(null) }
+            }
+            return
+        }
+
+        executor.execute {
+            val diskFile = getDiskCacheFile(urlString)
+            if (diskFile != null && diskFile.exists() && diskFile.length() > 0) {
+                val bmp = BitmapFactory.decodeFile(diskFile.absolutePath)
+                if (bmp != null) {
+                    memoryCache.put(urlString, bmp)
+                    mainHandler.post { callback(bmp) }
+                    return@execute
+                }
+            }
+
+            try {
+                val url = URL(urlString)
+                val conn = url.openConnection() as HttpURLConnection
+                conn.connectTimeout = 8000
+                conn.readTimeout = 12000
+                conn.connect()
+
+                if (conn.responseCode == 200) {
+                    val bytes = conn.inputStream.readBytes()
+                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bmp != null) {
+                        memoryCache.put(urlString, bmp)
+                        if (diskFile != null) {
+                            try {
+                                FileOutputStream(diskFile).use { it.write(bytes) }
+                            } catch (ignored: Exception) {}
+                        }
+                        mainHandler.post { callback(bmp) }
+                        return@execute
+                    }
+                }
+                conn.disconnect()
+            } catch (e: Exception) {
+                // ignore
+            }
+            mainHandler.post { callback(null) }
+        }
+    }
+
+    private fun getDiskCacheFile(url: String): File? {
+        val dir = diskCacheDir ?: return null
+        val hash = md5(url)
+        return File(dir, "$hash.img")
+    }
+
+    private fun md5(s: String): String {
+        return try {
+            val md = MessageDigest.getInstance("MD5")
+            val digested = md.digest(s.toByteArray())
+            digested.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            s.hashCode().toString()
+        }
+    }
+}
