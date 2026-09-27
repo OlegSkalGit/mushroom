@@ -1,0 +1,8 @@
+python scripts/manage_db.py stats Ч детальна статистика, перев≥рка в≥дпов≥дност≥ до classes.json, в≥дсутн≥ види.
+python scripts/manage_db.py sync Ч швидка синхрон≥зац≥€ њст≥вност≥ та г≥менофору з classes.json ≥з врахуванн€м синон≥м≥в.
+python scripts/manage_db.py fetch_missing Ч автоматичне п≥дт€гуванн€ в≥дсутн≥х 17 вид≥в, опис≥в та оптим≥зованих WebP-фото з iNaturalist/Wikipedia.
+python scripts/manage_db.py dedup Ч видаленн€ дубл≥кат≥в фото (за URL та MD5-хешем б≥нарних даних), перерахунок ≥ндекс≥в ≥ к≥лькостей.
+python scripts/manage_db.py repack Ч VACUUM + 7-Zip розбивка на цифров≥ томи строго по 68681728 байт + автооновленн€ розм≥р≥в у 
+MushroomDataConfig.kt
+.
+python scripts/manage_db.py all Ч повний цикл синхрон≥зац≥њ та перепакуванн€ в одну команду.

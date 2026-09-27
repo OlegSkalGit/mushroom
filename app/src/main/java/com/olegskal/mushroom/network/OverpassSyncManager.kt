@@ -1,0 +1,316 @@
+package com.olegskal.mushroom.network
+
+import android.os.Handler
+import android.os.Looper
+import com.olegskal.mushroom.db.DatabaseHelper
+import com.olegskal.mushroom.map.MapCountry
+import com.olegskal.mushroom.map.MapRegion
+import com.olegskal.mushroom.util.AppLogger
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.util.concurrent.Executors
+
+object OverpassSyncManager {
+
+    private const val TAG = "OverpassSyncManager"
+
+    private val MIRRORS = arrayOf(
+        "https://overpass-api.de/api/interpreter",
+        "https://z.overpass-api.de/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter"
+    )
+
+    private val executor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val BUILTIN_COUNTRIES: List<MapCountry> = listOf(
+        MapCountry("Ukraine", "UA"),
+        MapCountry("Poland", "PL"),
+        MapCountry("Germany", "DE"),
+        MapCountry("Czech Republic", "CZ"),
+        MapCountry("Slovakia", "SK"),
+        MapCountry("Romania", "RO"),
+        MapCountry("Hungary", "HU"),
+        MapCountry("Moldova", "MD"),
+        MapCountry("Austria", "AT"),
+        MapCountry("Italy", "IT"),
+        MapCountry("France", "FR"),
+        MapCountry("Spain", "ES"),
+        MapCountry("Portugal", "PT"),
+        MapCountry("Switzerland", "CH"),
+        MapCountry("United Kingdom", "GB"),
+        MapCountry("Lithuania", "LT"),
+        MapCountry("Latvia", "LV"),
+        MapCountry("Estonia", "EE"),
+        MapCountry("Finland", "FI"),
+        MapCountry("Sweden", "SE"),
+        MapCountry("Norway", "NO"),
+        MapCountry("Greece", "GR"),
+        MapCountry("Bulgaria", "BG"),
+        MapCountry("Croatia", "HR"),
+        MapCountry("Slovenia", "SI")
+    )
+
+    val BUILTIN_UA_REGIONS: List<MapRegion> = listOf(
+        MapRegion("ua_kyiv", "Kyiv Oblast", 50.1, 51.5, 29.2, 32.1),
+        MapRegion("ua_zhytomyr", "Zhytomyr Oblast", 50.0, 51.7, 27.2, 29.8),
+        MapRegion("ua_chernihiv", "Chernihiv Oblast", 50.3, 52.4, 30.5, 33.5),
+        MapRegion("ua_lviv", "Lviv Oblast", 48.8, 50.6, 22.7, 25.4),
+        MapRegion("ua_zakarpattia", "Zakarpattia Oblast", 47.9, 49.1, 22.1, 24.7),
+        MapRegion("ua_ivano_frankivsk", "Ivano-Frankivsk Oblast", 47.7, 49.3, 23.6, 25.6),
+        MapRegion("ua_volyn", "Volyn Oblast", 50.3, 52.0, 23.6, 26.1),
+        MapRegion("ua_rivne", "Rivne Oblast", 50.1, 52.0, 25.1, 27.5),
+        MapRegion("ua_ternopil", "Ternopil Oblast", 48.5, 50.3, 24.7, 26.5),
+        MapRegion("ua_khmelnytskyi", "Khmelnytskyi Oblast", 48.4, 50.6, 26.1, 27.9),
+        MapRegion("ua_vinnytsia", "Vinnytsia Oblast", 48.1, 49.9, 27.4, 30.1),
+        MapRegion("ua_cherkasy", "Cherkasy Oblast", 48.5, 50.3, 30.9, 32.9),
+        MapRegion("ua_poltava", "Poltava Oblast", 48.7, 50.5, 32.1, 35.5),
+        MapRegion("ua_sumy", "Sumy Oblast", 50.0, 52.4, 33.1, 35.7),
+        MapRegion("ua_chernivtsi", "Chernivtsi Oblast", 47.7, 48.7, 24.9, 27.5),
+        MapRegion("ua_dnipro", "Dnipropetrovsk Oblast", 47.5, 49.2, 33.4, 36.9),
+        MapRegion("ua_kharkiv", "Kharkiv Oblast", 48.5, 50.5, 34.9, 38.0),
+        MapRegion("ua_kirovohrad", "Kirovohrad Oblast", 47.7, 49.2, 29.7, 33.6),
+        MapRegion("ua_odesa", "Odesa Oblast", 45.2, 48.2, 28.2, 31.3),
+        MapRegion("ua_mykolaiv", "Mykolaiv Oblast", 46.4, 48.2, 30.7, 33.2),
+        MapRegion("ua_kherson", "Kherson Oblast", 45.9, 47.6, 31.5, 35.0),
+        MapRegion("ua_zaporizhia", "Zaporizhzhia Oblast", 46.3, 48.2, 34.4, 37.3),
+        MapRegion("ua_donetsk", "Donetsk Oblast", 46.8, 49.2, 36.6, 39.2),
+        MapRegion("ua_luhansk", "Luhansk Oblast", 47.8, 50.1, 37.8, 40.2),
+        MapRegion("ua_crimea", "Autonomous Republic of Crimea", 44.3, 46.2, 32.4, 36.7)
+    )
+
+    val BUILTIN_PL_REGIONS: List<MapRegion> = listOf(
+        MapRegion("pl_maz", "Masovian (Mazowieckie)", 51.0, 53.5, 19.2, 23.1),
+        MapRegion("pl_mlp", "Lesser Poland (Małopolskie)", 49.1, 50.5, 19.1, 21.4),
+        MapRegion("pl_pkr", "Subcarpathian (Podkarpackie)", 49.0, 50.8, 21.1, 23.5),
+        MapRegion("pl_sl", "Silesian (Śląskie)", 49.4, 51.1, 18.2, 19.9),
+        MapRegion("pl_lub", "Lublin (Lubelskie)", 50.2, 52.3, 21.6, 24.2),
+        MapRegion("pl_pdl", "Podlaskie", 52.2, 54.4, 21.5, 23.9),
+        MapRegion("pl_dls", "Lower Silesian (Dolnośląskie)", 50.1, 51.8, 14.8, 17.8),
+        MapRegion("pl_wlp", "Greater Poland (Wielkopolskie)", 51.4, 53.7, 15.8, 19.1),
+        MapRegion("pl_zpm", "West Pomeranian (Zachodniopomorskie)", 52.6, 54.6, 14.1, 16.9),
+        MapRegion("pl_pom", "Pomeranian (Pomorskie)", 53.5, 54.9, 16.7, 19.6),
+        MapRegion("pl_wrm", "Warmian-Masurian (Warmińsko-Mazurskie)", 53.1, 54.5, 19.2, 22.8)
+    )
+
+    fun fetchCountries(
+        dbHelper: DatabaseHelper,
+        onResult: (List<MapCountry>) -> Unit
+    ) {
+        val cached = dbHelper.getCachedCountries()
+        if (cached.isNotEmpty()) {
+            onResult(cached)
+        } else {
+            onResult(BUILTIN_COUNTRIES)
+        }
+
+        executor.execute {
+            try {
+                val query = """
+                    [out:json][timeout:25];
+                    (
+                      relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1"];
+                      relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1:alpha2"];
+                    );
+                    out tags;
+                """.trimIndent()
+
+                val jsonStr = executePostRequest(query)
+                if (!jsonStr.isNullOrEmpty()) {
+                    val parsed = parseCountriesJson(jsonStr)
+                    if (parsed.isNotEmpty()) {
+                        dbHelper.insertCountries(parsed)
+                        AppLogger.log(TAG, "fetchCountries", true, "Fetched and cached ${parsed.size} countries online from OSM.")
+                        val all = dbHelper.getCachedCountries()
+                        mainHandler.post { onResult(all) }
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "fetchCountries", false, "Overpass error: ${e.message}")
+            }
+        }
+    }
+
+    fun fetchRegions(
+        countryCode: String,
+        dbHelper: DatabaseHelper,
+        onResult: (List<MapRegion>) -> Unit
+    ) {
+        val cached = dbHelper.getCachedRegions(countryCode)
+        if (cached.isNotEmpty()) {
+            onResult(cached)
+            return
+        }
+
+        val codeUpper = countryCode.uppercase().trim()
+        executor.execute {
+            try {
+                // 1. Fast subarea member hierarchy query (works in 2-4s for almost all countries)
+                val querySubareas = """
+                    [out:json][timeout:25];
+                    (
+                      relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1"="$codeUpper"];
+                      relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1:alpha2"="$codeUpper"];
+                    );
+                    rel(r:"subarea");
+                    out tags bb;
+                """.trimIndent()
+
+                var jsonStr = executePostRequest(querySubareas)
+                var regions = if (!jsonStr.isNullOrEmpty()) parseRegionsJson(jsonStr) else emptyList()
+
+                // 2. Fallback: query by ISO3166-2 code prefix if subarea relation role is omitted
+                if (regions.isEmpty()) {
+                    val queryIso = """
+                        [out:json][timeout:25];
+                        relation["admin_level"="4"]["ISO3166-2"~"^$codeUpper-",i];
+                        out tags bb;
+                    """.trimIndent()
+                    jsonStr = executePostRequest(queryIso)
+                    if (!jsonStr.isNullOrEmpty()) {
+                        regions = parseRegionsJson(jsonStr)
+                    }
+                }
+
+                // 3. Fallback for single-division countries / city-states (Monaco, Singapore, Luxembourg, Vatican, Malta, etc.)
+                if (regions.isEmpty()) {
+                    val querySingle = """
+                        [out:json][timeout:20];
+                        (
+                          relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1"="$codeUpper"];
+                          relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1:alpha2"="$codeUpper"];
+                        );
+                        out tags bb;
+                    """.trimIndent()
+                    jsonStr = executePostRequest(querySingle)
+                    if (!jsonStr.isNullOrEmpty()) {
+                        regions = parseRegionsJson(jsonStr)
+                    }
+                }
+
+                if (regions.isNotEmpty()) {
+                    dbHelper.insertRegions(codeUpper, regions)
+                    AppLogger.log(TAG, "fetchRegions", true, "Fetched and cached ${regions.size} regions online for $codeUpper from OSM.")
+                    mainHandler.post { onResult(regions) }
+                } else {
+                    // Offline fallback if network is unreachable
+                    val offline = if (codeUpper == "UA") BUILTIN_UA_REGIONS else if (codeUpper == "PL") BUILTIN_PL_REGIONS else emptyList()
+                    if (offline.isNotEmpty()) {
+                        dbHelper.insertRegions(codeUpper, offline)
+                    }
+                    mainHandler.post { onResult(offline) }
+                }
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "fetchRegions", false, "Error fetching regions for $codeUpper: ${e.message}")
+                val offline = if (codeUpper == "UA") BUILTIN_UA_REGIONS else if (codeUpper == "PL") BUILTIN_PL_REGIONS else emptyList()
+                mainHandler.post { onResult(offline) }
+            }
+        }
+    }
+
+    private fun executePostRequest(query: String): String? {
+        val encodedBody = "data=" + URLEncoder.encode(query, "UTF-8")
+        for (mirror in MIRRORS) {
+            var conn: HttpURLConnection? = null
+            try {
+                val url = URL(mirror)
+                conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 6000
+                    readTimeout = 15000
+                    doOutput = true
+                    setRequestProperty("User-Agent", "MushroomApp/1.0 (Android; Offline Forest Navigator)")
+                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                }
+                conn.outputStream.use { os ->
+                    os.write(encodedBody.toByteArray(Charsets.UTF_8))
+                    os.flush()
+                }
+                if (conn.responseCode == 200) {
+                    return conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                } else {
+                    AppLogger.log(TAG, "executePostRequest", false, "HTTP ${conn.responseCode} on $mirror")
+                }
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "executePostRequest", false, "Mirror $mirror error: ${e.message}")
+            } finally {
+                conn?.disconnect()
+            }
+        }
+        return null
+    }
+
+    private fun parseCountriesJson(jsonStr: String): List<MapCountry> {
+        val result = mutableMapOf<String, String>()
+        try {
+            val root = JSONObject(jsonStr)
+            val elements = root.optJSONArray("elements") ?: return emptyList()
+            for (i in 0 until elements.length()) {
+                val el = elements.optJSONObject(i) ?: continue
+                val tags = el.optJSONObject("tags") ?: continue
+                val code = tags.optString("ISO3166-1").ifEmpty { tags.optString("ISO3166-1:alpha2") }.uppercase().trim()
+                if (code.length != 2) continue
+
+                val nameEn = tags.optString("name:en")
+                val nameLocal = tags.optString("name")
+                val nameUk = tags.optString("name:uk")
+                val name = nameEn.ifEmpty { nameLocal.ifEmpty { nameUk } }
+                if (name.isNotEmpty()) {
+                    val clean = name.replace(Regex("""\s*\(.*?\)\s*"""), "").trim()
+                    if (!result.containsKey(code) || clean.length < result[code]!!.length) {
+                        result[code] = clean
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "parseCountriesJson", false, "Error parsing countries: ${e.message}")
+        }
+        return result.map { MapCountry(it.value, it.key) }.sortedBy { it.name }
+    }
+
+    private fun parseRegionsJson(jsonStr: String): List<MapRegion> {
+        val list = ArrayList<MapRegion>()
+        val seenIds = HashSet<Long>()
+        try {
+            val root = JSONObject(jsonStr)
+            val elements = root.optJSONArray("elements") ?: return emptyList()
+            for (i in 0 until elements.length()) {
+                val el = elements.optJSONObject(i) ?: continue
+                val id = el.optLong("id")
+                if (id != 0L && !seenIds.add(id)) continue
+
+                val bounds = el.optJSONObject("bounds") ?: continue
+                val tags = el.optJSONObject("tags") ?: continue
+
+                val nameEn = tags.optString("name:en")
+                val nameLocal = tags.optString("name")
+                val nameUk = tags.optString("name:uk")
+
+                var displayName = nameEn.ifEmpty { nameLocal.ifEmpty { nameUk } }.trim()
+                if (displayName.isEmpty()) continue
+
+                if (nameEn.isNotEmpty() && nameLocal.isNotEmpty() && nameLocal != nameEn) {
+                    val cleanLocal = nameLocal.replace(Regex("""\s*\(.*?\)\s*"""), "").trim()
+                    if (cleanLocal.isNotEmpty() && !displayName.contains(cleanLocal)) {
+                        displayName = "$nameEn ($cleanLocal)"
+                    }
+                }
+
+                val minLat = bounds.optDouble("minlat")
+                val maxLat = bounds.optDouble("maxlat")
+                val minLon = bounds.optDouble("minlon")
+                val maxLon = bounds.optDouble("maxlon")
+                if (minLat != 0.0 || maxLat != 0.0 || minLon != 0.0 || maxLon != 0.0) {
+                    list.add(MapRegion("osm_$id", displayName, minLat, maxLat, minLon, maxLon))
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "parseRegionsJson", false, "Error parsing regions: ${e.message}")
+        }
+        return list.sortedBy { it.name }
+    }
+}
