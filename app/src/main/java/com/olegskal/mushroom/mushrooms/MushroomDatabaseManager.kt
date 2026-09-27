@@ -240,6 +240,11 @@ object MushroomDatabaseManager {
                         conn.connect()
 
                         val code = conn.responseCode
+                        if (code == 416) {
+                            partFile.delete()
+                            conn.disconnect()
+                            continue
+                        }
                         val isResume = (code == 206)
                         if (code != 200 && code != 206) {
                             throw Exception("HTTP $code від $fileName")
@@ -270,9 +275,11 @@ object MushroomDatabaseManager {
                         input = null
                         conn.disconnect()
 
-                        if (partFile.length() == expectedSize) {
+                        if (expectedSize <= 0L || partFile.length() == expectedSize) {
                             downloadedTotalBytes += expectedSize
                             success = true
+                        } else {
+                            partFile.delete()
                         }
                     } catch (e: Exception) {
                         try { output?.close() } catch (_: Exception) {}

@@ -18,13 +18,13 @@ object MushroomDataConfig {
     const val DB_BASE_DOWNLOAD_URL = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/downloads/"
 
     val DB_PARTS = listOf(
-        DataFileItem("mushrooms.z01", 69206016L),
-        DataFileItem("mushrooms.z02", 69206016L),
-        DataFileItem("mushrooms.z03", 69206016L),
-        DataFileItem("mushrooms.z04", 69206016L),
-        DataFileItem("mushrooms.z05", 69206016L),
-        DataFileItem("mushrooms.z06", 69206016L),
-        DataFileItem("mushrooms.z07", 69206016L),
+        DataFileItem("mushrooms.z01", 69160000L),
+        DataFileItem("mushrooms.z02", 69160000L),
+        DataFileItem("mushrooms.z03", 69160000L),
+        DataFileItem("mushrooms.z04", 69160000L),
+        DataFileItem("mushrooms.z05", 69160000L),
+        DataFileItem("mushrooms.z06", 69160000L),
+        DataFileItem("mushrooms.z07", 69160000L),
         DataFileItem("mushrooms.zip", 69123439L)
     )
     val DB_TOTAL_ARCHIVE_SIZE = DB_PARTS.sumOf { it.exactSize }

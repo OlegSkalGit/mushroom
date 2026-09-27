@@ -1055,11 +1055,13 @@ def cmd_repack(args):
             cfg = f.read()
 
         cfg = re.sub(r"const val DB_FULL_SIZE = \d+L", f"const val DB_FULL_SIZE = {db_size}L", cfg)
-        cfg = re.sub(r'DataFileItem\("mushrooms\.zip", \d+L\)', f'DataFileItem("mushrooms.zip", {last_volume_size}L)', cfg)
+        for v in volumes:
+            sz = os.path.getsize(os.path.join(downloads_dir, v))
+            cfg = re.sub(rf'DataFileItem\("{re.escape(v)}", \d+L\)', f'DataFileItem("{v}", {sz}L)', cfg)
 
         with open(CONFIG_KT_PATH, "w", encoding="utf-8") as f:
             f.write(cfg)
-        print(f"[✓] MushroomDataConfig.kt оновлено: DB_FULL_SIZE={db_size}L, mushrooms.zip={last_volume_size}L")
+        print(f"[✓] MushroomDataConfig.kt оновлено з актуальними розмірами всіх {len(volumes)} томів (DB_FULL_SIZE={db_size}L).")
 
 
 def main():
