@@ -295,7 +295,11 @@ class MushroomClassifier(private val context: Context) {
         /**
          * Потокове розпакування багатотомного архіву AI-моделі та валідація файлів.
          */
-        fun unpackDownloadedParts(context: Context, downloadedPartFiles: List<File>): Boolean {
+        fun unpackDownloadedParts(
+            context: Context,
+            downloadedPartFiles: List<File>,
+            onProgress: ((unpackedBytes: Long, totalExpectedBytes: Long) -> Unit)? = null
+        ): Boolean {
             val targetDir = try {
                 val sd = getModelDirectory()
                 if (!sd.exists()) sd.mkdirs()
@@ -309,6 +313,9 @@ class MushroomClassifier(private val context: Context) {
                 val zipIn = ZipInputStream(multiStream)
                 var entry = zipIn.nextEntry
                 val buffer = ByteArray(65536)
+                var bytesUnpacked = 0L
+                var lastReportMs = 0L
+                val totalModelBytes = MushroomDataConfig.MODEL_PARTS.sumOf { it.exactSize }
 
                 while (entry != null) {
                     if (!entry.isDirectory) {
@@ -320,6 +327,12 @@ class MushroomClassifier(private val context: Context) {
                                 var len: Int
                                 while (zipIn.read(buffer).also { len = it } != -1) {
                                     outStream.write(buffer, 0, len)
+                                    bytesUnpacked += len
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastReportMs > 150L) {
+                                        lastReportMs = now
+                                        onProgress?.invoke(bytesUnpacked, totalModelBytes)
+                                    }
                                 }
                                 outStream.flush()
                             }

@@ -42,9 +42,10 @@ object InitialSetupDialog {
     }
 
     enum class ItemStatus {
-        MISSING, // "Відсутній"
-        UPDATE,  // "Оновлення"
-        DONE     // "Готово"
+        MISSING,     // "Відсутній"
+        UPDATE,      // "Оновлення"
+        DOWNLOADING, // "Завантаження"
+        DONE         // "Готово"
     }
 
     data class AppUpdateData(
@@ -56,6 +57,7 @@ object InitialSetupDialog {
     )
 
     data class UpdateItem(
+        val id: String,
         val block: BlockType,
         val subCategoryUk: String,
         val subCategoryEn: String,
@@ -63,7 +65,10 @@ object InitialSetupDialog {
         var status: ItemStatus,
         val expectedBytes: Long,
         val downloadAction: (onBytes: (Long) -> Unit, isCancelled: () -> Boolean) -> Boolean
-    )
+    ) {
+        override fun equals(other: Any?): Boolean = other is UpdateItem && other.id == id
+        override fun hashCode(): Int = id.hashCode()
+    }
 
     private val bgExecutor = Executors.newCachedThreadPool()
 
@@ -303,6 +308,7 @@ object InitialSetupDialog {
             if (!worldFile.exists() || worldFile.length() < 1024L) {
                 list.add(
                     UpdateItem(
+                        "map_world",
                         BlockType.MAPS,
                         "Світ", "World",
                         MapDownloadManager.WORLD_MAP_FILE_NAME,
@@ -315,6 +321,7 @@ object InitialSetupDialog {
             } else if (worldNeedsUpdate || MapDownloadManager.isWorldMapUpdateAvailable()) {
                 list.add(
                     UpdateItem(
+                        "map_world",
                         BlockType.MAPS,
                         "Світ", "World",
                         MapDownloadManager.WORLD_MAP_FILE_NAME,
@@ -332,6 +339,7 @@ object InitialSetupDialog {
             if (!mapFile.exists() || mapFile.length() < 1024L) {
                 list.add(
                     UpdateItem(
+                        "map_${c.code}",
                         BlockType.MAPS,
                         "Країна", "Country",
                         "${if (isUk) c.nameUk else c.name} (${c.mapFileName})",
@@ -344,6 +352,7 @@ object InitialSetupDialog {
             } else if (countryNeedsUpdate) {
                 list.add(
                     UpdateItem(
+                        "map_${c.code}",
                         BlockType.MAPS,
                         "Країна", "Country",
                         "${if (isUk) c.nameUk else c.name} (${c.mapFileName})",
@@ -361,6 +370,7 @@ object InitialSetupDialog {
                 if (!segFile.exists() || segFile.length() < 1024L) {
                     list.add(
                         UpdateItem(
+                            "rd5_$seg",
                             BlockType.MAPS,
                             "Навігація (файли)", "Navigation (files)",
                             seg,
@@ -378,6 +388,7 @@ object InitialSetupDialog {
             if (!poiFile.exists() || poiFile.length() < 1024L) {
                 list.add(
                     UpdateItem(
+                        "poi_${c.code}",
                         BlockType.MAPS,
                         "Локації", "Locations",
                         c.poiFileName,
@@ -390,6 +401,7 @@ object InitialSetupDialog {
             } else if (countryNeedsUpdate) {
                 list.add(
                     UpdateItem(
+                        "poi_${c.code}",
                         BlockType.MAPS,
                         "Локації", "Locations",
                         c.poiFileName,
@@ -413,6 +425,7 @@ object InitialSetupDialog {
                         val st = if (finalDb.exists()) ItemStatus.UPDATE else ItemStatus.MISSING
                         list.add(
                             UpdateItem(
+                                "db_${part.fileName}",
                                 BlockType.MUSHROOMS,
                                 "Енциклопедія - архіви", "Encyclopedia - archives",
                                 part.fileName,
@@ -436,6 +449,7 @@ object InitialSetupDialog {
                         val st = if (MushroomClassifier.checkModelStatus(activity) == MushroomClassifier.ModelStatus.NEEDS_UPDATE) ItemStatus.UPDATE else ItemStatus.MISSING
                         list.add(
                             UpdateItem(
+                                "model_${part.fileName}",
                                 BlockType.MUSHROOMS,
                                 "Визначник - архіви", "Classifier - archives",
                                 part.fileName,
@@ -454,6 +468,7 @@ object InitialSetupDialog {
             if (upd != null && upd.hasUpdate) {
                 list.add(
                     UpdateItem(
+                        "app_apk",
                         BlockType.MUSHROOMS,
                         "Додаток", "App",
                         "Mushroom (${upd.latestVerName})",
@@ -468,11 +483,12 @@ object InitialSetupDialog {
             return list
         }
 
-        val badgeViews = mutableMapOf<UpdateItem, TextView>()
+        val badgeViews = mutableMapOf<String, TextView>()
+        val rowViews = mutableMapOf<String, View>()
 
         fun updateItemBadge(item: UpdateItem) {
             activity.runOnUiThread {
-                val badge = badgeViews[item] ?: return@runOnUiThread
+                val badge = badgeViews[item.id] ?: return@runOnUiThread
                 val bg = (badge.background as? GradientDrawable) ?: GradientDrawable().apply {
                     cornerRadius = dp(4).toFloat()
                     badge.background = this
@@ -481,6 +497,10 @@ object InitialSetupDialog {
                     ItemStatus.DONE -> {
                         badge.text = if (isUk) "Готово" else "Done"
                         bg.setColor(Color.parseColor("#10B981"))
+                    }
+                    ItemStatus.DOWNLOADING -> {
+                        badge.text = if (isUk) "Завантаження" else "Downloading"
+                        bg.setColor(Color.parseColor("#F59E0B"))
                     }
                     ItemStatus.MISSING -> {
                         badge.text = if (isUk) "Відсутній" else "Missing"
@@ -494,10 +514,21 @@ object InitialSetupDialog {
             }
         }
 
+        fun scrollToItem(item: UpdateItem) {
+            activity.runOnUiThread {
+                val row = rowViews[item.id] ?: return@runOnUiThread
+                val rect = android.graphics.Rect()
+                row.getDrawingRect(rect)
+                scrollView.offsetDescendantRectToMyCoords(row, rect)
+                scrollView.smoothScrollTo(0, (rect.top - dp(36)).coerceAtLeast(0))
+            }
+        }
+
         // Рендеринг карток списку
         fun renderItemsList() {
             cardsContainer.removeAllViews()
             badgeViews.clear()
+            rowViews.clear()
 
             if (currentItems.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
@@ -572,6 +603,10 @@ object InitialSetupDialog {
                             text = if (isUk) "Готово" else "Done"
                             bg.setColor(Color.parseColor("#10B981"))
                         }
+                        ItemStatus.DOWNLOADING -> {
+                            text = if (isUk) "Завантаження" else "Downloading"
+                            bg.setColor(Color.parseColor("#F59E0B"))
+                        }
                         ItemStatus.MISSING -> {
                             text = if (isUk) "Відсутній" else "Missing"
                             bg.setColor(Color.parseColor("#EF4444"))
@@ -584,7 +619,8 @@ object InitialSetupDialog {
                     background = bg
                     setPadding(dp(6), dp(2), dp(6), dp(2))
                 }
-                badgeViews[item] = badgeTv
+                badgeViews[item.id] = badgeTv
+                rowViews[item.id] = row
                 row.addView(rowTitleTv)
                 row.addView(badgeTv)
                 container.addView(row)
@@ -669,14 +705,27 @@ object InitialSetupDialog {
             val startTimeMs = System.currentTimeMillis()
             var lastUiUpdateMs = 0L
 
+            val dbDir = MushroomDatabaseManager.getDatabaseDirectory(activity)
+            val allDbParts = MushroomDataConfig.DB_PARTS.map { File(dbDir, it.fileName) }
+            val willUnpackDb = currentItems.any { it.subCategoryUk.contains("Енциклопедія") } ||
+                    (!MushroomDatabaseManager.isDatabaseUpToDate(activity) && allDbParts.all { it.exists() && it.length() > 0 })
+
+            val modelDir = MushroomClassifier.getModelDirectory()
+            val allModelParts = MushroomDataConfig.MODEL_PARTS.map { File(modelDir, it.fileName) }
+            val willUnpackModel = currentItems.any { it.subCategoryUk.contains("Визначник") } ||
+                    (!MushroomClassifier.isModelDownloaded(activity) && allModelParts.all { it.exists() && it.length() > 0 })
+
+            val hasUnpack = willUnpackDb || willUnpackModel
+            val maxDownloadProgress = if (hasUnpack) 850 else 1000
+
             fun updateProgressUi() {
                 val now = System.currentTimeMillis()
-                if (now - lastUiUpdateMs < 400 && totalDownloadedBytes < totalExpectedBytes) return
+                if (now - lastUiUpdateMs < 300 && totalDownloadedBytes < totalExpectedBytes) return
                 lastUiUpdateMs = now
 
                 val elapsedSec = (now - startTimeMs) / 1000.0
                 val progressRatio = (totalDownloadedBytes.toDouble() / totalExpectedBytes.toDouble()).coerceIn(0.0, 1.0)
-                val currentProgressVal = (progressRatio * 1000).toInt()
+                val currentProgressVal = (progressRatio * maxDownloadProgress).toInt()
 
                 val timeStr: String
                 if (elapsedSec > 1.2 && totalDownloadedBytes > 60_000L) {
@@ -716,6 +765,10 @@ object InitialSetupDialog {
 
                 for (item in resourceItems) {
                     if (cancelFlag.get()) break
+                    item.status = ItemStatus.DOWNLOADING
+                    updateItemBadge(item)
+                    scrollToItem(item)
+
                     val ok = item.downloadAction(
                         { bytesRead ->
                             totalDownloadedBytes += bytesRead
@@ -725,39 +778,62 @@ object InitialSetupDialog {
                     )
                     if (ok) {
                         item.status = ItemStatus.DONE
-                        updateItemBadge(item)
                     } else {
+                        item.status = ItemStatus.MISSING
                         AppLogger.log(TAG, "download", false, "Failed downloading ${item.title}")
                         if (item.block != BlockType.MAPS || !item.title.endsWith(".rd5")) {
                             hasFailures = true
                         }
                     }
+                    updateItemBadge(item)
                 }
 
                 // Розпакування бази даних якщо всі архіви на місці
-                val dbDir = MushroomDatabaseManager.getDatabaseDirectory(activity)
-                val allDbParts = MushroomDataConfig.DB_PARTS.map { File(dbDir, it.fileName) }
                 val allDbExist = allDbParts.all { it.exists() && it.length() > 0 }
-                if (allDbExist && !MushroomDatabaseManager.isDatabaseUpToDate(activity)) {
+                if (allDbExist && !MushroomDatabaseManager.isDatabaseUpToDate(activity) && !cancelFlag.get()) {
+                    val dbStart = 850
+                    val dbEnd = if (willUnpackModel) 930 else 1000
                     activity.runOnUiThread {
+                        progressBar.progress = dbStart
                         tvTimeRemaining.text = if (isUk) "Розпакування бази даних..." else "Unpacking database..."
                     }
-                    MushroomDatabaseManager.unpackDownloadedParts(activity, allDbParts)
+                    MushroomDatabaseManager.unpackDownloadedParts(activity, allDbParts) { unpacked, total ->
+                        val ratio = (unpacked.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
+                        val pVal = dbStart + (ratio * (dbEnd - dbStart)).toInt()
+                        val pct = (ratio * 100).toInt()
+                        activity.runOnUiThread {
+                            progressBar.progress = pVal
+                            tvTimeRemaining.text = if (isUk) "Розпакування бази даних... ($pct%)" else "Unpacking database... ($pct%)"
+                        }
+                    }
                 }
 
                 // Розпакування моделі якщо всі архіви на місці
-                val modelDir = MushroomClassifier.getModelDirectory()
-                val allModelParts = MushroomDataConfig.MODEL_PARTS.map { File(modelDir, it.fileName) }
                 val allModelExist = allModelParts.all { it.exists() && it.length() > 0 }
-                if (allModelExist && !MushroomClassifier.isModelDownloaded(activity)) {
+                if (allModelExist && !MushroomClassifier.isModelDownloaded(activity) && !cancelFlag.get()) {
+                    val modelStart = if (willUnpackDb) 930 else 850
+                    val modelEnd = 1000
                     activity.runOnUiThread {
+                        progressBar.progress = modelStart
                         tvTimeRemaining.text = if (isUk) "Розпакування нейромережі..." else "Unpacking model..."
                     }
-                    MushroomClassifier.unpackDownloadedParts(activity, allModelParts)
+                    MushroomClassifier.unpackDownloadedParts(activity, allModelParts) { unpacked, total ->
+                        val ratio = (unpacked.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
+                        val pVal = modelStart + (ratio * (modelEnd - modelStart)).toInt()
+                        val pct = (ratio * 100).toInt()
+                        activity.runOnUiThread {
+                            progressBar.progress = pVal
+                            tvTimeRemaining.text = if (isUk) "Розпакування нейромережі... ($pct%)" else "Unpacking model... ($pct%)"
+                        }
+                    }
                 }
 
                 // Якщо є оновлення додатку — запускаємо його в самому кінці
                 if (apkItem != null && !cancelFlag.get()) {
+                    apkItem.status = ItemStatus.DOWNLOADING
+                    updateItemBadge(apkItem)
+                    scrollToItem(apkItem)
+
                     val okApk = apkItem.downloadAction(
                         { bytesRead ->
                             totalDownloadedBytes += bytesRead
@@ -768,6 +844,9 @@ object InitialSetupDialog {
                     if (okApk) {
                         apkItem.status = ItemStatus.DONE
                         updateItemBadge(apkItem)
+                    } else {
+                        apkItem.status = ItemStatus.MISSING
+                        updateItemBadge(apkItem)
                     }
                     val apkFile = appUpdateData?.apkFile
                     if (apkFile != null && apkFile.exists()) {
@@ -775,7 +854,7 @@ object InitialSetupDialog {
                     }
                 }
 
-                try { Thread.sleep(600L) } catch (_: Exception) {}
+                try { Thread.sleep(400L) } catch (_: Exception) {}
 
                 activity.runOnUiThread {
                     progressBar.progress = 1000

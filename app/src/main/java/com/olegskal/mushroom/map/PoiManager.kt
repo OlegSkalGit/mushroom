@@ -133,7 +133,7 @@ object PoiManager {
         set(value) = MushroomStorageManager.setPoiEnabled(value)
 
     private var activeCategories: MutableSet<String> = mutableSetOf()
-    private val openManagers = mutableListOf<PoiPersistenceManager>()
+    @Volatile private var openManagers: List<PoiPersistenceManager> = emptyList()
     private var lastLoadedFiles = emptyList<String>()
 
     fun init(context: Context? = null) {
@@ -192,17 +192,14 @@ object PoiManager {
     fun refreshPoiFiles() {
         try {
             val poiFiles = MushroomStorageManager.poiDir.listFiles { _, name -> name.endsWith(".poi") } ?: emptyArray()
-            val currentFilePaths = poiFiles.map { it.absolutePath }.sorted()
+            val currentFilePaths = poiFiles.filter { it.length() > 1024L }.map { "${it.absolutePath}:${it.lastModified()}:${it.length()}" }.sorted()
             if (currentFilePaths == lastLoadedFiles && openManagers.isNotEmpty()) {
                 return
             }
 
-            for (m in openManagers) {
-                try { m.close() } catch (_: Exception) {}
-            }
-            openManagers.clear()
-
+            val newManagers = mutableListOf<PoiPersistenceManager>()
             for (f in poiFiles) {
+                if (!f.exists() || f.length() < 1024L) continue
                 try {
                     // Оптимізація SQLite: індекс за категоріями для миттєвої фільтрації
                     try {
@@ -211,19 +208,26 @@ object PoiManager {
                         )
                         db.execSQL("CREATE INDEX IF NOT EXISTS idx_cat ON poi_category_map(category)")
                         db.close()
-                    } catch (_: Exception) {}
+                    } catch (_: Throwable) {}
 
                     val pm = AndroidPoiPersistenceManagerFactory.getPoiPersistenceManager(f.absolutePath)
                     if (pm != null && pm.isValidDataBase) {
-                        openManagers.add(pm)
+                        newManagers.add(pm)
                     }
-                } catch (e: Exception) {
-                    AppLogger.log(TAG, "refreshPoiFiles", false, "Error opening POI ${f.name}: ${e.message}")
+                } catch (t: Throwable) {
+                    AppLogger.log(TAG, "refreshPoiFiles", false, "Error opening POI ${f.name}: ${t.message}")
                 }
             }
+
+            val oldManagers = openManagers
+            openManagers = newManagers
             lastLoadedFiles = currentFilePaths
-        } catch (e: Exception) {
-            AppLogger.log(TAG, "refreshPoiFiles", false, "Error refreshing POI files: ${e.message}")
+
+            for (m in oldManagers) {
+                try { m.close() } catch (_: Throwable) {}
+            }
+        } catch (t: Throwable) {
+            AppLogger.log(TAG, "refreshPoiFiles", false, "Error refreshing POI files: ${t.message}")
         }
     }
 
@@ -496,19 +500,19 @@ object PoiManager {
         return if (addedCount > 0) filter else null
     }
 
-    @Synchronized
     fun findPoisInBbox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, maxResults: Int = 50000): List<PoiItem> {
         if (!isPoiEnabled || activeCategories.isEmpty()) return emptyList()
         refreshPoiFiles()
-        if (openManagers.isEmpty()) return emptyList()
+        val managers = openManagers
+        if (managers.isEmpty()) return emptyList()
 
         val results = mutableListOf<PoiItem>()
         val bbox = BoundingBox(minLat, minLon, maxLat, maxLon)
         val isUk = appContext?.let { AppPrefs.isUk(it) } ?: true
 
-        for (pm in openManagers) {
+        for (pm in managers) {
             try {
-                val filter = try { buildCategoryFilter(pm.categoryManager) } catch (_: Exception) { null }
+                val filter = try { buildCategoryFilter(pm.categoryManager) } catch (_: Throwable) { null }
                 val pois: Collection<PointOfInterest> = pm.findInRect(bbox, filter, null, null, maxResults, false)
                 for (p in pois) {
                     val tags = p.tags
@@ -546,8 +550,8 @@ object PoiManager {
                         if (results.size >= maxResults) break
                     }
                 }
-            } catch (e: Exception) {
-                AppLogger.log(TAG, "findPoisInBbox", false, "Error querying POI: ${e.message}")
+            } catch (t: Throwable) {
+                AppLogger.log(TAG, "findPoisInBbox", false, "Error querying POI: ${t.message}")
             }
             if (results.size >= maxResults) break
         }

@@ -51,7 +51,7 @@ object OsmTileEngine {
     private val loadingKeys = ConcurrentHashMap.newKeySet<String>()
     private val unsupportedKeys = ConcurrentHashMap.newKeySet<String>()
     private val requestQueue = PriorityBlockingQueue<TileRenderRequest>()
-    private val renderLock = Any()
+    private val rwLock = java.util.concurrent.locks.ReentrantReadWriteLock()
 
     @Volatile var currentZoom: Int = 12
     @Volatile var currentCenterTileX: Int = 0
@@ -97,22 +97,30 @@ object OsmTileEngine {
                         }
 
                         var renderedBmp: Bitmap? = null
-                        val store = multiMapStore
-                        val renderer = workerRenderers[workerId]
-                        val theme = renderThemeFuture
-                        val model = displayModel
+                        val rLock = rwLock.readLock()
+                        rLock.lock()
+                        try {
+                            val store = multiMapStore
+                            val renderer = workerRenderers[workerId]
+                            val theme = renderThemeFuture
+                            val model = displayModel
 
-                        if (store != null && renderer != null && theme != null && model != null) {
-                            val tile = org.mapsforge.core.model.Tile(req.x, req.y, req.zoom.toByte(), TILE_SIZE)
-                            if (store.supportsTile(tile)) {
-                                val job = RendererJob(tile, store, theme, model, 1.0f, false, false)
-                                val tileBitmap = renderer.executeJob(job)
-                                if (tileBitmap != null) {
-                                    renderedBmp = AndroidGraphicFactory.getBitmap(tileBitmap)
+                            if (store != null && renderer != null && theme != null && model != null) {
+                                val tile = org.mapsforge.core.model.Tile(req.x, req.y, req.zoom.toByte(), TILE_SIZE)
+                                if (store.supportsTile(tile)) {
+                                    val job = RendererJob(tile, store, theme, model, 1.0f, false, false)
+                                    val tileBitmap = renderer.executeJob(job)
+                                    if (tileBitmap != null) {
+                                        renderedBmp = AndroidGraphicFactory.getBitmap(tileBitmap)
+                                    }
+                                } else {
+                                    unsupportedKeys.add(req.key)
                                 }
-                            } else {
-                                unsupportedKeys.add(req.key)
                             }
+                        } catch (t: Throwable) {
+                            AppLogger.log(TAG, "worker_$workerId", false, "Render job error: ${t.message}")
+                        } finally {
+                            rLock.unlock()
                         }
 
                         loadingKeys.remove(req.key)
@@ -122,8 +130,8 @@ object OsmTileEngine {
                         }
                     } catch (e: InterruptedException) {
                         break
-                    } catch (e: Exception) {
-                        AppLogger.log(TAG, "worker_$workerId", false, "Render exception: ${e.message}")
+                    } catch (t: Throwable) {
+                        AppLogger.log(TAG, "worker_$workerId", false, "Worker error: ${t.message}")
                     }
                 }
             }.apply {
@@ -240,21 +248,49 @@ object OsmTileEngine {
 
                 val zoom = renderContext?.rendererJob?.tile?.zoomLevel?.toInt() ?: currentZoom
                 val targetSize = when (placeType) {
-                    "city" -> when {
-                        zoom <= 9 -> 12f
-                        zoom <= 11 -> 13f
-                        else -> 14f
+                    "country" -> when {
+                        zoom <= 5 -> 16f
+                        zoom <= 8 -> 17.5f
+                        else -> 19f
                     }
-                    "town" -> if (zoom <= 10) 11f else 12f
-                    "village" -> if (zoom <= 12) 10f else 11f
-                    "suburb", "quarter" -> 10f
-                    else -> 9.5f
+                    "state", "region" -> when {
+                        zoom <= 7 -> 14.5f
+                        zoom <= 9 -> 15.5f
+                        else -> 16.5f
+                    }
+                    "city" -> when {
+                        zoom <= 8 -> 14.5f
+                        zoom <= 10 -> 16f
+                        else -> 17.5f
+                    }
+                    "town" -> when {
+                        zoom <= 10 -> 13.5f
+                        zoom <= 12 -> 14.5f
+                        else -> 15.5f
+                    }
+                    "village" -> when {
+                        zoom <= 12 -> 12.5f
+                        else -> 13.5f
+                    }
+                    "hamlet" -> 12f
+                    "suburb", "quarter", "neighbourhood" -> 12f
+                    else -> 12f
                 }
 
                 val targetMaxWidth = when (placeType) {
-                    "city", "town" -> 110
-                    "village" -> 95
-                    else -> 85
+                    "country" -> 180
+                    "state", "region" -> 160
+                    "city" -> 150
+                    "town" -> 135
+                    "village" -> 120
+                    else -> 110
+                }
+
+                val targetStrokeWidth = when (placeType) {
+                    "country" -> 2.2f
+                    "state", "region", "city" -> 1.8f
+                    "town" -> 1.6f
+                    else -> 1.4f
                 }
 
                 val targetFill = if (fill != null) {
@@ -266,7 +302,7 @@ object OsmTileEngine {
                 val targetStroke = if (stroke != null) {
                     AndroidGraphicFactory.INSTANCE.createPaint(stroke).apply {
                         setTextSize(targetSize)
-                        setStrokeWidth(1.1f)
+                        setStrokeWidth(targetStrokeWidth)
                     }
                 } else null
 
@@ -351,26 +387,41 @@ object OsmTileEngine {
             if (appContext == null) return
             val mapsDir = MushroomStorageManager.mapsDir
             val files = mapsDir.listFiles { _, name -> name.endsWith(".map") } ?: emptyArray()
-            val currentPaths = files.map { it.absolutePath }.sorted()
+            val currentPaths = files.filter { it.length() > 2048L }.map { "${it.absolutePath}:${it.lastModified()}:${it.length()}" }.sorted()
 
             if (!force && currentPaths == loadedMapFiles && workerRenderers[0] != null) {
                 return
             }
 
-            synchronized(renderLock) {
-                multiMapStore?.close()
+            requestQueue.clear()
+            loadingKeys.clear()
+
+            val wLock = rwLock.writeLock()
+            wLock.lock()
+            try {
+                val oldStore = multiMapStore
+                multiMapStore = null
+                try {
+                    oldStore?.close()
+                } catch (t: Throwable) {
+                    AppLogger.log(TAG, "initMapsforge", false, "Error closing old map store: ${t.message}")
+                }
+
                 val newStore = MultiMapDataStore()
 
                 org.mapsforge.map.reader.MapFile.wayFilterEnabled = true
                 org.mapsforge.map.reader.MapFile.wayFilterDistance = 20
                 org.mapsforge.core.util.Parameters.ANDROID_32BIT_COLOR = false
 
+                var loadedCount = 0
                 for (f in files) {
+                    if (!f.exists() || f.length() < 2048L) continue
                     try {
                         val mf = MapFile(f)
                         newStore.addMapDataStore(mf, false, false)
-                    } catch (e: Exception) {
-                        AppLogger.log(TAG, "initMapsforge", false, "Error adding map file ${f.name}: ${e.message}")
+                        loadedCount++
+                    } catch (t: Throwable) {
+                        AppLogger.log(TAG, "initMapsforge", false, "Error adding map file ${f.name}: ${t.message}")
                     }
                 }
 
@@ -379,30 +430,39 @@ object OsmTileEngine {
                 val rThemeFuture = RenderThemeFuture(AndroidGraphicFactory.INSTANCE, MapsforgeThemes.DEFAULT, dModel)
                 rThemeFuture.run()
 
-                multiMapStore = newStore
-                displayModel = dModel
-                renderThemeFuture = rThemeFuture
-
                 val tCache = InMemoryTileCache(256)
                 val lStore = TileBasedLabelStore(256)
                 for (i in 0 until workerCount) {
                     workerRenderers[i] = CleanDatabaseRenderer(newStore, AndroidGraphicFactory.INSTANCE, tCache, lStore, true, true, null)
                 }
 
+                displayModel = dModel
+                renderThemeFuture = rThemeFuture
+                multiMapStore = newStore
+
                 loadedMapFiles.clear()
                 loadedMapFiles.addAll(currentPaths)
+                AppLogger.log(TAG, "initMapsforge", true, "Loaded $loadedCount vector map files with $workerCount workers")
+            } finally {
+                wLock.unlock()
             }
 
             clearRamCache()
             unsupportedKeys.clear()
-            AppLogger.log(TAG, "initMapsforge", true, "Loaded ${files.size} vector map files with $workerCount workers")
-        } catch (e: Exception) {
-            AppLogger.log(TAG, "initMapsforge", false, "Error setting up Mapsforge engine: ${e.message}")
+        } catch (t: Throwable) {
+            AppLogger.log(TAG, "initMapsforge", false, "Error setting up Mapsforge engine: ${t.message}")
         }
     }
 
+    @Volatile private var lastReloadTime = 0L
+
     @Synchronized
     fun reloadMaps() {
+        val now = System.currentTimeMillis()
+        if (now - lastReloadTime < 300L) {
+            return
+        }
+        lastReloadTime = now
         initMapsforge(force = true)
         clearRamCache()
         onTileReadyListener?.invoke()
@@ -426,9 +486,15 @@ object OsmTileEngine {
 
     fun hasMapCoverage(lat: Double, lon: Double): Boolean {
         initMapsforge()
-        val store = multiMapStore ?: return false
-        val bbox = store.boundingBox() ?: return false
-        return lat in bbox.minLatitude..bbox.maxLatitude && lon in bbox.minLongitude..bbox.maxLongitude
+        val rLock = rwLock.readLock()
+        rLock.lock()
+        try {
+            val store = multiMapStore ?: return false
+            val bbox = store.boundingBox() ?: return false
+            return lat in bbox.minLatitude..bbox.maxLatitude && lon in bbox.minLongitude..bbox.maxLongitude
+        } finally {
+            rLock.unlock()
+        }
     }
 
     fun latLonToWorldPixel(lat: Double, lon: Double, zoom: Int): Pair<Double, Double> {

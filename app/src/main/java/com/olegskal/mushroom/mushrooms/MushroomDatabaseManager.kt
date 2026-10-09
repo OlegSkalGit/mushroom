@@ -256,7 +256,11 @@ object MushroomDatabaseManager {
     /**
      * Потокове розпакування багатотомного архіву бази даних SQLite з валідацією розміру.
      */
-    fun unpackDownloadedParts(context: Context, downloadedPartFiles: List<File>): Boolean {
+    fun unpackDownloadedParts(
+        context: Context,
+        downloadedPartFiles: List<File>,
+        onProgress: ((unpackedBytes: Long, totalExpectedBytes: Long) -> Unit)? = null
+    ): Boolean {
         val targetDir = getDatabaseDirectory(context)
         val finalDbFile = File(targetDir, DB_FILE_NAME)
         val tempDbFile = File(targetDir, "$DB_FILE_NAME.tmp")
@@ -267,6 +271,8 @@ object MushroomDatabaseManager {
             val zipIn = java.util.zip.ZipInputStream(multiStream)
             var entry = zipIn.nextEntry
             val buffer = ByteArray(65536)
+            var bytesUnpacked = 0L
+            var lastReportMs = 0L
 
             while (entry != null) {
                 if (entry.name.endsWith(".db") || entry.name == DB_FILE_NAME) {
@@ -274,6 +280,12 @@ object MushroomDatabaseManager {
                         var len: Int
                         while (zipIn.read(buffer).also { len = it } != -1) {
                             fos.write(buffer, 0, len)
+                            bytesUnpacked += len
+                            val now = System.currentTimeMillis()
+                            if (now - lastReportMs > 150L || bytesUnpacked >= DB_FULL_SIZE) {
+                                lastReportMs = now
+                                onProgress?.invoke(bytesUnpacked, DB_FULL_SIZE)
+                            }
                         }
                         fos.flush()
                     }
@@ -283,6 +295,7 @@ object MushroomDatabaseManager {
                 entry = zipIn.nextEntry
             }
             zipIn.close()
+            onProgress?.invoke(DB_FULL_SIZE, DB_FULL_SIZE)
 
             if (!tempDbFile.exists() || tempDbFile.length() != DB_FULL_SIZE) {
                 if (tempDbFile.exists()) tempDbFile.delete()
