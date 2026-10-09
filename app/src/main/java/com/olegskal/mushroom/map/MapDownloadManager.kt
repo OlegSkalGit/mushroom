@@ -84,38 +84,20 @@ object MapDownloadManager {
     var onProgressUpdate: ((DownloadProgress) -> Unit)? = null
     var onDownloadFinished: ((success: Boolean, message: String) -> Unit)? = null
 
-    private val KNOWN_UNAVAILABLE_RD5 = hashSetOf(
-        "E0_N0.rd5", "E0_N65.rd5", "E0_N70.rd5", "E100_S15.rd5", "E10_N70.rd5", "E110_S15.rd5", "E110_S20.rd5", "E110_S40.rd5",
-        "E110_S45.rd5", "E115_S45.rd5", "E120_S40.rd5", "E120_S45.rd5", "E125_N15.rd5", "E125_S40.rd5", "E125_S45.rd5", "E130_S40.rd5",
-        "E130_S45.rd5", "E135_N0.rd5", "E135_N20.rd5", "E135_N25.rd5", "E135_S45.rd5", "E140_N0.rd5", "E145_N0.rd5", "E145_N20.rd5",
-        "E145_N25.rd5", "E145_N30.rd5", "E145_N35.rd5", "E145_N50.rd5", "E150_N10.rd5", "E150_N25.rd5", "E150_N30.rd5", "E150_N35.rd5",
-        "E150_N40.rd5", "E150_N50.rd5", "E150_S20.rd5", "E150_S45.rd5", "E155_N0.rd5", "E155_N10.rd5", "E160_N0.rd5", "E165_S35.rd5",
-        "E165_S40.rd5", "E170_S15.rd5", "E170_S25.rd5", "E175_N0.rd5", "E175_N5.rd5", "E175_N55.rd5", "E175_S35.rd5", "E175_S50.rd5",
-        "E180_S20.rd5", "E35_N70.rd5", "E35_S30.rd5", "E40_N70.rd5", "E40_S10.rd5", "E45_N70.rd5", "E45_S5.rd5", "E50_N0.rd5",
-        "E50_S25.rd5", "E50_S30.rd5", "E50_S5.rd5", "E5_N65.rd5", "E5_N70.rd5", "E60_N15.rd5", "E60_N20.rd5", "E65_N10.rd5",
-        "E65_N15.rd5", "E65_N5.rd5", "E85_N10.rd5", "E85_N5.rd5", "E95_S10.rd5", "W100_N10.rd5", "W105_N10.rd5", "W105_N70.rd5",
-        "W110_N10.rd5", "W115_N10.rd5", "W115_N75.rd5", "W120_N10.rd5", "W120_N15.rd5", "W120_N20.rd5", "W125_N75.rd5", "W130_N75.rd5",
-        "W135_N45.rd5", "W135_N70.rd5", "W135_N75.rd5", "W140_N45.rd5", "W140_N50.rd5", "W140_N70.rd5", "W140_N75.rd5", "W15_N0.rd5",
-        "W15_N30.rd5", "W15_N35.rd5", "W15_N55.rd5", "W15_N70.rd5", "W15_N75.rd5", "W160_S15.rd5", "W165_S10.rd5", "W165_S25.rd5",
-        "W170_S10.rd5", "W170_S25.rd5", "W20_N5.rd5", "W20_N55.rd5", "W25_N55.rd5", "W30_N10.rd5", "W30_N55.rd5", "W30_N60.rd5",
-        "W35_N0.rd5", "W35_N5.rd5", "W35_N55.rd5", "W35_N60.rd5", "W35_N65.rd5", "W35_N70.rd5", "W35_N75.rd5", "W35_S15.rd5",
-        "W35_S20.rd5", "W35_S25.rd5", "W35_S30.rd5", "W35_S35.rd5", "W40_N0.rd5", "W40_N5.rd5", "W40_N55.rd5", "W40_N60.rd5",
-        "W40_N75.rd5", "W40_S25.rd5", "W40_S30.rd5", "W40_S35.rd5", "W45_N0.rd5", "W45_N5.rd5", "W45_N65.rd5", "W45_N75.rd5",
-        "W45_S30.rd5", "W45_S35.rd5", "W50_N5.rd5", "W50_N70.rd5", "W50_N75.rd5", "W50_S35.rd5", "W55_N50.rd5", "W55_N55.rd5",
-        "W55_N75.rd5", "W55_S45.rd5", "W55_S50.rd5", "W55_S55.rd5", "W55_S60.rd5", "W60_N60.rd5", "W60_N65.rd5", "W60_N75.rd5",
-        "W60_S45.rd5", "W60_S50.rd5", "W60_S60.rd5", "W65_N70.rd5", "W65_S50.rd5", "W65_S60.rd5", "W70_N20.rd5", "W70_N35.rd5",
-        "W75_N25.rd5", "W80_N75.rd5", "W80_S25.rd5", "W80_S30.rd5", "W80_S40.rd5", "W80_S45.rd5", "W80_S60.rd5", "W85_S15.rd5",
-        "W85_S20.rd5", "W90_N60.rd5", "W90_S10.rd5", "W95_N0.rd5", "W95_S10.rd5"
-    )
+    private val unavailableSegmentsCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     fun isSegmentUnavailable(seg: String): Boolean {
-        if (KNOWN_UNAVAILABLE_RD5.contains(seg)) return true
+        if (unavailableSegmentsCache.contains(seg)) return true
         val unavFile = File(MushroomStorageManager.navigationDir, "$seg.unavailable")
-        return unavFile.exists()
+        if (unavFile.exists()) {
+            unavailableSegmentsCache.add(seg)
+            return true
+        }
+        return false
     }
 
     fun markSegmentUnavailable(seg: String) {
-        KNOWN_UNAVAILABLE_RD5.add(seg)
+        unavailableSegmentsCache.add(seg)
         try {
             val unavFile = File(MushroomStorageManager.navigationDir, "$seg.unavailable")
             if (!unavFile.exists()) {
@@ -229,6 +211,11 @@ object MapDownloadManager {
                         remoteFileSizes[key] = len
                         remoteFileSizes[urlStr] = len
                         onResult(len)
+                    }
+                } else if (conn != null && conn.responseCode == HttpURLConnection.HTTP_NOT_FOUND) {
+                    if (key.endsWith(".rd5")) {
+                        markSegmentUnavailable(key)
+                        onResult(0L)
                     }
                 }
             } catch (_: Exception) {
