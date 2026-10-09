@@ -23,6 +23,7 @@ import org.mapsforge.core.graphics.Display
 import org.mapsforge.core.graphics.Position
 import org.mapsforge.core.model.Rectangle
 import org.mapsforge.map.rendertheme.rule.RenderThemeFuture
+import org.mapsforge.core.util.MercatorProjection
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.PriorityBlockingQueue
@@ -230,7 +231,93 @@ object OsmTileEngine {
                     } ?: false
                     if (isPoi) return
                 }
-                super.renderPointOfInterestCaption(renderContext, display, priority, caption, horizontalOffset, verticalOffset, fill, stroke, position, maxTextWidth, poi)
+
+                val placeType = poi?.tags?.firstOrNull { it.key == "place" }?.value
+                if (placeType == null || caption.isNullOrEmpty()) {
+                    super.renderPointOfInterestCaption(renderContext, display, priority, caption, horizontalOffset, verticalOffset, fill, stroke, position, maxTextWidth, poi)
+                    return
+                }
+
+                val zoom = renderContext?.rendererJob?.tile?.zoomLevel?.toInt() ?: currentZoom
+                val targetSize = when (placeType) {
+                    "city" -> when {
+                        zoom <= 9 -> 12f
+                        zoom <= 11 -> 13f
+                        else -> 14f
+                    }
+                    "town" -> if (zoom <= 10) 11f else 12f
+                    "village" -> if (zoom <= 12) 10f else 11f
+                    "suburb", "quarter" -> 10f
+                    else -> 9.5f
+                }
+
+                val targetMaxWidth = when (placeType) {
+                    "city", "town" -> 110
+                    "village" -> 95
+                    else -> 85
+                }
+
+                val targetFill = if (fill != null) {
+                    AndroidGraphicFactory.INSTANCE.createPaint(fill).apply {
+                        setTextSize(targetSize)
+                    }
+                } else null
+
+                val targetStroke = if (stroke != null) {
+                    AndroidGraphicFactory.INSTANCE.createPaint(stroke).apply {
+                        setTextSize(targetSize)
+                        setStrokeWidth(1.1f)
+                    }
+                } else null
+
+                var hOffset = horizontalOffset
+                var vOffset = verticalOffset
+                val tile = renderContext?.rendererJob?.tile
+                if (tile != null && poi.position != null) {
+                    val px = MercatorProjection.getPixelRelativeToTile(poi.position, tile)
+                    val rawWidth = (targetFill ?: fill)?.getTextWidth(caption) ?: (caption.length * 8)
+                    val effectiveWidth = if (caption.contains(' ') || caption.contains('-')) {
+                        min(rawWidth, targetMaxWidth)
+                    } else {
+                        rawWidth
+                    }
+
+                    val halfW = (effectiveWidth / 2f) + 4f
+                    val minX = halfW
+                    val maxX = TILE_SIZE.toFloat() - halfW
+                    if (maxX > minX) {
+                        if (px.x < minX) {
+                            hOffset += (minX - px.x).toFloat()
+                        } else if (px.x > maxX) {
+                            hOffset -= (px.x - maxX).toFloat()
+                        }
+                    }
+
+                    val halfH = targetSize + 4f
+                    val minY = halfH
+                    val maxY = TILE_SIZE.toFloat() - halfH
+                    if (maxY > minY) {
+                        if (px.y < minY) {
+                            vOffset += (minY - px.y).toFloat()
+                        } else if (px.y > maxY) {
+                            vOffset -= (px.y - maxY).toFloat()
+                        }
+                    }
+                }
+
+                super.renderPointOfInterestCaption(
+                    renderContext,
+                    display,
+                    priority,
+                    caption,
+                    hOffset,
+                    vOffset,
+                    targetFill ?: fill,
+                    targetStroke ?: stroke,
+                    position,
+                    targetMaxWidth,
+                    poi
+                )
             }
 
             override fun renderAreaCaption(

@@ -230,6 +230,7 @@ object AppUpdateManager {
         }
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun promptUserForUpdate(
         context: Context,
         installedVerStr: String,

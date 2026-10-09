@@ -43,7 +43,8 @@ object InitialSetupDialog {
 
     enum class ItemStatus {
         MISSING, // "Відсутній"
-        UPDATE   // "Оновлення"
+        UPDATE,  // "Оновлення"
+        DONE     // "Готово"
     }
 
     data class AppUpdateData(
@@ -59,7 +60,7 @@ object InitialSetupDialog {
         val subCategoryUk: String,
         val subCategoryEn: String,
         val title: String,
-        val status: ItemStatus,
+        var status: ItemStatus,
         val expectedBytes: Long,
         val downloadAction: (onBytes: (Long) -> Unit, isCancelled: () -> Boolean) -> Boolean
     )
@@ -467,9 +468,36 @@ object InitialSetupDialog {
             return list
         }
 
+        val badgeViews = mutableMapOf<UpdateItem, TextView>()
+
+        fun updateItemBadge(item: UpdateItem) {
+            activity.runOnUiThread {
+                val badge = badgeViews[item] ?: return@runOnUiThread
+                val bg = (badge.background as? GradientDrawable) ?: GradientDrawable().apply {
+                    cornerRadius = dp(4).toFloat()
+                    badge.background = this
+                }
+                when (item.status) {
+                    ItemStatus.DONE -> {
+                        badge.text = if (isUk) "Готово" else "Done"
+                        bg.setColor(Color.parseColor("#10B981"))
+                    }
+                    ItemStatus.MISSING -> {
+                        badge.text = if (isUk) "Відсутній" else "Missing"
+                        bg.setColor(Color.parseColor("#EF4444"))
+                    }
+                    ItemStatus.UPDATE -> {
+                        badge.text = if (isUk) "Оновлення" else "Update"
+                        bg.setColor(Color.parseColor("#0284C7"))
+                    }
+                }
+            }
+        }
+
         // Рендеринг карток списку
         fun renderItemsList() {
             cardsContainer.removeAllViews()
+            badgeViews.clear()
 
             if (currentItems.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
@@ -533,18 +561,30 @@ object InitialSetupDialog {
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 }
                 val badgeTv = TextView(activity).apply {
-                    val isMissing = item.status == ItemStatus.MISSING
-                    text = if (isMissing) (if (isUk) "Відсутній" else "Missing") else (if (isUk) "Оновлення" else "Update")
-                    setTextColor(Color.WHITE)
                     textSize = 11f
                     setTypeface(null, Typeface.BOLD)
-                    val bgColor = if (isMissing) Color.parseColor("#EF4444") else Color.parseColor("#0284C7")
-                    background = GradientDrawable().apply {
-                        setColor(bgColor)
+                    setTextColor(Color.WHITE)
+                    val bg = GradientDrawable().apply {
                         cornerRadius = dp(4).toFloat()
                     }
+                    when (item.status) {
+                        ItemStatus.DONE -> {
+                            text = if (isUk) "Готово" else "Done"
+                            bg.setColor(Color.parseColor("#10B981"))
+                        }
+                        ItemStatus.MISSING -> {
+                            text = if (isUk) "Відсутній" else "Missing"
+                            bg.setColor(Color.parseColor("#EF4444"))
+                        }
+                        ItemStatus.UPDATE -> {
+                            text = if (isUk) "Оновлення" else "Update"
+                            bg.setColor(Color.parseColor("#0284C7"))
+                        }
+                    }
+                    background = bg
                     setPadding(dp(6), dp(2), dp(6), dp(2))
                 }
+                badgeViews[item] = badgeTv
                 row.addView(rowTitleTv)
                 row.addView(badgeTv)
                 container.addView(row)
@@ -683,7 +723,10 @@ object InitialSetupDialog {
                         },
                         { cancelFlag.get() }
                     )
-                    if (!ok) {
+                    if (ok) {
+                        item.status = ItemStatus.DONE
+                        updateItemBadge(item)
+                    } else {
                         AppLogger.log(TAG, "download", false, "Failed downloading ${item.title}")
                         if (item.block != BlockType.MAPS || !item.title.endsWith(".rd5")) {
                             hasFailures = true
@@ -715,18 +758,24 @@ object InitialSetupDialog {
 
                 // Якщо є оновлення додатку — запускаємо його в самому кінці
                 if (apkItem != null && !cancelFlag.get()) {
-                    apkItem.downloadAction(
+                    val okApk = apkItem.downloadAction(
                         { bytesRead ->
                             totalDownloadedBytes += bytesRead
                             updateProgressUi()
                         },
                         { cancelFlag.get() }
                     )
+                    if (okApk) {
+                        apkItem.status = ItemStatus.DONE
+                        updateItemBadge(apkItem)
+                    }
                     val apkFile = appUpdateData?.apkFile
                     if (apkFile != null && apkFile.exists()) {
                         AppUpdateManager.installApk(activity, apkFile)
                     }
                 }
+
+                try { Thread.sleep(600L) } catch (_: Exception) {}
 
                 activity.runOnUiThread {
                     progressBar.progress = 1000
