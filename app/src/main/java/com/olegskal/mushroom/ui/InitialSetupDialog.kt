@@ -143,8 +143,7 @@ object InitialSetupDialog {
 
         // Сегменти роутингу rd5
         for (seg in country.getRd5Segments()) {
-            val segFile = File(MushroomStorageManager.navigationDir, seg)
-            if (!segFile.exists() || segFile.length() < 1024L) return true
+            if (MapDownloadManager.isSegmentNeeded(seg)) return true
         }
 
         // База даних
@@ -414,8 +413,8 @@ object InitialSetupDialog {
 
             // 3. Навігація (файли) rd5
             for (seg in c.getRd5Segments()) {
-                val segFile = File(MushroomStorageManager.navigationDir, seg)
-                if (!segFile.exists() || segFile.length() < 1024L) {
+                if (MapDownloadManager.isSegmentNeeded(seg)) {
+                    val segFile = File(MushroomStorageManager.navigationDir, seg)
                     list.add(
                         UpdateItem(
                             "rd5_$seg",
@@ -425,7 +424,8 @@ object InitialSetupDialog {
                             ItemStatus.MISSING,
                             18_000_000L
                         ) { onBytes, onSizeDiscovered, isCancel ->
-                            downloadFileDirect("https://brouter.de/brouter/segments4/$seg", segFile, onBytes, onSizeDiscovered, isCancel, allowHttpErrors = true)
+                            val ok = downloadFileDirect("https://brouter.de/brouter/segments4/$seg", segFile, onBytes, onSizeDiscovered, isCancel, allowHttpErrors = true)
+                            ok || (!segFile.exists() && MapDownloadManager.isSegmentUnavailable(seg))
                         }
                     )
                 }
@@ -1067,6 +1067,20 @@ object InitialSetupDialog {
                     )
                     if (ok) {
                         item.status = ItemStatus.DONE
+                        when (item.id) {
+                            "map_world" -> {
+                                MapDownloadManager.markWorldMapUpToDate()
+                                worldNeedsUpdate = false
+                            }
+                            "map_${selectedCountry.code}" -> {
+                                MapDownloadManager.markCountryMapUpToDate(selectedCountry)
+                                countryMapNeedsUpdate = false
+                            }
+                            "poi_${selectedCountry.code}" -> {
+                                MapDownloadManager.markCountryPoiUpToDate(selectedCountry)
+                                countryPoiNeedsUpdate = false
+                            }
+                        }
                     } else {
                         item.status = ItemStatus.MISSING
                         AppLogger.log(TAG, "download", false, "Failed downloading ${item.title}")
@@ -1123,6 +1137,14 @@ object InitialSetupDialog {
                     progressBar.progress = 1000
                     tvTimeRemaining.text = if (isUk) "Готово!" else "Done!"
                     isDownloadingActive = false
+
+                    if (!hasFailures && !cancelFlag.get()) {
+                        countryMapNeedsUpdate = false
+                        countryPoiNeedsUpdate = false
+                        worldNeedsUpdate = false
+                        MapDownloadManager.markCountryUpToDate(selectedCountry)
+                        MapDownloadManager.markWorldMapUpToDate()
+                    }
 
                     if (hasFailures) {
                         Toast.makeText(
@@ -1187,6 +1209,9 @@ object InitialSetupDialog {
 
             if (conn == null || conn.responseCode != HttpURLConnection.HTTP_OK) {
                 if (allowHttpErrors) {
+                    if (conn?.responseCode == HttpURLConnection.HTTP_NOT_FOUND) {
+                        MapDownloadManager.markSegmentUnavailable(destFile.name)
+                    }
                     onSizeDiscovered(0L)
                     return true
                 }
@@ -1225,6 +1250,7 @@ object InitialSetupDialog {
                 if (lastMod > 0L) {
                     try { destFile.setLastModified(lastMod) } catch (_: Exception) {}
                 }
+                MapDownloadManager.recordDownloadedFile(destFile.name, lastMod, destFile.length())
                 true
             } else {
                 tmpFile.delete()
@@ -1232,7 +1258,13 @@ object InitialSetupDialog {
             }
         } catch (e: Exception) {
             tmpFile.delete()
-            if (allowHttpErrors) true else false
+            if (allowHttpErrors && (e is java.io.FileNotFoundException || e.message?.contains("404") == true)) {
+                MapDownloadManager.markSegmentUnavailable(destFile.name)
+                onSizeDiscovered(0L)
+                true
+            } else {
+                false
+            }
         } finally {
             try { conn?.disconnect() } catch (_: Exception) {}
         }

@@ -40,7 +40,10 @@ data class MapCountry(
             val latStr = if (lat >= 0) "N$lat" else "S${abs(lat)}"
             for (lon in lonMin..lonMax step 5) {
                 val lonStr = if (lon >= 0) "E$lon" else "W${abs(lon)}"
-                list.add("${lonStr}_${latStr}.rd5")
+                val seg = "${lonStr}_${latStr}.rd5"
+                if (!MapDownloadManager.isSegmentUnavailable(seg)) {
+                    list.add(seg)
+                }
             }
         }
         return list
@@ -80,6 +83,104 @@ object MapDownloadManager {
         private set
     var onProgressUpdate: ((DownloadProgress) -> Unit)? = null
     var onDownloadFinished: ((success: Boolean, message: String) -> Unit)? = null
+
+    private val KNOWN_UNAVAILABLE_RD5 = hashSetOf(
+        "E0_N0.rd5", "E0_N65.rd5", "E0_N70.rd5", "E100_S15.rd5", "E10_N70.rd5", "E110_S15.rd5", "E110_S20.rd5", "E110_S40.rd5",
+        "E110_S45.rd5", "E115_S45.rd5", "E120_S40.rd5", "E120_S45.rd5", "E125_N15.rd5", "E125_S40.rd5", "E125_S45.rd5", "E130_S40.rd5",
+        "E130_S45.rd5", "E135_N0.rd5", "E135_N20.rd5", "E135_N25.rd5", "E135_S45.rd5", "E140_N0.rd5", "E145_N0.rd5", "E145_N20.rd5",
+        "E145_N25.rd5", "E145_N30.rd5", "E145_N35.rd5", "E145_N50.rd5", "E150_N10.rd5", "E150_N25.rd5", "E150_N30.rd5", "E150_N35.rd5",
+        "E150_N40.rd5", "E150_N50.rd5", "E150_S20.rd5", "E150_S45.rd5", "E155_N0.rd5", "E155_N10.rd5", "E160_N0.rd5", "E165_S35.rd5",
+        "E165_S40.rd5", "E170_S15.rd5", "E170_S25.rd5", "E175_N0.rd5", "E175_N5.rd5", "E175_N55.rd5", "E175_S35.rd5", "E175_S50.rd5",
+        "E180_S20.rd5", "E35_N70.rd5", "E35_S30.rd5", "E40_N70.rd5", "E40_S10.rd5", "E45_N70.rd5", "E45_S5.rd5", "E50_N0.rd5",
+        "E50_S25.rd5", "E50_S30.rd5", "E50_S5.rd5", "E5_N65.rd5", "E5_N70.rd5", "E60_N15.rd5", "E60_N20.rd5", "E65_N10.rd5",
+        "E65_N15.rd5", "E65_N5.rd5", "E85_N10.rd5", "E85_N5.rd5", "E95_S10.rd5", "W100_N10.rd5", "W105_N10.rd5", "W105_N70.rd5",
+        "W110_N10.rd5", "W115_N10.rd5", "W115_N75.rd5", "W120_N10.rd5", "W120_N15.rd5", "W120_N20.rd5", "W125_N75.rd5", "W130_N75.rd5",
+        "W135_N45.rd5", "W135_N70.rd5", "W135_N75.rd5", "W140_N45.rd5", "W140_N50.rd5", "W140_N70.rd5", "W140_N75.rd5", "W15_N0.rd5",
+        "W15_N30.rd5", "W15_N35.rd5", "W15_N55.rd5", "W15_N70.rd5", "W15_N75.rd5", "W160_S15.rd5", "W165_S10.rd5", "W165_S25.rd5",
+        "W170_S10.rd5", "W170_S25.rd5", "W20_N5.rd5", "W20_N55.rd5", "W25_N55.rd5", "W30_N10.rd5", "W30_N55.rd5", "W30_N60.rd5",
+        "W35_N0.rd5", "W35_N5.rd5", "W35_N55.rd5", "W35_N60.rd5", "W35_N65.rd5", "W35_N70.rd5", "W35_N75.rd5", "W35_S15.rd5",
+        "W35_S20.rd5", "W35_S25.rd5", "W35_S30.rd5", "W35_S35.rd5", "W40_N0.rd5", "W40_N5.rd5", "W40_N55.rd5", "W40_N60.rd5",
+        "W40_N75.rd5", "W40_S25.rd5", "W40_S30.rd5", "W40_S35.rd5", "W45_N0.rd5", "W45_N5.rd5", "W45_N65.rd5", "W45_N75.rd5",
+        "W45_S30.rd5", "W45_S35.rd5", "W50_N5.rd5", "W50_N70.rd5", "W50_N75.rd5", "W50_S35.rd5", "W55_N50.rd5", "W55_N55.rd5",
+        "W55_N75.rd5", "W55_S45.rd5", "W55_S50.rd5", "W55_S55.rd5", "W55_S60.rd5", "W60_N60.rd5", "W60_N65.rd5", "W60_N75.rd5",
+        "W60_S45.rd5", "W60_S50.rd5", "W60_S60.rd5", "W65_N70.rd5", "W65_S50.rd5", "W65_S60.rd5", "W70_N20.rd5", "W70_N35.rd5",
+        "W75_N25.rd5", "W80_N75.rd5", "W80_S25.rd5", "W80_S30.rd5", "W80_S40.rd5", "W80_S45.rd5", "W80_S60.rd5", "W85_S15.rd5",
+        "W85_S20.rd5", "W90_N60.rd5", "W90_S10.rd5", "W95_N0.rd5", "W95_S10.rd5"
+    )
+
+    fun isSegmentUnavailable(seg: String): Boolean {
+        if (KNOWN_UNAVAILABLE_RD5.contains(seg)) return true
+        val unavFile = File(MushroomStorageManager.navigationDir, "$seg.unavailable")
+        return unavFile.exists()
+    }
+
+    fun markSegmentUnavailable(seg: String) {
+        KNOWN_UNAVAILABLE_RD5.add(seg)
+        try {
+            val unavFile = File(MushroomStorageManager.navigationDir, "$seg.unavailable")
+            if (!unavFile.exists()) {
+                unavFile.parentFile?.mkdirs()
+                unavFile.createNewFile()
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun isSegmentNeeded(seg: String): Boolean {
+        if (isSegmentUnavailable(seg)) return false
+        val segFile = File(MushroomStorageManager.navigationDir, seg)
+        return !segFile.exists() || segFile.length() < 1024L
+    }
+
+    private val downloadedFileMeta = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Long>>()
+    private val metaLoaded = AtomicBoolean(false)
+    private val metaFile: File
+        get() = File(MushroomStorageManager.settingsDir, "downloaded_files.json")
+
+    private fun ensureMetaLoaded() {
+        if (metaLoaded.compareAndSet(false, true)) {
+            try {
+                val f = metaFile
+                if (f.exists()) {
+                    val json = org.json.JSONObject(f.readText(Charsets.UTF_8))
+                    val keys = json.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val obj = json.optJSONObject(key)
+                        if (obj != null) {
+                            val mod = obj.optLong("m", 0L)
+                            val len = obj.optLong("s", 0L)
+                            if (mod > 0L || len > 0L) {
+                                downloadedFileMeta[key] = Pair(mod, len)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun getDownloadedFileMeta(name: String): Pair<Long, Long>? {
+        ensureMetaLoaded()
+        return downloadedFileMeta[name]
+    }
+
+    fun recordDownloadedFile(name: String, lastMod: Long, size: Long) {
+        ensureMetaLoaded()
+        if (lastMod > 0L || size > 0L) {
+            downloadedFileMeta[name] = Pair(lastMod, size)
+            try {
+                val json = org.json.JSONObject()
+                downloadedFileMeta.forEach { (k, v) ->
+                    json.put(k, org.json.JSONObject().apply {
+                        put("m", v.first)
+                        put("s", v.second)
+                    })
+                }
+                metaFile.parentFile?.mkdirs()
+                metaFile.writeText(json.toString(), Charsets.UTF_8)
+            } catch (_: Exception) {}
+        }
+    }
 
     private val updateStatusCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Boolean>>()
     private val remoteFileSizes = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -459,7 +560,7 @@ object MapDownloadManager {
                 errorMsg = e.message ?: "Unknown error"
             } finally {
                 if (success) {
-                    updateStatusCache.remove("WORLD")
+                    markWorldMapUpToDate()
                     OsmTileEngine.reloadMaps()
                 }
                 isDownloading.set(false)
@@ -484,7 +585,8 @@ object MapDownloadManager {
     }
 
     fun checkRemoteFileUpdate(urlStr: String, file: File): Boolean {
-        if (!file.exists() || file.length() < 1024L) return true
+        val fileLen = file.length()
+        if (!file.exists() || fileLen < 1024L) return false
         var conn: HttpURLConnection? = null
         return try {
             var currentUrl = urlStr
@@ -517,8 +619,12 @@ object MapDownloadManager {
                     remoteFileSizes[file.name] = serverLen
                     remoteFileSizes[urlStr] = serverLen
                 }
-                val isNewer = serverLastMod > 0L && serverLastMod > (file.lastModified() + 86400_000L)
-                val isSizeChanged = serverLen > 0L && abs(serverLen - file.length()) > 1024L * 1024L
+                val meta = getDownloadedFileMeta(file.name)
+                val baseMod = meta?.first?.takeIf { it > 0L } ?: file.lastModified()
+                val baseLen = meta?.second?.takeIf { it > 0L } ?: fileLen
+
+                val isNewer = serverLastMod > 0L && baseMod > 0L && serverLastMod > (baseMod + 86400_000L)
+                val isSizeChanged = serverLen > 0L && baseLen > 0L && abs(serverLen - baseLen) > 1024L * 1024L
                 isNewer || isSizeChanged
             } else false
         } catch (_: Exception) {
@@ -528,14 +634,50 @@ object MapDownloadManager {
         }
     }
 
+    fun markCountryPoiUpToDate(country: MapCountry) {
+        val now = System.currentTimeMillis()
+        updateStatusCache["POI_${country.code}"] = Pair(now, false)
+        val mapNeeds = updateStatusCache["MAP_${country.code}"]?.second ?: false
+        updateStatusCache[country.code] = Pair(now, mapNeeds)
+    }
+
+    fun markCountryMapUpToDate(country: MapCountry) {
+        val now = System.currentTimeMillis()
+        updateStatusCache["MAP_${country.code}"] = Pair(now, false)
+        val poiNeeds = updateStatusCache["POI_${country.code}"]?.second ?: false
+        updateStatusCache[country.code] = Pair(now, poiNeeds)
+    }
+
+    fun markCountryUpToDate(country: MapCountry) {
+        val now = System.currentTimeMillis()
+        updateStatusCache["MAP_${country.code}"] = Pair(now, false)
+        updateStatusCache["POI_${country.code}"] = Pair(now, false)
+        updateStatusCache[country.code] = Pair(now, false)
+    }
+
+    fun markWorldMapUpToDate() {
+        val now = System.currentTimeMillis()
+        updateStatusCache["WORLD"] = Pair(now, false)
+    }
+
     fun checkRemoteUpdate(country: MapCountry): Boolean {
         val mapFile = File(MushroomStorageManager.mapsDir, country.mapFileName)
-        return checkRemoteFileUpdate(country.mapUrl, mapFile)
+        val hasUpd = checkRemoteFileUpdate(country.mapUrl, mapFile)
+        val now = System.currentTimeMillis()
+        updateStatusCache["MAP_${country.code}"] = Pair(now, hasUpd)
+        val poiNeeds = updateStatusCache["POI_${country.code}"]?.second ?: false
+        updateStatusCache[country.code] = Pair(now, hasUpd || poiNeeds)
+        return hasUpd
     }
 
     fun checkPoiUpdate(country: MapCountry): Boolean {
         val poiFile = File(MushroomStorageManager.poiDir, country.poiFileName)
-        return checkRemoteFileUpdate(country.poiUrl, poiFile)
+        val hasUpd = checkRemoteFileUpdate(country.poiUrl, poiFile)
+        val now = System.currentTimeMillis()
+        updateStatusCache["POI_${country.code}"] = Pair(now, hasUpd)
+        val mapNeeds = updateStatusCache["MAP_${country.code}"]?.second ?: false
+        updateStatusCache[country.code] = Pair(now, mapNeeds || hasUpd)
+        return hasUpd
     }
 
     fun isCountryMapUpdateAvailable(country: MapCountry): Boolean {
@@ -622,7 +764,7 @@ object MapDownloadManager {
             return CountryStatus.NOT_DOWNLOADED
         }
 
-        if (hasMap && hasPoi && (segments.isEmpty() || existingSegments > 0)) {
+        if (hasMap && hasPoi && (segments.isEmpty() || existingSegments == segments.size)) {
             val cachedUpdate = updateStatusCache[country.code]
             if (cachedUpdate != null && System.currentTimeMillis() - cachedUpdate.first < 3600_000L) {
                 if (cachedUpdate.second) return CountryStatus.NEEDS_UPDATE
@@ -730,7 +872,8 @@ object MapDownloadManager {
                             continue
                         }
                         if (item.name.endsWith(".rd5")) {
-                            AppLogger.log(TAG, "downloadCountry", true, "Сегмент ${item.name} відсутній на сервері (море/пустка), пропускаємо")
+                            markSegmentUnavailable(item.name)
+                            AppLogger.log(TAG, "downloadCountry", true, "Сегмент ${item.name} відсутній на сервері (море/пустка), відмічено як недоступний")
                             continue
                         }
                         errorMsg = "Помилка завантаження: ${item.name}"
@@ -744,10 +887,7 @@ object MapDownloadManager {
                 errorMsg = e.message ?: "Невідома помилка"
             } finally {
                 if (success) {
-                    updateStatusCache.remove(country.code)
-                    updateStatusCache.remove("MAP_${country.code}")
-                    updateStatusCache.remove("POI_${country.code}")
-                    updateStatusCache.remove("WORLD")
+                    markCountryUpToDate(country)
                     OsmTileEngine.reloadMaps()
                     PoiManager.refreshPoiFiles()
                 }
@@ -831,6 +971,7 @@ object MapDownloadManager {
                 if (serverLastMod > 0L) {
                     try { destFile.setLastModified(serverLastMod) } catch (_: Exception) {}
                 }
+                recordDownloadedFile(destFile.name, serverLastMod, destFile.length())
                 true
             } else {
                 tmpFile.delete()
