@@ -41,6 +41,7 @@ class SplashActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         OsmTileEngine.appContext = applicationContext
         AppLogger.log("SplashActivity", "onCreate", true, "SplashActivity launched.")

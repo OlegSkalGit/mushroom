@@ -129,6 +129,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         com.olegskal.mushroom.mushrooms.MushroomClassifierTab.isWarningDismissed = false
         OsmTileEngine.appContext = applicationContext
         if (!MushroomTrackingService.isRunning) {

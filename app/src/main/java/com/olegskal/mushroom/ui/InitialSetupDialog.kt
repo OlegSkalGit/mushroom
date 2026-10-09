@@ -79,9 +79,20 @@ object InitialSetupDialog {
     fun showIfNeeded(activity: Activity, onFinished: () -> Unit = {}) {
         if (activity.isFinishing) return
 
+        // 1. Спочатку перевіряємо наявність оновлення додатку в кеші
+        val cachedUpd = AppUpdateManager.getCachedAppUpdate(activity)
+        if (cachedUpd != null && cachedUpd.hasUpdate) {
+            activity.runOnUiThread {
+                if (!activity.isFinishing) {
+                    show(activity, MapDownloadManager.detectCurrentCountry(activity), onFinished)
+                }
+            }
+            return
+        }
+
         val detectedCountry = MapDownloadManager.detectCurrentCountry(activity)
 
-        // 1. Швидка локальна перевірка наявності базових файлів
+        // 2. Локальна перевірка наявності базових файлів (якщо оновлення додатку відсутнє)
         val hasMissingLocalFiles = checkHasMissingLocalFiles(activity, detectedCountry)
         if (hasMissingLocalFiles) {
             activity.runOnUiThread {
@@ -92,7 +103,7 @@ object InitialSetupDialog {
             return
         }
 
-        // 2. Якщо локально все є — асинхронно перевіряємо наявність оновлень у мережі
+        // 3. Асинхронно перевіряємо наявність оновлень у мережі
         val dialogShown = AtomicBoolean(false)
         fun triggerShow() {
             if (dialogShown.compareAndSet(false, true)) {
@@ -294,13 +305,45 @@ object InitialSetupDialog {
         root.addView(progressContainer)
 
         var currentItems = mutableListOf<UpdateItem>()
-        var appUpdateData: AppUpdateData? = null
+        val cachedAtStart = AppUpdateManager.getCachedAppUpdate(activity)
+        var appUpdateData: AppUpdateData? = if (cachedAtStart != null && cachedAtStart.hasUpdate) {
+            val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
+            val apkFile = File(dlDir, "${cachedAtStart.latestVerName}.apk")
+            AppUpdateData(true, cachedAtStart.latestVerName, cachedAtStart.downloadUrl, apkFile, 25_000_000L)
+        } else null
         var countryNeedsUpdate = false
         var worldNeedsUpdate = false
 
         // Сканування доступних для оновлення файлів
         fun scanItems(): List<UpdateItem> {
             val list = mutableListOf<UpdateItem>()
+
+            // ПРІОРИТЕТ 1: ОНОВЛЕННЯ ДОДАТКУ
+            // Якщо є оновлення додатку — оновлюємо спочатку ТІЛЬКИ додаток!
+            val upd = appUpdateData ?: run {
+                val cached = AppUpdateManager.getCachedAppUpdate(activity)
+                if (cached != null && cached.hasUpdate) {
+                    val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
+                    val apkFile = File(dlDir, "${cached.latestVerName}.apk")
+                    AppUpdateData(true, cached.latestVerName, cached.downloadUrl, apkFile, 25_000_000L)
+                } else null
+            }
+
+            if (upd != null && upd.hasUpdate) {
+                list.add(
+                    UpdateItem(
+                        "app_apk",
+                        BlockType.MUSHROOMS,
+                        "Додаток", "App",
+                        "Mushroom (${upd.latestVerName})",
+                        ItemStatus.UPDATE,
+                        upd.assetSize
+                    ) { onBytes, isCancel ->
+                        AppUpdateManager.downloadApkDirect(upd.downloadUrl, upd.apkFile, onBytes, isCancel)
+                    }
+                )
+                return list // Інші компоненти НЕ показуються, поки додаток не оновлено
+            }
 
             // --- БЛОК 1: КАРТИ ---
             // 1. Світ
@@ -463,23 +506,6 @@ object InitialSetupDialog {
                 }
             }
 
-            // 3. Додаток (новий APK з GitHub)
-            val upd = appUpdateData
-            if (upd != null && upd.hasUpdate) {
-                list.add(
-                    UpdateItem(
-                        "app_apk",
-                        BlockType.MUSHROOMS,
-                        "Додаток", "App",
-                        "Mushroom (${upd.latestVerName})",
-                        ItemStatus.UPDATE,
-                        upd.assetSize
-                    ) { onBytes, isCancel ->
-                        AppUpdateManager.downloadApkDirect(upd.downloadUrl, upd.apkFile, onBytes, isCancel)
-                    }
-                )
-            }
-
             return list
         }
 
@@ -529,6 +555,16 @@ object InitialSetupDialog {
             cardsContainer.removeAllViews()
             badgeViews.clear()
             rowViews.clear()
+
+            val hasAppUpdateOnly = currentItems.any { it.subCategoryUk == "Додаток" }
+            countryRow.visibility = if (hasAppUpdateOnly) View.GONE else View.VISIBLE
+            subtitleTv.text = if (hasAppUpdateOnly) {
+                if (isUk) "Доступна нова версія додатку. Спочатку оновіть додаток:"
+                else "A new app version is available. Please update the app first:"
+            } else {
+                if (isUk) "Доступні файли та оновлення для офлайн-роботи:"
+                else "Available files and updates for offline operation:"
+            }
 
             if (currentItems.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
@@ -671,7 +707,11 @@ object InitialSetupDialog {
                 val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
                 val apkFile = File(dlDir, "$latestName.apk")
                 appUpdateData = AppUpdateData(true, latestName, downloadUrl, apkFile, 25_000_000L)
-                activity.runOnUiThread { refreshList() }
+                activity.runOnUiThread {
+                    if (!isDownloadingActive) {
+                        refreshList()
+                    }
+                }
             }
         }
 
@@ -757,13 +797,54 @@ object InitialSetupDialog {
             }
 
             bgExecutor.execute {
-                // Розбиваємо чергу: ресурси (карти, бази, моделі) першими, додаток (APK) — у самому кінці
-                val resourceItems = currentItems.filter { it.subCategoryUk != "Додаток" }
-                val apkItem = currentItems.find { it.subCategoryUk == "Додаток" }
+                val hasAppOnly = currentItems.any { it.subCategoryUk == "Додаток" }
+                if (hasAppOnly) {
+                    val apkItem = currentItems.first()
+                    apkItem.status = ItemStatus.DOWNLOADING
+                    updateItemBadge(apkItem)
+                    scrollToItem(apkItem)
 
+                    val okApk = apkItem.downloadAction(
+                        { bytesRead ->
+                            totalDownloadedBytes += bytesRead
+                            updateProgressUi()
+                        },
+                        { cancelFlag.get() }
+                    )
+                    if (okApk) {
+                        apkItem.status = ItemStatus.DONE
+                        updateItemBadge(apkItem)
+                    } else {
+                        apkItem.status = ItemStatus.MISSING
+                        updateItemBadge(apkItem)
+                    }
+
+                    val apkFile = appUpdateData?.apkFile ?: run {
+                        val cached = AppUpdateManager.getCachedAppUpdate(activity)
+                        if (cached != null) {
+                            val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
+                            File(dlDir, "${cached.latestVerName}.apk")
+                        } else null
+                    }
+
+                    try { Thread.sleep(400L) } catch (_: Exception) {}
+
+                    activity.runOnUiThread {
+                        progressBar.progress = 1000
+                        tvTimeRemaining.text = if (isUk) "Готово! Встановлення оновлення..." else "Done! Installing update..."
+                        isDownloadingActive = false
+                        dialog.dismiss()
+                        if (apkFile != null && apkFile.exists()) {
+                            AppUpdateManager.installApk(activity, apkFile)
+                        }
+                    }
+                    return@execute
+                }
+
+                // Завантаження компонентів (карти, бази, моделі)
                 var hasFailures = false
 
-                for (item in resourceItems) {
+                for (item in currentItems) {
                     if (cancelFlag.get()) break
                     item.status = ItemStatus.DOWNLOADING
                     updateItemBadge(item)
@@ -825,32 +906,6 @@ object InitialSetupDialog {
                             progressBar.progress = pVal
                             tvTimeRemaining.text = if (isUk) "Розпакування нейромережі... ($pct%)" else "Unpacking model... ($pct%)"
                         }
-                    }
-                }
-
-                // Якщо є оновлення додатку — запускаємо його в самому кінці
-                if (apkItem != null && !cancelFlag.get()) {
-                    apkItem.status = ItemStatus.DOWNLOADING
-                    updateItemBadge(apkItem)
-                    scrollToItem(apkItem)
-
-                    val okApk = apkItem.downloadAction(
-                        { bytesRead ->
-                            totalDownloadedBytes += bytesRead
-                            updateProgressUi()
-                        },
-                        { cancelFlag.get() }
-                    )
-                    if (okApk) {
-                        apkItem.status = ItemStatus.DONE
-                        updateItemBadge(apkItem)
-                    } else {
-                        apkItem.status = ItemStatus.MISSING
-                        updateItemBadge(apkItem)
-                    }
-                    val apkFile = appUpdateData?.apkFile
-                    if (apkFile != null && apkFile.exists()) {
-                        AppUpdateManager.installApk(activity, apkFile)
                     }
                 }
 

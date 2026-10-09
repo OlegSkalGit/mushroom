@@ -84,6 +84,49 @@ object AppUpdateManager {
         }
     }
 
+    data class CachedUpdate(
+        val hasUpdate: Boolean,
+        val latestVerName: String,
+        val installedVerName: String,
+        val downloadUrl: String,
+        val checkedAtMs: Long
+    )
+
+    @Volatile
+    var cachedUpdate: CachedUpdate? = null
+
+    private const val PREF_KEY_CACHED_RELEASE_NAME = "cached_release_name"
+    private const val PREF_KEY_CACHED_RELEASE_URL = "cached_release_url"
+
+    fun getCachedAppUpdate(context: Context): CachedUpdate? {
+        val currentVer = context.applicationContext.getAppVersionName()
+        val inMemory = cachedUpdate
+        if (inMemory != null && inMemory.installedVerName == currentVer) {
+            return inMemory
+        }
+
+        val prefs = AppPrefs.getPrefs(context)
+        val name = prefs.getString(PREF_KEY_CACHED_RELEASE_NAME, null)
+        val url = prefs.getString(PREF_KEY_CACHED_RELEASE_URL, null)
+        if (name.isNullOrEmpty() || url.isNullOrEmpty()) return null
+
+        val currentNums = extractVersionNumbers(currentVer)
+        val remoteNums = extractVersionNumbers(name)
+        val hasUpdate = isVersionNewer(remoteNums, currentNums)
+        val loaded = CachedUpdate(hasUpdate, name, currentVer, url, System.currentTimeMillis())
+        cachedUpdate = loaded
+        return loaded
+    }
+
+    fun saveCachedAppUpdate(context: Context, hasUpdate: Boolean, releaseName: String, downloadUrl: String) {
+        val currentVer = context.applicationContext.getAppVersionName()
+        cachedUpdate = CachedUpdate(hasUpdate, releaseName, currentVer, downloadUrl, System.currentTimeMillis())
+        AppPrefs.getPrefs(context).edit()
+            .putString(PREF_KEY_CACHED_RELEASE_NAME, if (hasUpdate) releaseName else "")
+            .putString(PREF_KEY_CACHED_RELEASE_URL, if (hasUpdate) downloadUrl else "")
+            .apply()
+    }
+
     fun checkUpdateStatusAsync(
         context: Context,
         onResult: (hasUpdate: Boolean, latestVerName: String, installedVerName: String, downloadUrl: String) -> Unit
@@ -116,6 +159,7 @@ object AppUpdateManager {
                 }
             }
             val hasUpdate = latestRemoteVer.isNotEmpty() && isVersionNewer(latestRemoteVer, localInstalledVer)
+            saveCachedAppUpdate(context, hasUpdate, latestRemoteName, latestRemoteUrl)
             mainHandler.post { onResult(hasUpdate, latestRemoteName, installedVersionName, latestRemoteUrl) }
         }
     }
@@ -217,6 +261,7 @@ object AppUpdateManager {
                 true,
                 "NEW VERSION DETECTED! Remote: $latestRemoteName ($latestRemoteVer) > Local: $installedVersionName ($localInstalledVer)"
             )
+            saveCachedAppUpdate(context, true, latestRemoteName, latestRemoteUrl)
             promptUserForUpdate(context, installedVersionName, latestRemoteName, latestRemoteUrl, onResult)
         } else {
             val upToDateMsg = "App is up to date (v$installedVersionName)"
@@ -226,6 +271,7 @@ object AppUpdateManager {
                 true,
                 "App is up-to-date. (Remote: $latestRemoteVer <= Installed: $localInstalledVer)"
             )
+            saveCachedAppUpdate(context, false, latestRemoteName, latestRemoteUrl)
             onResult?.let { mainHandler.post { it(upToDateMsg) } }
         }
     }

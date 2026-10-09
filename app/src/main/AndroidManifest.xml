@@ -30,6 +30,7 @@
             android:exported="true"
             android:clearTaskOnLaunch="true"
             android:launchMode="singleInstance"
+            android:screenOrientation="portrait"
             android:stateNotNeeded="true"
             android:theme="@style/Theme.Transparent">
             <intent-filter>
@@ -42,6 +43,7 @@
             android:name=".MushroomMapActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.Transparent">
 
             <!-- 1. Text coordinates / Maps links shared to Mushroom -->
@@ -96,6 +98,7 @@
         <activity
             android:name=".mushrooms.MushroomActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.Transparent">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

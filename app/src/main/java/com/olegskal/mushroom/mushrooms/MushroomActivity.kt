@@ -33,6 +33,7 @@ class MushroomActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         currentLang = com.olegskal.mushroom.util.AppPrefs.getAppLang(this)
 
