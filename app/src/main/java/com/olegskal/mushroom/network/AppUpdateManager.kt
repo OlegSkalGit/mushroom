@@ -89,6 +89,7 @@ object AppUpdateManager {
         val latestVerName: String,
         val installedVerName: String,
         val downloadUrl: String,
+        val assetSize: Long,
         val checkedAtMs: Long
     )
 
@@ -97,6 +98,7 @@ object AppUpdateManager {
 
     private const val PREF_KEY_CACHED_RELEASE_NAME = "cached_release_name"
     private const val PREF_KEY_CACHED_RELEASE_URL = "cached_release_url"
+    private const val PREF_KEY_CACHED_RELEASE_SIZE = "cached_release_size"
 
     fun getCachedAppUpdate(context: Context): CachedUpdate? {
         val currentVer = context.applicationContext.getAppVersionName()
@@ -108,59 +110,64 @@ object AppUpdateManager {
         val prefs = AppPrefs.getPrefs(context)
         val name = prefs.getString(PREF_KEY_CACHED_RELEASE_NAME, null)
         val url = prefs.getString(PREF_KEY_CACHED_RELEASE_URL, null)
+        val size = prefs.getLong(PREF_KEY_CACHED_RELEASE_SIZE, 25_000_000L)
         if (name.isNullOrEmpty() || url.isNullOrEmpty()) return null
 
         val currentNums = extractVersionNumbers(currentVer)
         val remoteNums = extractVersionNumbers(name)
         val hasUpdate = isVersionNewer(remoteNums, currentNums)
-        val loaded = CachedUpdate(hasUpdate, name, currentVer, url, System.currentTimeMillis())
+        val loaded = CachedUpdate(hasUpdate, name, currentVer, url, size, System.currentTimeMillis())
         cachedUpdate = loaded
         return loaded
     }
 
-    fun saveCachedAppUpdate(context: Context, hasUpdate: Boolean, releaseName: String, downloadUrl: String) {
+    fun saveCachedAppUpdate(context: Context, hasUpdate: Boolean, releaseName: String, downloadUrl: String, assetSize: Long = 25_000_000L) {
         val currentVer = context.applicationContext.getAppVersionName()
-        cachedUpdate = CachedUpdate(hasUpdate, releaseName, currentVer, downloadUrl, System.currentTimeMillis())
+        cachedUpdate = CachedUpdate(hasUpdate, releaseName, currentVer, downloadUrl, assetSize, System.currentTimeMillis())
         AppPrefs.getPrefs(context).edit()
             .putString(PREF_KEY_CACHED_RELEASE_NAME, if (hasUpdate) releaseName else "")
             .putString(PREF_KEY_CACHED_RELEASE_URL, if (hasUpdate) downloadUrl else "")
+            .putLong(PREF_KEY_CACHED_RELEASE_SIZE, if (hasUpdate) assetSize else 0L)
             .apply()
     }
 
     fun checkUpdateStatusAsync(
         context: Context,
-        onResult: (hasUpdate: Boolean, latestVerName: String, installedVerName: String, downloadUrl: String) -> Unit
+        onResult: (hasUpdate: Boolean, latestVerName: String, installedVerName: String, downloadUrl: String, assetSize: Long) -> Unit
     ) {
         executor.execute {
             val installedVersionName = context.applicationContext.getAppVersionName()
             val localInstalledVer = extractVersionNumbers(installedVersionName)
             val releasesList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases?per_page=100")
             if (releasesList.isEmpty()) {
-                mainHandler.post { onResult(false, "", installedVersionName, "") }
+                mainHandler.post { onResult(false, "", installedVersionName, "", 0L) }
                 return@execute
             }
             var latestRemoteVer: List<Int> = emptyList()
             var latestRemoteName = ""
             var latestRemoteUrl = ""
+            var latestRemoteSize = 25_000_000L
             for (release in releasesList) {
                 val assets = release.optJSONArray("assets") ?: continue
                 for (j in 0 until assets.length()) {
                     val asset = assets.getJSONObject(j)
                     val assetName = asset.optString("name", "")
                     val downloadUrl = asset.optString("browser_download_url", "")
+                    val assetSize = asset.optLong("size", 25_000_000L)
                     if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotEmpty()) {
                         val ver = extractVersionNumbers(assetName)
                         if (isVersionNewer(ver, latestRemoteVer)) {
                             latestRemoteVer = ver
                             latestRemoteName = assetName
                             latestRemoteUrl = downloadUrl
+                            latestRemoteSize = assetSize
                         }
                     }
                 }
             }
             val hasUpdate = latestRemoteVer.isNotEmpty() && isVersionNewer(latestRemoteVer, localInstalledVer)
-            saveCachedAppUpdate(context, hasUpdate, latestRemoteName, latestRemoteUrl)
-            mainHandler.post { onResult(hasUpdate, latestRemoteName, installedVersionName, latestRemoteUrl) }
+            saveCachedAppUpdate(context, hasUpdate, latestRemoteName, latestRemoteUrl, latestRemoteSize)
+            mainHandler.post { onResult(hasUpdate, latestRemoteName, installedVersionName, latestRemoteUrl, latestRemoteSize) }
         }
     }
 
@@ -574,6 +581,7 @@ object AppUpdateManager {
         urlStr: String,
         destFile: File,
         onBytesRead: (Long) -> Unit,
+        onSizeDiscovered: (Long) -> Unit = {},
         isCancelled: () -> Boolean = { false },
         redirectCount: Int = 0
     ): Boolean {
@@ -600,7 +608,7 @@ object AppUpdateManager {
                 val newUrl = conn.getHeaderField("Location")
                 conn.disconnect()
                 if (!newUrl.isNullOrEmpty()) {
-                    return downloadApkDirect(newUrl, destFile, onBytesRead, isCancelled, redirectCount + 1)
+                    return downloadApkDirect(newUrl, destFile, onBytesRead, onSizeDiscovered, isCancelled, redirectCount + 1)
                 }
                 return false
             }
@@ -608,6 +616,11 @@ object AppUpdateManager {
             if (responseCode != HttpURLConnection.HTTP_OK) {
                 AppLogger.log("AppUpdateManager", "downloadApkDirect", false, "HTTP status $responseCode for $urlStr")
                 return false
+            }
+
+            val serverLen = conn.contentLengthLong
+            if (serverLen > 0L) {
+                onSizeDiscovered(serverLen)
             }
 
             destFile.parentFile?.mkdirs()

@@ -63,8 +63,8 @@ object InitialSetupDialog {
         val subCategoryEn: String,
         val title: String,
         var status: ItemStatus,
-        val expectedBytes: Long,
-        val downloadAction: (onBytes: (Long) -> Unit, isCancelled: () -> Boolean) -> Boolean
+        var expectedBytes: Long,
+        val downloadAction: (onBytes: (Long) -> Unit, onSizeDiscovered: (Long) -> Unit, isCancelled: () -> Boolean) -> Boolean
     ) {
         override fun equals(other: Any?): Boolean = other is UpdateItem && other.id == id
         override fun hashCode(): Int = id.hashCode()
@@ -115,7 +115,7 @@ object InitialSetupDialog {
             }
         }
 
-        AppUpdateManager.checkUpdateStatusAsync(activity) { hasAppUpdate, _, _, _ ->
+        AppUpdateManager.checkUpdateStatusAsync(activity) { hasAppUpdate, _, _, _, _ ->
             if (hasAppUpdate) triggerShow()
         }
 
@@ -309,9 +309,10 @@ object InitialSetupDialog {
         var appUpdateData: AppUpdateData? = if (cachedAtStart != null && cachedAtStart.hasUpdate) {
             val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
             val apkFile = File(dlDir, "${cachedAtStart.latestVerName}.apk")
-            AppUpdateData(true, cachedAtStart.latestVerName, cachedAtStart.downloadUrl, apkFile, 25_000_000L)
+            AppUpdateData(true, cachedAtStart.latestVerName, cachedAtStart.downloadUrl, apkFile, cachedAtStart.assetSize)
         } else null
-        var countryNeedsUpdate = false
+        var countryMapNeedsUpdate = false
+        var countryPoiNeedsUpdate = false
         var worldNeedsUpdate = false
 
         // Сканування доступних для оновлення файлів
@@ -325,7 +326,7 @@ object InitialSetupDialog {
                 if (cached != null && cached.hasUpdate) {
                     val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
                     val apkFile = File(dlDir, "${cached.latestVerName}.apk")
-                    AppUpdateData(true, cached.latestVerName, cached.downloadUrl, apkFile, 25_000_000L)
+                    AppUpdateData(true, cached.latestVerName, cached.downloadUrl, apkFile, cached.assetSize)
                 } else null
             }
 
@@ -338,8 +339,8 @@ object InitialSetupDialog {
                         "Mushroom (${upd.latestVerName})",
                         ItemStatus.UPDATE,
                         upd.assetSize
-                    ) { onBytes, isCancel ->
-                        AppUpdateManager.downloadApkDirect(upd.downloadUrl, upd.apkFile, onBytes, isCancel)
+                    ) { onBytes, onSizeDiscovered, isCancel ->
+                        AppUpdateManager.downloadApkDirect(upd.downloadUrl, upd.apkFile, onBytes, onSizeDiscovered, isCancel)
                     }
                 )
                 return list // Інші компоненти НЕ показуються, поки додаток не оновлено
@@ -357,8 +358,8 @@ object InitialSetupDialog {
                         MapDownloadManager.WORLD_MAP_FILE_NAME,
                         ItemStatus.MISSING,
                         3_211_280L
-                    ) { onBytes, isCancel ->
-                        downloadFileDirect("https://download.mapsforge.org/maps/v5/world/world.map", worldFile, onBytes, isCancel)
+                    ) { onBytes, onSizeDiscovered, isCancel ->
+                        downloadFileDirect("https://download.mapsforge.org/maps/v5/world/world.map", worldFile, onBytes, onSizeDiscovered, isCancel)
                     }
                 )
             } else if (worldNeedsUpdate || MapDownloadManager.isWorldMapUpdateAvailable()) {
@@ -370,8 +371,8 @@ object InitialSetupDialog {
                         MapDownloadManager.WORLD_MAP_FILE_NAME,
                         ItemStatus.UPDATE,
                         3_211_280L
-                    ) { onBytes, isCancel ->
-                        downloadFileDirect("https://download.mapsforge.org/maps/v5/world/world.map", worldFile, onBytes, isCancel)
+                    ) { onBytes, onSizeDiscovered, isCancel ->
+                        downloadFileDirect("https://download.mapsforge.org/maps/v5/world/world.map", worldFile, onBytes, onSizeDiscovered, isCancel)
                     }
                 )
             }
@@ -379,6 +380,10 @@ object InitialSetupDialog {
             // 2. Країна
             val c = selectedCountry
             val mapFile = File(MushroomStorageManager.mapsDir, c.mapFileName)
+            val estimatedMapSize = MapDownloadManager.getRemoteFileSize(c.mapFileName)
+                ?: MapDownloadManager.getRemoteFileSize(c.mapUrl)
+                ?: (if (c.code == "UA") 874_000_000L else 600_000_000L)
+
             if (!mapFile.exists() || mapFile.length() < 1024L) {
                 list.add(
                     UpdateItem(
@@ -387,12 +392,12 @@ object InitialSetupDialog {
                         "Країна", "Country",
                         "${if (isUk) c.nameUk else c.name} (${c.mapFileName})",
                         ItemStatus.MISSING,
-                        100_000_000L
-                    ) { onBytes, isCancel ->
-                        downloadFileDirect(c.mapUrl, mapFile, onBytes, isCancel)
+                        estimatedMapSize
+                    ) { onBytes, onSizeDiscovered, isCancel ->
+                        downloadFileDirect(c.mapUrl, mapFile, onBytes, onSizeDiscovered, isCancel)
                     }
                 )
-            } else if (countryNeedsUpdate) {
+            } else if (countryMapNeedsUpdate || MapDownloadManager.isCountryMapUpdateAvailable(c)) {
                 list.add(
                     UpdateItem(
                         "map_${c.code}",
@@ -400,9 +405,9 @@ object InitialSetupDialog {
                         "Країна", "Country",
                         "${if (isUk) c.nameUk else c.name} (${c.mapFileName})",
                         ItemStatus.UPDATE,
-                        100_000_000L
-                    ) { onBytes, isCancel ->
-                        downloadFileDirect(c.mapUrl, mapFile, onBytes, isCancel)
+                        estimatedMapSize
+                    ) { onBytes, onSizeDiscovered, isCancel ->
+                        downloadFileDirect(c.mapUrl, mapFile, onBytes, onSizeDiscovered, isCancel)
                     }
                 )
             }
@@ -418,9 +423,9 @@ object InitialSetupDialog {
                             "Навігація (файли)", "Navigation (files)",
                             seg,
                             ItemStatus.MISSING,
-                            2_000_000L
-                        ) { onBytes, isCancel ->
-                            downloadFileDirect("https://brouter.de/brouter/segments4/$seg", segFile, onBytes, isCancel, allowHttpErrors = true)
+                            18_000_000L
+                        ) { onBytes, onSizeDiscovered, isCancel ->
+                            downloadFileDirect("https://brouter.de/brouter/segments4/$seg", segFile, onBytes, onSizeDiscovered, isCancel, allowHttpErrors = true)
                         }
                     )
                 }
@@ -428,6 +433,10 @@ object InitialSetupDialog {
 
             // 4. Локації POI
             val poiFile = File(MushroomStorageManager.poiDir, c.poiFileName)
+            val estimatedPoiSize = MapDownloadManager.getRemoteFileSize(c.poiFileName)
+                ?: MapDownloadManager.getRemoteFileSize(c.poiUrl)
+                ?: (if (c.code == "UA") 175_000_000L else 100_000_000L)
+
             if (!poiFile.exists() || poiFile.length() < 1024L) {
                 list.add(
                     UpdateItem(
@@ -436,12 +445,12 @@ object InitialSetupDialog {
                         "Локації", "Locations",
                         c.poiFileName,
                         ItemStatus.MISSING,
-                        10_000_000L
-                    ) { onBytes, isCancel ->
-                        downloadFileDirect(c.poiUrl, poiFile, onBytes, isCancel)
+                        estimatedPoiSize
+                    ) { onBytes, onSizeDiscovered, isCancel ->
+                        downloadFileDirect(c.poiUrl, poiFile, onBytes, onSizeDiscovered, isCancel)
                     }
                 )
-            } else if (countryNeedsUpdate) {
+            } else if (countryPoiNeedsUpdate || MapDownloadManager.isCountryPoiUpdateAvailable(c)) {
                 list.add(
                     UpdateItem(
                         "poi_${c.code}",
@@ -449,9 +458,9 @@ object InitialSetupDialog {
                         "Локації", "Locations",
                         c.poiFileName,
                         ItemStatus.UPDATE,
-                        10_000_000L
-                    ) { onBytes, isCancel ->
-                        downloadFileDirect(c.poiUrl, poiFile, onBytes, isCancel)
+                        estimatedPoiSize
+                    ) { onBytes, onSizeDiscovered, isCancel ->
+                        downloadFileDirect(c.poiUrl, poiFile, onBytes, onSizeDiscovered, isCancel)
                     }
                 )
             }
@@ -474,8 +483,8 @@ object InitialSetupDialog {
                                 part.fileName,
                                 st,
                                 part.exactSize
-                            ) { onBytes, isCancel ->
-                                downloadPartWithResume("${MushroomDataConfig.DB_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, isCancel)
+                            ) { onBytes, onSizeDiscovered, isCancel ->
+                                downloadPartWithResume("${MushroomDataConfig.DB_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, onSizeDiscovered, isCancel)
                             }
                         )
                     }
@@ -498,8 +507,8 @@ object InitialSetupDialog {
                                 part.fileName,
                                 st,
                                 part.exactSize
-                            ) { onBytes, isCancel ->
-                                downloadPartWithResume("${MushroomDataConfig.MODEL_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, isCancel)
+                            ) { onBytes, onSizeDiscovered, isCancel ->
+                                downloadPartWithResume("${MushroomDataConfig.MODEL_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, onSizeDiscovered, isCancel)
                             }
                         )
                     }
@@ -511,31 +520,62 @@ object InitialSetupDialog {
 
         val badgeViews = mutableMapOf<String, TextView>()
         val rowViews = mutableMapOf<String, View>()
+        val progressLayoutViews = mutableMapOf<String, View>()
+        val itemProgressBars = mutableMapOf<String, ProgressBar>()
+        val itemPercentViews = mutableMapOf<String, TextView>()
 
         fun updateItemBadge(item: UpdateItem) {
             activity.runOnUiThread {
                 val badge = badgeViews[item.id] ?: return@runOnUiThread
+                val progLayout = progressLayoutViews[item.id] ?: return@runOnUiThread
                 val bg = (badge.background as? GradientDrawable) ?: GradientDrawable().apply {
                     cornerRadius = dp(4).toFloat()
                     badge.background = this
                 }
                 when (item.status) {
                     ItemStatus.DONE -> {
+                        badge.visibility = View.VISIBLE
+                        progLayout.visibility = View.GONE
                         badge.text = if (isUk) "Готово" else "Done"
                         bg.setColor(Color.parseColor("#10B981"))
                     }
                     ItemStatus.DOWNLOADING -> {
-                        badge.text = if (isUk) "Завантаження" else "Downloading"
-                        bg.setColor(Color.parseColor("#F59E0B"))
+                        badge.visibility = View.GONE
+                        progLayout.visibility = View.VISIBLE
                     }
                     ItemStatus.MISSING -> {
+                        badge.visibility = View.VISIBLE
+                        progLayout.visibility = View.GONE
                         badge.text = if (isUk) "Відсутній" else "Missing"
                         bg.setColor(Color.parseColor("#EF4444"))
                     }
                     ItemStatus.UPDATE -> {
+                        badge.visibility = View.VISIBLE
+                        progLayout.visibility = View.GONE
                         badge.text = if (isUk) "Оновлення" else "Update"
                         bg.setColor(Color.parseColor("#0284C7"))
                     }
+                }
+            }
+        }
+
+        fun updateItemProgress(item: UpdateItem, currentBytes: Long, totalBytes: Long) {
+            activity.runOnUiThread {
+                val pBar = itemProgressBars[item.id] ?: return@runOnUiThread
+                val tvPct = itemPercentViews[item.id] ?: return@runOnUiThread
+                val progLayout = progressLayoutViews[item.id]
+                if (progLayout?.visibility != View.VISIBLE) {
+                    badgeViews[item.id]?.visibility = View.GONE
+                    progLayout?.visibility = View.VISIBLE
+                }
+                if (totalBytes > 0L) {
+                    val ratio = (currentBytes.toDouble() / totalBytes.toDouble()).coerceIn(0.0, 1.0)
+                    val pVal = (ratio * 100).toInt()
+                    pBar.progress = pVal
+                    tvPct.text = "$pVal%"
+                } else {
+                    pBar.progress = 0
+                    tvPct.text = "..."
                 }
             }
         }
@@ -555,6 +595,9 @@ object InitialSetupDialog {
             cardsContainer.removeAllViews()
             badgeViews.clear()
             rowViews.clear()
+            progressLayoutViews.clear()
+            itemProgressBars.clear()
+            itemPercentViews.clear()
 
             val hasAppUpdateOnly = currentItems.any { it.subCategoryUk == "Додаток" }
             countryRow.visibility = if (hasAppUpdateOnly) View.GONE else View.VISIBLE
@@ -625,12 +668,21 @@ object InitialSetupDialog {
                     text = "$subCat: ${item.title}"
                     setTextColor(Color.parseColor("#E5E7EB"))
                     textSize = 12.5f
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        setMargins(0, 0, dp(8), 0)
+                    }
                 }
+
+                // Контейнер статусу (бейдж або прогрес-бар для поточної операції)
+                val statusContainer = FrameLayout(activity).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(88), dp(22))
+                }
+
                 val badgeTv = TextView(activity).apply {
                     textSize = 11f
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER
                     val bg = GradientDrawable().apply {
                         cornerRadius = dp(4).toFloat()
                     }
@@ -653,12 +705,68 @@ object InitialSetupDialog {
                         }
                     }
                     background = bg
-                    setPadding(dp(6), dp(2), dp(6), dp(2))
+                    setPadding(dp(4), dp(2), dp(4), dp(2))
+                    layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 }
+
+                val progressLayout = FrameLayout(activity).apply {
+                    layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                    visibility = if (item.status == ItemStatus.DOWNLOADING) View.VISIBLE else View.GONE
+                }
+
+                val bgBar = GradientDrawable().apply {
+                    setColor(Color.parseColor("#374151"))
+                    cornerRadius = dp(4).toFloat()
+                }
+                val progressShape = GradientDrawable().apply {
+                    setColor(Color.parseColor("#0284C7"))
+                    cornerRadius = dp(4).toFloat()
+                }
+                val clipProgress = android.graphics.drawable.ClipDrawable(progressShape, Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL)
+                val pBarDrawable = android.graphics.drawable.LayerDrawable(arrayOf(bgBar, clipProgress)).apply {
+                    setId(0, android.R.id.background)
+                    setId(1, android.R.id.progress)
+                }
+
+                val pBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    isIndeterminate = false
+                    max = 100
+                    progress = 0
+                    progressDrawable = pBarDrawable
+                    layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                }
+
+                val tvPercent = TextView(activity).apply {
+                    text = "0%"
+                    setTextColor(Color.WHITE)
+                    textSize = 10f
+                    setTypeface(null, Typeface.BOLD)
+                    gravity = Gravity.CENTER
+                    layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                }
+
+                progressLayout.addView(pBar)
+                progressLayout.addView(tvPercent)
+
+                if (item.status == ItemStatus.DOWNLOADING) {
+                    badgeTv.visibility = View.GONE
+                    progressLayout.visibility = View.VISIBLE
+                } else {
+                    badgeTv.visibility = View.VISIBLE
+                    progressLayout.visibility = View.GONE
+                }
+
+                statusContainer.addView(badgeTv)
+                statusContainer.addView(progressLayout)
+
                 badgeViews[item.id] = badgeTv
+                progressLayoutViews[item.id] = progressLayout
+                itemProgressBars[item.id] = pBar
+                itemPercentViews[item.id] = tvPercent
                 rowViews[item.id] = row
+
                 row.addView(rowTitleTv)
-                row.addView(badgeTv)
+                row.addView(statusContainer)
                 container.addView(row)
             }
 
@@ -690,11 +798,39 @@ object InitialSetupDialog {
                 selectedCountry = picked
                 val cName = if (isUk) selectedCountry.nameUk else selectedCountry.name
                 tvCountry.text = if (isUk) "Країна: $cName (${selectedCountry.code})" else "Country: $cName (${selectedCountry.code})"
-                countryNeedsUpdate = false
+                countryMapNeedsUpdate = false
+                countryPoiNeedsUpdate = false
                 refreshList()
+                MapDownloadManager.fetchRemoteFileSizeAsync(selectedCountry.mapUrl, selectedCountry.mapFileName) { len ->
+                    activity.runOnUiThread {
+                        val itm = currentItems.find { it.id == "map_${selectedCountry.code}" }
+                        if (itm != null && !isDownloadingActive) {
+                            itm.expectedBytes = len
+                        }
+                    }
+                }
+                MapDownloadManager.fetchRemoteFileSizeAsync(selectedCountry.poiUrl, selectedCountry.poiFileName) { len ->
+                    activity.runOnUiThread {
+                        val itm = currentItems.find { it.id == "poi_${selectedCountry.code}" }
+                        if (itm != null && !isDownloadingActive) {
+                            itm.expectedBytes = len
+                        }
+                    }
+                }
+                for (seg in selectedCountry.getRd5Segments()) {
+                    MapDownloadManager.fetchRemoteFileSizeAsync("https://brouter.de/brouter/segments4/$seg", seg) { len ->
+                        activity.runOnUiThread {
+                            val itm = currentItems.find { it.id == "rd5_$seg" }
+                            if (itm != null && !isDownloadingActive) {
+                                itm.expectedBytes = len
+                            }
+                        }
+                    }
+                }
                 MapDownloadManager.checkCountryUpdatesAsync(selectedCountry) { hasUpdate ->
+                    countryMapNeedsUpdate = MapDownloadManager.isCountryMapUpdateAvailable(selectedCountry)
+                    countryPoiNeedsUpdate = MapDownloadManager.isCountryPoiUpdateAvailable(selectedCountry)
                     if (hasUpdate) {
-                        countryNeedsUpdate = true
                         activity.runOnUiThread { refreshList() }
                     }
                 }
@@ -702,11 +838,11 @@ object InitialSetupDialog {
         }
 
         // Фонова перевірка оновлень з GitHub
-        AppUpdateManager.checkUpdateStatusAsync(activity) { hasUpdate, latestName, _, downloadUrl ->
+        AppUpdateManager.checkUpdateStatusAsync(activity) { hasUpdate, latestName, _, downloadUrl, assetSize ->
             if (hasUpdate) {
                 val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
                 val apkFile = File(dlDir, "$latestName.apk")
-                appUpdateData = AppUpdateData(true, latestName, downloadUrl, apkFile, 25_000_000L)
+                appUpdateData = AppUpdateData(true, latestName, downloadUrl, apkFile, if (assetSize > 0L) assetSize else 25_000_000L)
                 activity.runOnUiThread {
                     if (!isDownloadingActive) {
                         refreshList()
@@ -717,8 +853,9 @@ object InitialSetupDialog {
 
         // Фонова перевірка карти країни
         MapDownloadManager.checkCountryUpdatesAsync(selectedCountry) { hasUpdate ->
+            countryMapNeedsUpdate = MapDownloadManager.isCountryMapUpdateAvailable(selectedCountry)
+            countryPoiNeedsUpdate = MapDownloadManager.isCountryPoiUpdateAvailable(selectedCountry)
             if (hasUpdate) {
-                countryNeedsUpdate = true
                 activity.runOnUiThread { refreshList() }
             }
         }
@@ -731,6 +868,34 @@ object InitialSetupDialog {
             }
         }
 
+        // Фонове уточнення розмірів обраної країни
+        MapDownloadManager.fetchRemoteFileSizeAsync(selectedCountry.mapUrl, selectedCountry.mapFileName) { len ->
+            activity.runOnUiThread {
+                val itm = currentItems.find { it.id == "map_${selectedCountry.code}" }
+                if (itm != null && !isDownloadingActive) {
+                    itm.expectedBytes = len
+                }
+            }
+        }
+        MapDownloadManager.fetchRemoteFileSizeAsync(selectedCountry.poiUrl, selectedCountry.poiFileName) { len ->
+            activity.runOnUiThread {
+                val itm = currentItems.find { it.id == "poi_${selectedCountry.code}" }
+                if (itm != null && !isDownloadingActive) {
+                    itm.expectedBytes = len
+                }
+            }
+        }
+        for (seg in selectedCountry.getRd5Segments()) {
+            MapDownloadManager.fetchRemoteFileSizeAsync("https://brouter.de/brouter/segments4/$seg", seg) { len ->
+                activity.runOnUiThread {
+                    val itm = currentItems.find { it.id == "rd5_$seg" }
+                    if (itm != null && !isDownloadingActive) {
+                        itm.expectedBytes = len
+                    }
+                }
+            }
+        }
+
         // --- ДІЯ: ЗАВАНТАЖЕННЯ ---
         btnDownload.setOnClickListener {
             if (currentItems.isEmpty()) return@setOnClickListener
@@ -740,7 +905,7 @@ object InitialSetupDialog {
             btnCountryChange.visibility = View.GONE
             progressContainer.visibility = View.VISIBLE
 
-            val totalExpectedBytes = currentItems.sumOf { it.expectedBytes }.coerceAtLeast(1L)
+            var totalExpectedBytes = currentItems.sumOf { it.expectedBytes }.coerceAtLeast(1L)
             var totalDownloadedBytes = 0L
             val startTimeMs = System.currentTimeMillis()
             var lastUiUpdateMs = 0L
@@ -764,13 +929,20 @@ object InitialSetupDialog {
                 lastUiUpdateMs = now
 
                 val elapsedSec = (now - startTimeMs) / 1000.0
-                val progressRatio = (totalDownloadedBytes.toDouble() / totalExpectedBytes.toDouble()).coerceIn(0.0, 1.0)
+
+                // Знаменник ніколи не повинен бути меншим за викачане + очікуваний залишок незавершених файлів
+                val unfinishedRemaining = currentItems
+                    .filter { it.status == ItemStatus.MISSING || it.status == ItemStatus.UPDATE }
+                    .sumOf { it.expectedBytes }
+
+                val effectiveTotal = maxOf(totalExpectedBytes, totalDownloadedBytes + unfinishedRemaining)
+                val progressRatio = (totalDownloadedBytes.toDouble() / effectiveTotal.toDouble()).coerceIn(0.0, 1.0)
                 val currentProgressVal = (progressRatio * maxDownloadProgress).toInt()
 
                 val timeStr: String
                 if (elapsedSec > 1.2 && totalDownloadedBytes > 60_000L) {
                     val speed = totalDownloadedBytes / elapsedSec
-                    val remainingBytes = (totalExpectedBytes - totalDownloadedBytes).coerceAtLeast(0L)
+                    val remainingBytes = (effectiveTotal - totalDownloadedBytes).coerceAtLeast(unfinishedRemaining)
                     val remainingSec = if (speed > 1024) (remainingBytes / speed).roundToLong() else -1L
 
                     timeStr = if (remainingSec < 0) {
@@ -784,7 +956,8 @@ object InitialSetupDialog {
                         val s = remainingSec % 60
                         if (isUk) "Залишилось: ~$m хв $s с" else "Remaining: ~$m min $s sec"
                     } else {
-                        if (isUk) "Залишилось: ~$remainingSec с" else "Remaining: ~$remainingSec sec"
+                        val s = if (remainingSec == 0L && currentItems.any { it.status != ItemStatus.DONE }) 1L else remainingSec
+                        if (isUk) "Залишилось: ~$s с" else "Remaining: ~$s sec"
                     }
                 } else {
                     timeStr = if (isUk) "Обчислення часу..." else "Estimating time..."
@@ -804,10 +977,27 @@ object InitialSetupDialog {
                     updateItemBadge(apkItem)
                     scrollToItem(apkItem)
 
+                    var apkDownloadedBytes = 0L
+                    var lastApkUiMs = 0L
+
                     val okApk = apkItem.downloadAction(
                         { bytesRead ->
+                            apkDownloadedBytes += bytesRead
                             totalDownloadedBytes += bytesRead
+                            val now = System.currentTimeMillis()
+                            if (now - lastApkUiMs >= 80 || apkDownloadedBytes >= apkItem.expectedBytes) {
+                                lastApkUiMs = now
+                                updateItemProgress(apkItem, apkDownloadedBytes, apkItem.expectedBytes)
+                            }
                             updateProgressUi()
+                        },
+                        { actualSize ->
+                            if (actualSize > 0L) {
+                                totalExpectedBytes = actualSize
+                                apkItem.expectedBytes = actualSize
+                                updateItemProgress(apkItem, apkDownloadedBytes, apkItem.expectedBytes)
+                                updateProgressUi()
+                            }
                         },
                         { cancelFlag.get() }
                     )
@@ -850,10 +1040,28 @@ object InitialSetupDialog {
                     updateItemBadge(item)
                     scrollToItem(item)
 
+                    var itemDownloadedBytes = 0L
+                    var lastItemUiMs = 0L
+
                     val ok = item.downloadAction(
                         { bytesRead ->
+                            itemDownloadedBytes += bytesRead
                             totalDownloadedBytes += bytesRead
+                            val now = System.currentTimeMillis()
+                            if (now - lastItemUiMs >= 80 || itemDownloadedBytes >= item.expectedBytes) {
+                                lastItemUiMs = now
+                                updateItemProgress(item, itemDownloadedBytes, item.expectedBytes)
+                            }
                             updateProgressUi()
+                        },
+                        { actualSize ->
+                            if (actualSize >= 0L && actualSize != item.expectedBytes) {
+                                val diff = actualSize - item.expectedBytes
+                                totalExpectedBytes = (totalExpectedBytes + diff).coerceAtLeast(1L)
+                                item.expectedBytes = actualSize
+                                updateItemProgress(item, itemDownloadedBytes, item.expectedBytes)
+                                updateProgressUi()
+                            }
                         },
                         { cancelFlag.get() }
                     )
@@ -945,6 +1153,7 @@ object InitialSetupDialog {
         urlStr: String,
         destFile: File,
         onBytesRead: (Long) -> Unit,
+        onSizeDiscovered: (Long) -> Unit = {},
         isCancelled: () -> Boolean,
         allowHttpErrors: Boolean = false
     ): Boolean {
@@ -977,8 +1186,16 @@ object InitialSetupDialog {
             }
 
             if (conn == null || conn.responseCode != HttpURLConnection.HTTP_OK) {
-                if (allowHttpErrors) return true
+                if (allowHttpErrors) {
+                    onSizeDiscovered(0L)
+                    return true
+                }
                 return false
+            }
+
+            val serverLen = conn.contentLengthLong
+            if (serverLen > 0L) {
+                onSizeDiscovered(serverLen)
             }
 
             conn.inputStream.use { input ->
@@ -1026,9 +1243,12 @@ object InitialSetupDialog {
         destFile: File,
         expectedSize: Long,
         onBytesRead: (Long) -> Unit,
+        onSizeDiscovered: (Long) -> Unit = {},
         isCancelled: () -> Boolean
     ): Boolean {
+        destFile.parentFile?.mkdirs()
         if (destFile.exists() && destFile.length() == expectedSize) {
+            onSizeDiscovered(expectedSize)
             return true
         }
         if (destFile.exists() && destFile.length() > expectedSize) {
@@ -1042,16 +1262,33 @@ object InitialSetupDialog {
             var conn: HttpURLConnection? = null
             try {
                 val existingLen = if (destFile.exists()) destFile.length() else 0L
-                val url = URL(urlStr)
-                conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
-                    if (existingLen > 0) {
-                        setRequestProperty("Range", "bytes=$existingLen-")
+                var currentUrl = urlStr
+                var redirects = 0
+                while (redirects < 5) {
+                    val url = URL(currentUrl)
+                    conn = (url.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 15000
+                        readTimeout = 30000
+                        instanceFollowRedirects = true
+                        setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
+                        if (existingLen > 0) {
+                            setRequestProperty("Range", "bytes=$existingLen-")
+                        }
                     }
+                    val code = conn.responseCode
+                    if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
+                        val loc = conn.getHeaderField("Location")
+                        conn.disconnect()
+                        if (loc != null) {
+                            currentUrl = loc
+                            redirects++
+                            continue
+                        }
+                    }
+                    break
                 }
-                conn.connect()
+                if (conn == null) continue
+
                 val code = conn.responseCode
                 if (code == 416) {
                     destFile.delete()
@@ -1063,6 +1300,14 @@ object InitialSetupDialog {
                     conn.disconnect()
                     continue
                 }
+
+                if (expectedSize > 0L) {
+                    onSizeDiscovered(expectedSize)
+                } else {
+                    val sLen = conn.contentLengthLong
+                    if (sLen > 0L) onSizeDiscovered(if (isResume) sLen + existingLen else sLen)
+                }
+
                 val append = isResume && existingLen > 0
                 conn.inputStream.use { input ->
                     FileOutputStream(destFile, append).use { out ->

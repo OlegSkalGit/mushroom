@@ -188,20 +188,28 @@ object RegionDownloadDialog {
         } else {
             if (isUk) "Завантажити" else "Download"
         }
-        val msg = if (isUk) {
-            "Буде завантажено:\n" +
-            worldItem +
-            "• Векторна карта (.map)\n" +
-            "• Точки інтересу (.poi)\n" +
-            "• Навігаційні сегменти BRouter (${segments.size} файлів .rd5)\n\n" +
-            "Усього файлів: $totalFiles. Почати завантаження?"
+        val msg = if (isUpdate) {
+            if (isUk) {
+                "Будуть завантажені лише змінені та відсутні файли карти ($displayName).\n\nПочати оновлення?"
+            } else {
+                "Only changed and missing map files for $displayName will be downloaded.\n\nStart update?"
+            }
         } else {
-            "Will download:\n" +
-            worldItem +
-            "• Vector map (.map)\n" +
-            "• Points of Interest (.poi)\n" +
-            "• BRouter navigation segments (${segments.size} files .rd5)\n\n" +
-            "Total files: $totalFiles. Start download?"
+            if (isUk) {
+                "Буде завантажено:\n" +
+                worldItem +
+                "• Векторна карта (.map)\n" +
+                "• Точки інтересу (.poi)\n" +
+                "• Навігаційні сегменти BRouter (${segments.size} файлів .rd5)\n\n" +
+                "Усього файлів: $totalFiles. Почати завантаження?"
+            } else {
+                "Will download:\n" +
+                worldItem +
+                "• Vector map (.map)\n" +
+                "• Points of Interest (.poi)\n" +
+                "• BRouter navigation segments (${segments.size} files .rd5)\n\n" +
+                "Total files: $totalFiles. Start download?"
+            }
         }
 
         android.app.AlertDialog.Builder(activity)
@@ -214,7 +222,11 @@ object RegionDownloadDialog {
                     onFinished = { success, errorMsg ->
                         activity.runOnUiThread {
                             val resultMsg = if (success) {
-                                if (isUk) "Карту для $displayName успішно завантажено!" else "Map for ${country.name} downloaded successfully!"
+                                if (isUpdate) {
+                                    if (isUk) "Карту для $displayName успішно оновлено!" else "Map for ${country.name} updated successfully!"
+                                } else {
+                                    if (isUk) "Карту для $displayName успішно завантажено!" else "Map for ${country.name} downloaded successfully!"
+                                }
                             } else {
                                 if (isUk) "Помилка завантаження: $errorMsg" else "Download error: $errorMsg"
                             }

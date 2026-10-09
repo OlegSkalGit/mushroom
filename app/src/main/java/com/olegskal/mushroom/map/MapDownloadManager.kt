@@ -82,6 +82,60 @@ object MapDownloadManager {
     var onDownloadFinished: ((success: Boolean, message: String) -> Unit)? = null
 
     private val updateStatusCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Boolean>>()
+    private val remoteFileSizes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun getRemoteFileSize(key: String): Long? = remoteFileSizes[key]
+
+    fun setRemoteFileSize(key: String, size: Long) {
+        if (size > 0L) remoteFileSizes[key] = size
+    }
+
+    fun fetchRemoteFileSizeAsync(urlStr: String, key: String, onResult: (Long) -> Unit = {}) {
+        val cached = remoteFileSizes[key] ?: remoteFileSizes[urlStr]
+        if (cached != null && cached > 0L) {
+            onResult(cached)
+            return
+        }
+        Thread {
+            var conn: HttpURLConnection? = null
+            try {
+                var currentUrl = urlStr
+                var redirects = 0
+                while (redirects < 5) {
+                    val url = URL(currentUrl)
+                    conn = (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "HEAD"
+                        connectTimeout = 10000
+                        readTimeout = 10000
+                        instanceFollowRedirects = true
+                        setRequestProperty("User-Agent", USER_AGENT)
+                    }
+                    val code = conn.responseCode
+                    if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
+                        val location = conn.getHeaderField("Location")
+                        conn.disconnect()
+                        if (location != null) {
+                            currentUrl = location
+                            redirects++
+                            continue
+                        }
+                    }
+                    break
+                }
+                if (conn != null && conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    val len = conn.contentLengthLong
+                    if (len > 0L) {
+                        remoteFileSizes[key] = len
+                        remoteFileSizes[urlStr] = len
+                        onResult(len)
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                try { conn?.disconnect() } catch (_: Exception) {}
+            }
+        }.start()
+    }
 
     private fun def(code: String, name: String, nameUk: String, continent: String, slug: String, minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) =
         MapCountry(code, name, nameUk, continent, "$slug.map", "$slug.poi", "https://download.mapsforge.org/maps/v5/$continent/$slug.map", "https://download.mapsforge.org/pois/$continent/$slug.poi", minLat, maxLat, minLon, maxLon)
@@ -459,6 +513,10 @@ object MapDownloadManager {
             if (conn != null && conn.responseCode == HttpURLConnection.HTTP_OK) {
                 val serverLastMod = conn.lastModified
                 val serverLen = conn.contentLengthLong
+                if (serverLen > 0L) {
+                    remoteFileSizes[file.name] = serverLen
+                    remoteFileSizes[urlStr] = serverLen
+                }
                 val isNewer = serverLastMod > 0L && serverLastMod > (file.lastModified() + 86400_000L)
                 val isSizeChanged = serverLen > 0L && abs(serverLen - file.length()) > 1024L * 1024L
                 isNewer || isSizeChanged
@@ -473,6 +531,29 @@ object MapDownloadManager {
     fun checkRemoteUpdate(country: MapCountry): Boolean {
         val mapFile = File(MushroomStorageManager.mapsDir, country.mapFileName)
         return checkRemoteFileUpdate(country.mapUrl, mapFile)
+    }
+
+    fun checkPoiUpdate(country: MapCountry): Boolean {
+        val poiFile = File(MushroomStorageManager.poiDir, country.poiFileName)
+        return checkRemoteFileUpdate(country.poiUrl, poiFile)
+    }
+
+    fun isCountryMapUpdateAvailable(country: MapCountry): Boolean {
+        val cached = updateStatusCache["MAP_${country.code}"]
+        return if (cached != null && System.currentTimeMillis() - cached.first < 3600_000L) {
+            cached.second
+        } else {
+            false
+        }
+    }
+
+    fun isCountryPoiUpdateAvailable(country: MapCountry): Boolean {
+        val cached = updateStatusCache["POI_${country.code}"]
+        return if (cached != null && System.currentTimeMillis() - cached.first < 3600_000L) {
+            cached.second
+        } else {
+            false
+        }
     }
 
     fun checkWorldMapUpdate(): Boolean {
@@ -511,7 +592,11 @@ object MapDownloadManager {
             return
         }
         Thread {
-            val hasUpdate = checkRemoteUpdate(country)
+            val mapUpd = checkRemoteUpdate(country)
+            val poiUpd = checkPoiUpdate(country)
+            val hasUpdate = mapUpd || poiUpd
+            updateStatusCache["MAP_${country.code}"] = Pair(now, mapUpd)
+            updateStatusCache["POI_${country.code}"] = Pair(now, poiUpd)
             updateStatusCache[country.code] = Pair(now, hasUpdate)
             onResult(hasUpdate)
         }.start()
@@ -575,7 +660,7 @@ object MapDownloadManager {
                 val worldMapFile = File(MushroomStorageManager.mapsDir, WORLD_MAP_FILE_NAME)
                 val needsWorldDownload = !worldMapFile.exists() ||
                         worldMapFile.length() < 1024L ||
-                        checkRemoteFileUpdate(WORLD_MAP_URL, worldMapFile)
+                        (isWorldMapUpdateAvailable() || checkRemoteFileUpdate(WORLD_MAP_URL, worldMapFile))
 
                 if (needsWorldDownload) {
                     items.add(
@@ -589,15 +674,38 @@ object MapDownloadManager {
                     )
                 }
 
+                // Векторна карта країни (.map) — завантажуємо якщо відсутня або оновилась
                 val mapFile = File(MushroomStorageManager.mapsDir, country.mapFileName)
-                val poiFile = File(MushroomStorageManager.poiDir, country.poiFileName)
-                val segments = country.getRd5Segments()
+                val needsMap = !mapFile.exists() ||
+                        mapFile.length() < 1024L ||
+                        (isCountryMapUpdateAvailable(country) || checkRemoteFileUpdate(country.mapUrl, mapFile))
+                if (needsMap) {
+                    items.add(DownloadItem(country.mapUrl, mapFile, country.mapFileName, country.name))
+                }
 
-                items.add(DownloadItem(country.mapUrl, mapFile, country.mapFileName, country.name))
-                items.add(DownloadItem(country.poiUrl, poiFile, country.poiFileName, country.name))
+                // Точки інтересу (.poi) — завантажуємо якщо відсутні або оновились
+                val poiFile = File(MushroomStorageManager.poiDir, country.poiFileName)
+                val needsPoi = !poiFile.exists() ||
+                        poiFile.length() < 1024L ||
+                        (isCountryPoiUpdateAvailable(country) || checkRemoteFileUpdate(country.poiUrl, poiFile))
+                if (needsPoi) {
+                    items.add(DownloadItem(country.poiUrl, poiFile, country.poiFileName, country.name))
+                }
+
+                // Сегменти навігації (.rd5) — завантажуємо лише відсутні або пошкоджені
+                val segments = country.getRd5Segments()
                 for (seg in segments) {
                     val segFile = File(MushroomStorageManager.navigationDir, seg)
-                    items.add(DownloadItem("$BROUTER_SEGMENTS_URL/$seg", segFile, seg, country.name))
+                    val needsSeg = !segFile.exists() || segFile.length() < 1024L
+                    if (needsSeg) {
+                        items.add(DownloadItem("$BROUTER_SEGMENTS_URL/$seg", segFile, seg, country.name))
+                    }
+                }
+
+                if (items.isEmpty()) {
+                    AppLogger.log(TAG, "downloadCountry", true, "Всі файли для ${country.name} вже актуальні")
+                    success = true
+                    return@execute
                 }
 
                 val totalFiles = items.size
@@ -637,6 +745,9 @@ object MapDownloadManager {
             } finally {
                 if (success) {
                     updateStatusCache.remove(country.code)
+                    updateStatusCache.remove("MAP_${country.code}")
+                    updateStatusCache.remove("POI_${country.code}")
+                    updateStatusCache.remove("WORLD")
                     OsmTileEngine.reloadMaps()
                     PoiManager.refreshPoiFiles()
                 }
