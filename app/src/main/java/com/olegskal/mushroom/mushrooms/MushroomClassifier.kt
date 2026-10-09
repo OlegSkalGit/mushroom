@@ -281,57 +281,73 @@ class MushroomClassifier(private val context: Context) {
 
                 // 2. Потокове розпакування через MultiVolumeZipInputStream
                 onProgress(88, "Розпакування нейромережі...")
-                onDetailedProgress?.invoke("model.zip", 88, 100, MODEL_PARTS.size, MODEL_PARTS.size, 88)
-                try {
-                    val multiStream = MultiVolumeZipInputStream(downloadedPartFiles)
-                    val zipIn = ZipInputStream(multiStream)
-                    var entry = zipIn.nextEntry
-                    val buffer = ByteArray(65536)
-
-                    while (entry != null) {
-                        if (!entry.isDirectory) {
-                            val fileName = File(entry.name).name
-                            if (fileName.isNotEmpty()) {
-                                val targetFile = File(targetDir, fileName)
-                                val tempOut = File(targetDir, "$fileName.tmp")
-                                FileOutputStream(tempOut).use { outStream ->
-                                    var len: Int
-                                    while (zipIn.read(buffer).also { len = it } != -1) {
-                                        outStream.write(buffer, 0, len)
-                                    }
-                                    outStream.flush()
-                                }
-                                if (targetFile.exists()) targetFile.delete()
-                                tempOut.renameTo(targetFile)
-                            }
-                        }
-                        zipIn.closeEntry()
-                        entry = zipIn.nextEntry
-                    }
-                    zipIn.close()
-                } catch (e: Exception) {
-                    onComplete(false, "Помилка розпакування: ${e.localizedMessage ?: e.toString()}")
-                    return@Thread
-                }
-
-                // 3. Видалення томів архіву для економії пам'яті
-                for (partFile in downloadedPartFiles) {
-                    try {
-                        if (partFile.exists()) partFile.delete()
-                    } catch (ignored: Exception) {}
-                }
-
-                onProgress(98, "Перевірка файлів...")
-
-                if (!isModelDownloaded(context)) {
-                    onComplete(false, "Перевірка розмірів розпакованих файлів не вдалася")
+                val successUnpack = unpackDownloadedParts(context, downloadedPartFiles)
+                if (!successUnpack) {
+                    onComplete(false, "Перевірка розмірів або помилка розпакування моделі")
                     return@Thread
                 }
 
                 onProgress(100, "Готово!")
-                MycoKnowledge.reloadClasses(context)
                 onComplete(true, null)
             }.start()
+        }
+
+        /**
+         * Потокове розпакування багатотомного архіву AI-моделі та валідація файлів.
+         */
+        fun unpackDownloadedParts(context: Context, downloadedPartFiles: List<File>): Boolean {
+            val targetDir = try {
+                val sd = getModelDirectory()
+                if (!sd.exists()) sd.mkdirs()
+                if (sd.canWrite()) sd else File(context.filesDir, MushroomDataConfig.MODEL_DIR_NAME).apply { mkdirs() }
+            } catch (e: Exception) {
+                File(context.filesDir, MushroomDataConfig.MODEL_DIR_NAME).apply { mkdirs() }
+            }
+
+            try {
+                val multiStream = MultiVolumeZipInputStream(downloadedPartFiles)
+                val zipIn = ZipInputStream(multiStream)
+                var entry = zipIn.nextEntry
+                val buffer = ByteArray(65536)
+
+                while (entry != null) {
+                    if (!entry.isDirectory) {
+                        val fileName = File(entry.name).name
+                        if (fileName.isNotEmpty()) {
+                            val targetFile = File(targetDir, fileName)
+                            val tempOut = File(targetDir, "$fileName.tmp")
+                            FileOutputStream(tempOut).use { outStream ->
+                                var len: Int
+                                while (zipIn.read(buffer).also { len = it } != -1) {
+                                    outStream.write(buffer, 0, len)
+                                }
+                                outStream.flush()
+                            }
+                            if (targetFile.exists()) targetFile.delete()
+                            val renamed = tempOut.renameTo(targetFile)
+                            if (!renamed) {
+                                tempOut.copyTo(targetFile, overwrite = true)
+                                tempOut.delete()
+                            }
+                        }
+                    }
+                    zipIn.closeEntry()
+                    entry = zipIn.nextEntry
+                }
+                zipIn.close()
+
+                for (partFile in downloadedPartFiles) {
+                    try { if (partFile.exists()) partFile.delete() } catch (_: Exception) {}
+                }
+
+                val ok = isModelDownloaded(context)
+                if (ok) {
+                    MycoKnowledge.reloadClasses(context)
+                }
+                return ok
+            } catch (e: Exception) {
+                return false
+            }
         }
 
         fun downloadModel(

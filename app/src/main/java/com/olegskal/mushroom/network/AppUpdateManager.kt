@@ -237,41 +237,11 @@ object AppUpdateManager {
         latestRemoteUrl: String,
         onResult: ((String) -> Unit)?
     ) {
-        mainHandler.post {
-            val title = "Update Available"
-            val message = "A new version $latestRemoteName is available\n(current: $installedVerStr).\n\nDownload and update?"
-
-            val downloadAction = {
-                executor.execute {
-                    startDownload(context.applicationContext, latestRemoteUrl, latestRemoteName, onResult)
-                }
-            }
-
-            val laterAction = {
-                postponeUpdate(context.applicationContext)
-                val msg = "Update postponed."
-                onResult?.let { mainHandler.post { it(msg) } }
-            }
-
-            val activity = findActivity(context)
-            if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
-                AlertDialog.Builder(activity)
-                    .setTitle(title)
-                    .setMessage(message)
-                    .setPositiveButton("Update") { dialog, _ ->
-                        dialog.dismiss()
-                        downloadAction()
-                    }
-                    .setNegativeButton("Later") { dialog, _ ->
-                        dialog.dismiss()
-                        laterAction()
-                    }
-                    .setCancelable(false)
-                    .show()
-            } else {
-                showUpdateNotification(context, title, message, latestRemoteUrl, latestRemoteName)
-            }
-        }
+        // Вспливаюче вікно прибрано за вимогами користувача.
+        // Оновлення обробляється через стартовий екран "Оновлення додатку".
+        val msg = "Update available: $latestRemoteName"
+        AppLogger.log("AppUpdateManager", "promptUserForUpdate", true, msg)
+        onResult?.let { mainHandler.post { it(msg) } }
     }
 
     fun postponeUpdate(context: Context) {
@@ -547,6 +517,82 @@ object AppUpdateManager {
             false
         } catch (e: Exception) {
             AppLogger.log("AppUpdateManager", "downloadFileWithRedirects", false, "Exception downloading $urlStr: ${e.message}")
+            false
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    fun downloadApkDirect(
+        urlStr: String,
+        destFile: File,
+        onBytesRead: (Long) -> Unit,
+        isCancelled: () -> Boolean = { false },
+        redirectCount: Int = 0
+    ): Boolean {
+        if (redirectCount > 5) {
+            AppLogger.log("AppUpdateManager", "downloadApkDirect", false, "Too many HTTP redirects for $urlStr")
+            return false
+        }
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = URL(urlStr)
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15000
+                readTimeout = 60000
+                setRequestProperty("User-Agent", "Mushroom-Updater/1.0")
+                instanceFollowRedirects = true
+            }
+
+            val responseCode = conn.responseCode
+            if (responseCode == HttpURLConnection.HTTP_MOVED_PERM ||
+                responseCode == HttpURLConnection.HTTP_MOVED_TEMP ||
+                responseCode == 307 ||
+                responseCode == 308
+            ) {
+                val newUrl = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (!newUrl.isNullOrEmpty()) {
+                    return downloadApkDirect(newUrl, destFile, onBytesRead, isCancelled, redirectCount + 1)
+                }
+                return false
+            }
+
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                AppLogger.log("AppUpdateManager", "downloadApkDirect", false, "HTTP status $responseCode for $urlStr")
+                return false
+            }
+
+            destFile.parentFile?.mkdirs()
+            val tempFile = File(destFile.parentFile, "${destFile.name}.tmp")
+
+            conn.inputStream.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    val buffer = ByteArray(16384)
+                    var bytesRead: Int
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        if (isCancelled()) {
+                            tempFile.delete()
+                            return false
+                        }
+                        output.write(buffer, 0, bytesRead)
+                        onBytesRead(bytesRead.toLong())
+                    }
+                }
+            }
+
+            if (tempFile.exists() && tempFile.length() > 0) {
+                if (destFile.exists()) destFile.delete()
+                val ok = tempFile.renameTo(destFile)
+                if (!ok) {
+                    tempFile.copyTo(destFile, overwrite = true)
+                    tempFile.delete()
+                }
+                return true
+            }
+            false
+        } catch (e: Exception) {
+            AppLogger.log("AppUpdateManager", "downloadApkDirect", false, "Exception downloading APK: ${e.message}")
             false
         } finally {
             conn?.disconnect()

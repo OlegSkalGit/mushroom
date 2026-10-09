@@ -5,13 +5,12 @@ import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.Handler
-import android.os.Looper
+import android.os.Environment
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
-import com.olegskal.mushroom.map.CountryStatus
 import com.olegskal.mushroom.map.MapCountry
 import com.olegskal.mushroom.map.MapDownloadManager
 import com.olegskal.mushroom.map.OsmTileEngine
@@ -20,74 +19,151 @@ import com.olegskal.mushroom.mushrooms.MushroomClassifier
 import com.olegskal.mushroom.mushrooms.MushroomDataConfig
 import com.olegskal.mushroom.mushrooms.MushroomDatabaseManager
 import com.olegskal.mushroom.network.AppUpdateManager
+import com.olegskal.mushroom.storage.MushroomStorageManager
+import com.olegskal.mushroom.util.AppLogger
 import com.olegskal.mushroom.util.AppPrefs
-import com.olegskal.mushroom.util.getAppVersionName
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
-import kotlin.math.roundToInt
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.roundToLong
 
 object InitialSetupDialog {
 
+    private const val TAG = "InitialSetupDialog"
+    private const val USER_AGENT = "Mushroom/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
+
+    enum class BlockType {
+        MAPS,
+        MUSHROOMS
+    }
+
+    enum class ItemStatus {
+        MISSING, // "Відсутній"
+        UPDATE   // "Оновлення"
+    }
+
+    data class AppUpdateData(
+        val hasUpdate: Boolean,
+        val latestVerName: String,
+        val downloadUrl: String,
+        val apkFile: File,
+        val assetSize: Long
+    )
+
+    data class UpdateItem(
+        val block: BlockType,
+        val subCategoryUk: String,
+        val subCategoryEn: String,
+        val title: String,
+        val status: ItemStatus,
+        val expectedBytes: Long,
+        val downloadAction: (onBytes: (Long) -> Unit, isCancelled: () -> Boolean) -> Boolean
+    )
+
+    private val bgExecutor = Executors.newCachedThreadPool()
+
+    /**
+     * Показує стартовий екран кожен раз при старті додатку,
+     * якщо є хоча б один компонент для завантаження або оновлення.
+     */
     fun showIfNeeded(activity: Activity, onFinished: () -> Unit = {}) {
         if (activity.isFinishing) return
 
-        // 1. Якщо галка активна ("Не показувати при наступному запуску") - не показуємо
-        if (AppPrefs.isInitialSetupDismissed(activity)) {
-            return
-        }
-
-        // 2. Перевірка локальних компонентів
-        val isWorldMissing = !MapDownloadManager.isWorldMapReady()
         val detectedCountry = MapDownloadManager.detectCurrentCountry(activity)
-        val countryStatus = MapDownloadManager.getCountryStatus(detectedCountry)
-        val isCountryMissingOrUpdate = countryStatus != CountryStatus.READY
-        val isDbMissingOrUpdate = MushroomDatabaseManager.checkDatabaseStatus(activity) != MushroomDatabaseManager.DataStatus.READY
-        val isModelMissingOrUpdate = MushroomClassifier.checkModelStatus(activity) != MushroomClassifier.ModelStatus.READY
 
-        // Якщо хоча б один компонент не завантажено або потребує оновлення - показуємо одразу
-        if (isWorldMissing || isCountryMissingOrUpdate || isDbMissingOrUpdate || isModelMissingOrUpdate) {
-            show(activity, onFinished)
+        // 1. Швидка локальна перевірка наявності базових файлів
+        val hasMissingLocalFiles = checkHasMissingLocalFiles(activity, detectedCountry)
+        if (hasMissingLocalFiles) {
+            activity.runOnUiThread {
+                if (!activity.isFinishing) {
+                    show(activity, detectedCountry, onFinished)
+                }
+            }
             return
         }
 
-        // 3. Якщо всі компоненти готові - перевіряємо мережеві оновлення (додаток та карта)
-        val dialogShown = java.util.concurrent.atomic.AtomicBoolean(false)
+        // 2. Якщо локально все є — асинхронно перевіряємо наявність оновлень у мережі
+        val dialogShown = AtomicBoolean(false)
         fun triggerShow() {
             if (dialogShown.compareAndSet(false, true)) {
                 activity.runOnUiThread {
                     if (!activity.isFinishing) {
-                        show(activity, onFinished)
+                        show(activity, detectedCountry, onFinished)
                     }
                 }
             }
         }
 
         AppUpdateManager.checkUpdateStatusAsync(activity) { hasAppUpdate, _, _, _ ->
-            if (hasAppUpdate) {
-                triggerShow()
-            }
+            if (hasAppUpdate) triggerShow()
         }
 
         MapDownloadManager.checkCountryUpdatesAsync(detectedCountry) { hasCountryUpdate ->
-            if (hasCountryUpdate) {
-                triggerShow()
-            }
+            if (hasCountryUpdate) triggerShow()
         }
 
         MapDownloadManager.checkWorldMapUpdatesAsync { hasWorldUpdate ->
-            if (hasWorldUpdate) {
-                triggerShow()
-            }
+            if (hasWorldUpdate) triggerShow()
         }
     }
 
-    fun show(activity: Activity, onFinished: () -> Unit = {}) {
+    private fun checkHasMissingLocalFiles(activity: Activity, country: MapCountry): Boolean {
+        // Світ
+        val worldFile = File(MushroomStorageManager.mapsDir, MapDownloadManager.WORLD_MAP_FILE_NAME)
+        if (!worldFile.exists() || worldFile.length() < 1024L) return true
+
+        // Карта країни
+        val mapFile = File(MushroomStorageManager.mapsDir, country.mapFileName)
+        if (!mapFile.exists() || mapFile.length() < 1024L) return true
+
+        // Локації POI
+        val poiFile = File(MushroomStorageManager.poiDir, country.poiFileName)
+        if (!poiFile.exists() || poiFile.length() < 1024L) return true
+
+        // Сегменти роутингу rd5
+        for (seg in country.getRd5Segments()) {
+            val segFile = File(MushroomStorageManager.navigationDir, seg)
+            if (!segFile.exists() || segFile.length() < 1024L) return true
+        }
+
+        // База даних
+        val dbReady = MushroomDatabaseManager.checkDatabaseStatus(activity) == MushroomDatabaseManager.DataStatus.READY
+        if (!dbReady) return true
+
+        // Модель
+        val modelReady = MushroomClassifier.checkModelStatus(activity) == MushroomClassifier.ModelStatus.READY
+        if (!modelReady) return true
+
+        return false
+    }
+
+    fun show(
+        activity: Activity,
+        initialCountry: MapCountry = MapDownloadManager.detectCurrentCountry(activity),
+        onFinished: () -> Unit = {}
+    ) {
         val isUk = AppPrefs.isUk(activity)
         val dialog = Dialog(activity)
-        dialog.setTitle(if (isUk) "Початкове налаштування" else "Initial Setup")
+        val dialogTitle = if (isUk) "Оновлення додатку" else "App Updates"
+        dialog.setTitle(dialogTitle)
         dialog.setCanceledOnTouchOutside(false)
 
         val density = activity.resources.displayMetrics.density
         val dp = { value: Int -> (value * density).toInt() }
+
+        var selectedCountry = initialCountry
+        var isDownloadingActive = false
+        val cancelFlag = AtomicBoolean(false)
+
+        dialog.setOnKeyListener { _, keyCode, _ ->
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                isDownloadingActive // Блокуємо назад при завантаженні
+            } else false
+        }
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -95,9 +171,9 @@ object InitialSetupDialog {
             setPadding(dp(18), dp(18), dp(18), dp(14))
         }
 
-        // 1. Header
+        // 1. Заголовок
         val titleTv = TextView(activity).apply {
-            text = if (isUk) "🚀 Початкове налаштування Mushroom" else "🚀 Mushroom Initial Setup"
+            text = "🚀 $dialogTitle"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -106,728 +182,572 @@ object InitialSetupDialog {
         root.addView(titleTv)
 
         val subtitleTv = TextView(activity).apply {
-            text = if (isUk) {
-                "Для повної автономної роботи в лісі без інтернету позначте необхідні компоненти:"
-            } else {
-                "For full offline standalone operation in the woods, select components to download:"
-            }
+            text = if (isUk) "Доступні файли та оновлення для офлайн-роботи:"
+            else "Available files and updates for offline operation:"
             setTextColor(Color.parseColor("#9CA3AF"))
             textSize = 12f
-            setPadding(0, 0, 0, dp(12))
+            setPadding(0, 0, 0, dp(10))
         }
         root.addView(subtitleTv)
 
-        // Scroll container for components
-        val scrollView = ScrollView(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        }
-        val cardsContainer = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-
-        fun createCardBg(): GradientDrawable {
-            return GradientDrawable().apply {
-                setColor(Color.parseColor("#263226"))
-                cornerRadius = dp(10).toFloat()
-                setStroke(dp(1), Color.parseColor("#374737"))
-            }
-        }
-
-        fun createCard(): LinearLayout {
-            return LinearLayout(activity).apply {
-                orientation = LinearLayout.VERTICAL
-                background = createCardBg()
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                p.setMargins(0, 0, 0, dp(8))
-                layoutParams = p
-            }
-        }
-
-        // --- COMPONENT 1: World Overview Map (world.map) ---
-        val cardWorld = createCard()
-        val rowWorldHeader = LinearLayout(activity).apply {
+        // 2. Блок вибору країни
+        val countryRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(10))
         }
-        val cbWorld = CheckBox(activity).apply {
-            text = if (isUk) "🗺️ Оглядова карта світу (world.map)" else "🗺️ World Overview Map (world.map)"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val tvWorldStatus = TextView(activity).apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-        }
-        rowWorldHeader.addView(cbWorld)
-        rowWorldHeader.addView(tvWorldStatus)
-
-        val tvWorldSub = TextView(activity).apply {
-            text = if (isUk) "Базові контури материків, океанів та планети для огляду на будь-якому масштабі (~3.1 МБ)"
-            else "Global outlines of continents, oceans, and borders at all zoom scales (~3.1 MB)"
-            setTextColor(Color.parseColor("#9CA3AF"))
-            textSize = 11.5f
-            setPadding(dp(30), 0, 0, dp(2))
-        }
-        cardWorld.addView(rowWorldHeader)
-        cardWorld.addView(tvWorldSub)
-        cardsContainer.addView(cardWorld)
-
-        // --- COMPONENT 2: Current Country Map & Routing ---
-        var selectedCountry: MapCountry = MapDownloadManager.detectCurrentCountry(activity)
-
-        val cardCountry = createCard()
-        val rowCountryHeader = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val cbCountry = CheckBox(activity).apply {
-            text = if (isUk) "📍 Карта країни та офлайн-навігація" else "📍 Country Map & Offline Navigation"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val tvCountryStatus = TextView(activity).apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-        }
-        rowCountryHeader.addView(cbCountry)
-        rowCountryHeader.addView(tvCountryStatus)
-
-        val rowCountryPicker = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(30), dp(2), 0, dp(2))
-        }
-        val tvCountryDetected = TextView(activity).apply {
+        val tvCountry = TextView(activity).apply {
+            val cName = if (isUk) selectedCountry.nameUk else selectedCountry.name
+            text = if (isUk) "Країна: $cName (${selectedCountry.code})" else "Country: $cName (${selectedCountry.code})"
             setTextColor(Color.parseColor("#38BDF8"))
-            textSize = 12.5f
+            textSize = 13f
             setTypeface(null, Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         val btnCountryChange = Button(activity).apply {
-            text = if (isUk) "🌐 Вибрати іншу" else "🌐 Choose other"
-            textSize = 11f
+            text = if (isUk) "🌐 Інша країна" else "🌐 Other country"
+            textSize = 11.5f
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#374151"))
             setPadding(dp(10), dp(2), dp(10), dp(2))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34))
         }
-        rowCountryPicker.addView(tvCountryDetected)
-        rowCountryPicker.addView(btnCountryChange)
+        countryRow.addView(tvCountry)
+        countryRow.addView(btnCountryChange)
+        root.addView(countryRow)
 
-        val tvCountrySub = TextView(activity).apply {
-            text = if (isUk) "Векторна карта (.map), точки POI (.poi) та пішохідна/авто навігація BRouter (.rd5)"
-            else "Vector map (.map), POI points (.poi), and BRouter navigation (.rd5)"
-            setTextColor(Color.parseColor("#9CA3AF"))
-            textSize = 11.5f
-            setPadding(dp(30), 0, 0, dp(2))
+        // 3. Контейнер списку оновлень (Scrollable)
+        val scrollView = ScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
-        cardCountry.addView(rowCountryHeader)
-        cardCountry.addView(rowCountryPicker)
-        cardCountry.addView(tvCountrySub)
-        cardsContainer.addView(cardCountry)
-
-        // --- COMPONENT 3: Offline Mushroom Encyclopedia (mushrooms.db) ---
-        val cardDb = createCard()
-        val rowDbHeader = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val cardsContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
         }
-        val cbDb = CheckBox(activity).apply {
-            text = if (isUk) "🍄 Офлайн-енциклопедія грибів (mushrooms.db)" else "🍄 Offline Encyclopedia (mushrooms.db)"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val tvDbStatus = TextView(activity).apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-        }
-        rowDbHeader.addView(cbDb)
-        rowDbHeader.addView(tvDbStatus)
-
-        val tvDbSub = TextView(activity).apply {
-            text = if (isUk) "Повний каталог видів, фотографії високої якості та описи для роботи без зв'язку (~538 МБ)"
-            else "Species catalog, high-res photos, and descriptions for offline use (~538 MB)"
-            setTextColor(Color.parseColor("#9CA3AF"))
-            textSize = 11.5f
-            setPadding(dp(30), 0, 0, dp(2))
-        }
-        cardDb.addView(rowDbHeader)
-        cardDb.addView(tvDbSub)
-        cardsContainer.addView(cardDb)
-
-        // --- COMPONENT 4: AI Mushroom Classifier (model.zip) ---
-        val cardModel = createCard()
-        val rowModelHeader = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val cbModel = CheckBox(activity).apply {
-            text = if (isUk) "🧠 AI-визначник грибів (model.zip)" else "🧠 AI Mushroom Classifier (model.zip)"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val tvModelStatus = TextView(activity).apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-        }
-        rowModelHeader.addView(cbModel)
-        rowModelHeader.addView(tvModelStatus)
-
-        val tvModelSub = TextView(activity).apply {
-            text = if (isUk) "Нейромережа для офлайн-розпізнавання грибів за фото з камери (~60 МБ)"
-            else "Neural network for offline mushroom recognition by photo (~60 MB)"
-            setTextColor(Color.parseColor("#9CA3AF"))
-            textSize = 11.5f
-            setPadding(dp(30), 0, 0, dp(2))
-        }
-        cardModel.addView(rowModelHeader)
-        cardModel.addView(tvModelSub)
-        cardsContainer.addView(cardModel)
-
-        // --- COMPONENT 5: App Version & Update Check ---
-        val cardUpdate = createCard()
-        val tvUpdateTitle = TextView(activity).apply {
-            text = if (isUk) "🔄 Перевірка оновлень додатка" else "🔄 App Updates Check"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-        }
-        val tvUpdateCurrent = TextView(activity).apply {
-            val ver = activity.getAppVersionName()
-            text = if (isUk) "Встановлена версія: v$ver" else "Installed version: v$ver"
-            setTextColor(Color.parseColor("#9CA3AF"))
-            textSize = 11.5f
-            setPadding(0, dp(2), 0, dp(2))
-        }
-        val tvUpdateStatus = TextView(activity).apply {
-            text = if (isUk) "⏳ Перевірка GitHub Releases..." else "⏳ Checking GitHub Releases..."
-            setTextColor(Color.parseColor("#FBBF24"))
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, dp(2), 0, dp(4))
-        }
-        var isDownloadingActive = false
-        var updateDownloadUrl = ""
-        var updateFileName = ""
-        val btnAppUpdate = Button(activity).apply {
-            text = if (isUk) "⬇️ Оновити додаток" else "⬇️ Update App"
-            textSize = 13f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#D97706"))
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)).apply {
-                setMargins(0, dp(6), 0, 0)
-            }
-            setOnClickListener {
-                if (updateDownloadUrl.isNotEmpty()) {
-                    isEnabled = false
-                    text = if (isUk) "⏳ Завантаження APK..." else "⏳ Downloading APK..."
-                    AppUpdateManager.startDownload(activity, updateDownloadUrl, updateFileName) { msg ->
-                        activity.runOnUiThread {
-                            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                } else {
-                    AppUpdateManager.checkAndDownloadUpdate(activity, force = true)
-                }
-            }
-        }
-        cardUpdate.addView(tvUpdateTitle)
-        cardUpdate.addView(tvUpdateCurrent)
-        cardUpdate.addView(tvUpdateStatus)
-        cardUpdate.addView(btnAppUpdate)
-        cardsContainer.addView(cardUpdate)
-
         scrollView.addView(cardsContainer)
         root.addView(scrollView)
 
-        var updateDownloadButtonState: (() -> Unit)? = null
-
-        // --- REFRESH STATUSES HELPER ---
-        fun refreshStatuses() {
-            // 1. World Map
-            val isWorldOk = MapDownloadManager.isWorldMapReady()
-            val isWorldUpdate = MapDownloadManager.isWorldMapUpdateAvailable()
-            if (!isWorldOk) {
-                tvWorldStatus.text = if (isUk) "Не завантажено" else "Not downloaded"
-                tvWorldStatus.setTextColor(Color.parseColor("#F59E0B"))
-                cbWorld.isChecked = true
-                cbWorld.isEnabled = true
-                cbWorld.alpha = 1.0f
-            } else if (isWorldUpdate) {
-                tvWorldStatus.text = if (isUk) "Оновити" else "Update needed"
-                tvWorldStatus.setTextColor(Color.parseColor("#F59E0B"))
-                cbWorld.isChecked = true
-                cbWorld.isEnabled = true
-                cbWorld.alpha = 1.0f
-            } else {
-                tvWorldStatus.text = if (isUk) "✓ Встановлено" else "✓ Installed"
-                tvWorldStatus.setTextColor(Color.parseColor("#10B981"))
-                cbWorld.isChecked = false
-                cbWorld.isEnabled = false
-                cbWorld.alpha = 0.5f
-            }
-
-            // 2. Country
-            val cName = if (isUk) selectedCountry.nameUk else selectedCountry.name
-            tvCountryDetected.text = if (isUk) "Ваша країна: $cName (${selectedCountry.code})" else "Your country: $cName (${selectedCountry.code})"
-            val cStatus = MapDownloadManager.getCountryStatus(selectedCountry)
-            when (cStatus) {
-                CountryStatus.READY -> {
-                    tvCountryStatus.text = if (isUk) "✓ Встановлено" else "✓ Installed"
-                    tvCountryStatus.setTextColor(Color.parseColor("#10B981"))
-                    cbCountry.isChecked = false
-                    cbCountry.isEnabled = false
-                    cbCountry.alpha = 0.5f
-                }
-                CountryStatus.NEEDS_UPDATE -> {
-                    tvCountryStatus.text = if (isUk) "Оновити" else "Update needed"
-                    tvCountryStatus.setTextColor(Color.parseColor("#F59E0B"))
-                    cbCountry.isChecked = true
-                    cbCountry.isEnabled = true
-                    cbCountry.alpha = 1.0f
-                }
-                CountryStatus.NOT_DOWNLOADED, CountryStatus.INCOMPLETE -> {
-                    tvCountryStatus.text = if (isUk) "Не завантажено" else "Not downloaded"
-                    tvCountryStatus.setTextColor(Color.parseColor("#F59E0B"))
-                    cbCountry.isChecked = true
-                    cbCountry.isEnabled = true
-                    cbCountry.alpha = 1.0f
-                }
-            }
-
-            // 3. Database
-            val dbStatus = MushroomDatabaseManager.checkDatabaseStatus(activity)
-            when (dbStatus) {
-                MushroomDatabaseManager.DataStatus.READY -> {
-                    tvDbStatus.text = if (isUk) "✓ Встановлено" else "✓ Installed"
-                    tvDbStatus.setTextColor(Color.parseColor("#10B981"))
-                    cbDb.isChecked = false
-                    cbDb.isEnabled = false
-                    cbDb.alpha = 0.5f
-                }
-                MushroomDatabaseManager.DataStatus.NEEDS_UPDATE -> {
-                    tvDbStatus.text = if (isUk) "Оновити" else "Update needed"
-                    tvDbStatus.setTextColor(Color.parseColor("#F59E0B"))
-                    cbDb.isChecked = true
-                    cbDb.isEnabled = true
-                    cbDb.alpha = 1.0f
-                }
-                MushroomDatabaseManager.DataStatus.MISSING -> {
-                    tvDbStatus.text = if (isUk) "Не завантажено" else "Not downloaded"
-                    tvDbStatus.setTextColor(Color.parseColor("#F59E0B"))
-                    cbDb.isChecked = true
-                    cbDb.isEnabled = true
-                    cbDb.alpha = 1.0f
-                }
-            }
-
-            // 4. Model
-            val modelStatus = MushroomClassifier.checkModelStatus(activity)
-            when (modelStatus) {
-                MushroomClassifier.ModelStatus.READY -> {
-                    tvModelStatus.text = if (isUk) "✓ Встановлено" else "✓ Installed"
-                    tvModelStatus.setTextColor(Color.parseColor("#10B981"))
-                    cbModel.isChecked = false
-                    cbModel.isEnabled = false
-                    cbModel.alpha = 0.5f
-                }
-                MushroomClassifier.ModelStatus.NEEDS_UPDATE -> {
-                    tvModelStatus.text = if (isUk) "Оновити" else "Update needed"
-                    tvModelStatus.setTextColor(Color.parseColor("#F59E0B"))
-                    cbModel.isChecked = true
-                    cbModel.isEnabled = true
-                    cbModel.alpha = 1.0f
-                }
-                MushroomClassifier.ModelStatus.MISSING -> {
-                    tvModelStatus.text = if (isUk) "Не завантажено" else "Not downloaded"
-                    tvModelStatus.setTextColor(Color.parseColor("#F59E0B"))
-                    cbModel.isChecked = true
-                    cbModel.isEnabled = true
-                    cbModel.alpha = 1.0f
-                }
-            }
-            updateDownloadButtonState?.invoke()
-        }
-
-        btnCountryChange.setOnClickListener {
-            showCountryPicker(activity, selectedCountry) { picked ->
-                selectedCountry = picked
-                refreshStatuses()
-                MapDownloadManager.checkCountryUpdatesAsync(selectedCountry) { hasUpdate ->
-                    if (hasUpdate) activity.runOnUiThread { refreshStatuses() }
-                }
-            }
-        }
-
-        // Async check update status from GitHub
-        AppUpdateManager.checkUpdateStatusAsync(activity) { hasUpdate, latestName, _, downloadUrl ->
-            activity.runOnUiThread {
-                if (hasUpdate) {
-                    updateDownloadUrl = downloadUrl
-                    updateFileName = latestName
-                    tvUpdateStatus.text = if (isUk) "⚠️ Доступна нова версія: $latestName" else "⚠️ New version available: $latestName"
-                    tvUpdateStatus.setTextColor(Color.parseColor("#F59E0B"))
-                    btnAppUpdate.text = if (isUk) "⬇️ Оновити ($latestName)" else "⬇️ Update ($latestName)"
-                    btnAppUpdate.isEnabled = !isDownloadingActive
-                    btnAppUpdate.setBackgroundColor(Color.parseColor(if (isDownloadingActive) "#374151" else "#D97706"))
-                    btnAppUpdate.visibility = View.VISIBLE
-                } else {
-                    tvUpdateStatus.text = if (isUk) "✓ Встановлено найновішу версію" else "✓ Installed version is up-to-date"
-                    tvUpdateStatus.setTextColor(Color.parseColor("#10B981"))
-                    btnAppUpdate.visibility = View.GONE
-                }
-            }
-        }
-
-        // Async check country updates from Mapsforge
-        MapDownloadManager.checkCountryUpdatesAsync(selectedCountry) { hasUpdate ->
-            if (hasUpdate) {
-                activity.runOnUiThread {
-                    refreshStatuses()
-                }
-            }
-        }
-
-        // Async check world map updates from Mapsforge
-        MapDownloadManager.checkWorldMapUpdatesAsync { hasUpdate ->
-            if (hasUpdate) {
-                activity.runOnUiThread {
-                    refreshStatuses()
-                }
-            }
-        }
-
-        // --- BOTTOM SECTION: DOWNLOAD BUTTON & 2 PROGRESS INDICATORS ---
-        val downloadPanel = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
+        // 4. Панель керування: Кнопки в рядок 50% / 50%
+        val buttonRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(10), 0, 0)
         }
 
-        val btnDownloadSelected = Button(activity).apply {
-            text = if (isUk) "⬇️ Завантажити обране" else "⬇️ Download Selected"
+        val btnDownload = Button(activity).apply {
+            text = if (isUk) "Завантажити" else "Download"
             setTextColor(Color.WHITE)
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
             setBackgroundColor(Color.parseColor("#059669"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42))
-        }
-        downloadPanel.addView(btnDownloadSelected)
-
-        updateDownloadButtonState = {
-            if (!isDownloadingActive) {
-                val anyAvailable = cbWorld.isEnabled || cbCountry.isEnabled || cbDb.isEnabled || cbModel.isEnabled
-                val anyChecked = cbWorld.isChecked || cbCountry.isChecked || cbDb.isChecked || cbModel.isChecked
-                if (!anyAvailable) {
-                    btnDownloadSelected.isEnabled = false
-                    btnDownloadSelected.setBackgroundColor(Color.parseColor("#374151"))
-                    btnDownloadSelected.text = if (isUk) "✓ Всі компоненти встановлено" else "✓ All components installed"
-                } else {
-                    btnDownloadSelected.isEnabled = anyChecked
-                    btnDownloadSelected.setBackgroundColor(Color.parseColor(if (anyChecked) "#059669" else "#374151"))
-                    btnDownloadSelected.text = if (isUk) "⬇️ Завантажити обране" else "⬇️ Download Selected"
-                }
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                setMargins(0, 0, dp(4), 0)
             }
         }
 
-        cbWorld.setOnCheckedChangeListener { _, _ -> updateDownloadButtonState() }
-        cbCountry.setOnCheckedChangeListener { _, _ -> updateDownloadButtonState() }
-        cbDb.setOnCheckedChangeListener { _, _ -> updateDownloadButtonState() }
-        cbModel.setOnCheckedChangeListener { _, _ -> updateDownloadButtonState() }
-
-        refreshStatuses()
-
-        // Progress container (hidden until download starts)
-        val progressContainer = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(0, dp(8), 0, 0)
-        }
-
-        val tvStatus = TextView(activity).apply {
-            text = if (isUk) "Очікування..." else "Waiting..."
-            setTextColor(Color.parseColor("#E5E7EB"))
-            textSize = 12f
-            setPadding(0, 0, 0, dp(3))
-        }
-        val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = false
-            max = 100
-            progress = 0
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(14))
-        }
-        progressContainer.addView(tvStatus)
-        progressContainer.addView(progressBar)
-
-        downloadPanel.addView(progressContainer)
-        root.addView(downloadPanel)
-
-        // --- FOOTER: CheckBox & Go to Map Button ---
-        val footerLayout = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(8), 0, 0)
-        }
-
-        val cbDontShowAgain = CheckBox(activity).apply {
-            text = if (isUk) "Не показувати при наступному запуску" else "Do not show on next launch"
-            isChecked = false // За замовчуванням знята (як просив користувач)
-            setTextColor(Color.WHITE)
-            textSize = 13f
-            setPadding(dp(4), 0, 0, dp(6))
-        }
-        footerLayout.addView(cbDontShowAgain)
-
-        val btnProceed = Button(activity).apply {
-            text = if (isUk) "Перейти до карти" else "Go to Map"
+        val btnLater = Button(activity).apply {
+            text = if (isUk) "Пізніше" else "Later"
             setTextColor(Color.WHITE)
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
-            setBackgroundColor(Color.parseColor("#2563EB"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42))
+            setBackgroundColor(Color.parseColor("#374151"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                setMargins(dp(4), 0, 0, 0)
+            }
             setOnClickListener {
-                if (cbDontShowAgain.isChecked) {
-                    AppPrefs.setInitialSetupDismissed(activity, true)
-                }
                 OsmTileEngine.reloadMaps()
                 PoiManager.refreshPoiFiles()
                 dialog.dismiss()
                 onFinished()
             }
         }
-        footerLayout.addView(btnProceed)
-        root.addView(footerLayout)
+        buttonRow.addView(btnDownload)
+        buttonRow.addView(btnLater)
+        root.addView(buttonRow)
 
-        dialog.setOnKeyListener { _, keyCode, _ ->
-            keyCode == android.view.KeyEvent.KEYCODE_BACK && isDownloadingActive
+        // 5. Прогрес-бар та час (приховані до натискання «Завантажити»)
+        val progressContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, dp(12), 0, dp(4))
         }
+        val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = 1000
+            progress = 0
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(14))
+        }
+        val tvTimeRemaining = TextView(activity).apply {
+            text = if (isUk) "Обчислення часу..." else "Estimating time..."
+            setTextColor(Color.parseColor("#E5E7EB"))
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(6), 0, 0)
+        }
+        progressContainer.addView(progressBar)
+        progressContainer.addView(tvTimeRemaining)
+        root.addView(progressContainer)
 
-        // --- BATCH DOWNLOAD LOGIC ---
-        btnDownloadSelected.setOnClickListener {
-            val doWorld = cbWorld.isChecked
-            val doCountry = cbCountry.isChecked
-            val doDb = cbDb.isChecked
-            val doModel = cbModel.isChecked
+        var currentItems = mutableListOf<UpdateItem>()
+        var appUpdateData: AppUpdateData? = null
+        var countryNeedsUpdate = false
+        var worldNeedsUpdate = false
 
-            if (!doWorld && !doCountry && !doDb && !doModel) {
-                Toast.makeText(
-                    activity,
-                    if (isUk) "Будь ласка, оберіть хоча б один пункт" else "Please select at least one component",
-                    Toast.LENGTH_SHORT
-                ).show()
-                return@setOnClickListener
-            }
+        // Сканування доступних для оновлення файлів
+        fun scanItems(): List<UpdateItem> {
+            val list = mutableListOf<UpdateItem>()
 
-            isDownloadingActive = true
-            btnProceed.isEnabled = false
-            btnProceed.setBackgroundColor(Color.parseColor("#374151"))
-            btnAppUpdate.isEnabled = false
-            btnAppUpdate.setBackgroundColor(Color.parseColor("#374151"))
-            btnCountryChange.isEnabled = false
-            cbWorld.isEnabled = false
-            cbCountry.isEnabled = false
-            cbDb.isEnabled = false
-            cbModel.isEnabled = false
-
-            // Ховаємо кнопку завантаження, показуємо прогрес-бар
-            btnDownloadSelected.visibility = View.GONE
-            progressContainer.visibility = View.VISIBLE
-
-            // Розрахунок сумарного обсягу МБ для шкали прогрес-бару
-            var totalExpectedBytes = 0L
-            if (doWorld) totalExpectedBytes += 3_211_280L
-            if (doCountry) {
-                val segCount = selectedCountry.getRd5Segments().size
-                totalExpectedBytes += 100_000_000L + (segCount * 2_000_000L)
-            }
-            if (doDb) totalExpectedBytes += MushroomDataConfig.DB_TOTAL_ARCHIVE_SIZE
-            if (doModel) totalExpectedBytes += MushroomDataConfig.MODEL_TOTAL_ARCHIVE_SIZE
-
-            val totalMb = (totalExpectedBytes / (1024.0 * 1024.0)).roundToInt().coerceAtLeast(1)
-            val maxScale = if (totalMb < 10) (totalMb * 10) else totalMb
-            progressBar.max = maxScale
-            progressBar.progress = 0
-            tvStatus.text = if (isUk) "Підготовка до завантаження..." else "Preparing download..."
-
-            data class StepProgress(
-                val fileName: String,
-                val bytesDownloaded: Long,
-                val totalBytes: Long,
-                val fileIndex: Int,
-                val totalFiles: Int,
-                val percent: Int
-            )
-
-            data class DownloadStep(
-                val name: String,
-                val execute: (
-                    onProgress: (StepProgress) -> Unit,
-                    onDone: (success: Boolean, errorMsg: String?) -> Unit
-                ) -> Unit
-            )
-
-            val steps = mutableListOf<DownloadStep>()
-
-            if (doWorld) {
-                steps.add(DownloadStep("world.map") { onProg, onDone ->
-                    MapDownloadManager.downloadWorldMap(
-                        onProgress = { p ->
-                            onProg(StepProgress(p.currentFileName, p.bytesDownloaded, p.totalBytes, 1, 1, p.percent))
-                        },
-                        onFinished = { success, msg ->
-                            onDone(success, if (success) null else msg)
-                        }
-                    )
-                })
-            }
-
-            if (doCountry) {
-                val c = selectedCountry
-                steps.add(DownloadStep(c.name) { onProg, onDone ->
-                    MapDownloadManager.downloadCountry(
-                        country = c,
-                        onProgress = { p ->
-                            onProg(StepProgress(p.currentFileName, p.bytesDownloaded, p.totalBytes, p.fileIndex, p.totalFiles, p.percent))
-                        },
-                        onFinished = { success, msg ->
-                            onDone(success, if (success) null else msg)
-                        }
-                    )
-                })
-            }
-
-            if (doDb) {
-                steps.add(DownloadStep("mushrooms.db") { onProg, onDone ->
-                    MushroomDatabaseManager.downloadDatabase(
-                        context = activity,
-                        forceDownload = true,
-                        onProgress = { _, _ -> },
-                        onDetailedProgress = { fileName, bytesRead, totalBytes, fileIdx, totalFiles, percent ->
-                            onProg(StepProgress(fileName, bytesRead, totalBytes, fileIdx, totalFiles, percent))
-                        },
-                        onComplete = { success, errorMsg ->
-                            onDone(success, errorMsg)
-                        }
-                    )
-                })
-            }
-
-            if (doModel) {
-                steps.add(DownloadStep("model.zip") { onProg, onDone ->
-                    MushroomClassifier.downloadModel(
-                        context = activity,
-                        forceDownload = true,
-                        onProgress = { _, _ -> },
-                        onDetailedProgress = { fileName, bytesRead, totalBytes, fileIdx, totalFiles, percent ->
-                            onProg(StepProgress(fileName, bytesRead, totalBytes, fileIdx, totalFiles, percent))
-                        },
-                        onComplete = { success, errorMsg ->
-                            onDone(success, errorMsg)
-                        }
-                    )
-                })
-            }
-
-            val totalSteps = steps.size
-            var completedBaseBytes = 0L
-            var lastFileName = ""
-            var lastFileDownloadedBytes = 0L
-
-            fun executeStep(index: Int) {
-                if (index >= totalSteps) {
-                    activity.runOnUiThread {
-                        progressContainer.visibility = View.GONE
-                        btnDownloadSelected.visibility = View.VISIBLE
-                        isDownloadingActive = false
-                        btnProceed.isEnabled = true
-                        btnProceed.setBackgroundColor(Color.parseColor("#2563EB"))
-                        btnAppUpdate.isEnabled = true
-                        btnAppUpdate.setBackgroundColor(Color.parseColor("#D97706"))
-                        btnCountryChange.isEnabled = true
-
-                        OsmTileEngine.reloadMaps()
-                        PoiManager.refreshPoiFiles()
-                        refreshStatuses()
-
-                        Toast.makeText(
-                            activity,
-                            if (isUk) "Усі вибрані файли успішно завантажено!" else "All selected files downloaded successfully!",
-                            Toast.LENGTH_SHORT
-                        ).show()
+            // --- БЛОК 1: КАРТИ ---
+            // 1. Світ
+            val worldFile = File(MushroomStorageManager.mapsDir, MapDownloadManager.WORLD_MAP_FILE_NAME)
+            if (!worldFile.exists() || worldFile.length() < 1024L) {
+                list.add(
+                    UpdateItem(
+                        BlockType.MAPS,
+                        "Світ", "World",
+                        MapDownloadManager.WORLD_MAP_FILE_NAME,
+                        ItemStatus.MISSING,
+                        3_211_280L
+                    ) { onBytes, isCancel ->
+                        downloadFileDirect("https://download.mapsforge.org/maps/v5/world/world.map", worldFile, onBytes, isCancel)
                     }
-                    return
-                }
-
-                val step = steps[index]
-
-                step.execute(
-                    { sp ->
-                        activity.runOnUiThread {
-                            val mbDone = sp.bytesDownloaded / (1024.0 * 1024.0)
-                            val mbTotal = sp.totalBytes / (1024.0 * 1024.0)
-                            val mbUnit = if (isUk) "МБ" else "MB"
-                            tvStatus.text = String.format(
-                                Locale.US,
-                                "%s %.1f / %.1f %s [%d/%d] (%d%%)",
-                                sp.fileName,
-                                mbDone,
-                                mbTotal,
-                                mbUnit,
-                                sp.fileIndex,
-                                sp.totalFiles,
-                                sp.percent
-                            )
-
-                            if (sp.fileName != lastFileName) {
-                                completedBaseBytes += lastFileDownloadedBytes
-                                lastFileName = sp.fileName
-                                lastFileDownloadedBytes = sp.bytesDownloaded
-                            } else {
-                                lastFileDownloadedBytes = sp.bytesDownloaded
-                            }
-
-                            val currentTotalBytes = completedBaseBytes + sp.bytesDownloaded
-                            val currentMb = currentTotalBytes / (1024.0 * 1024.0)
-                            if (totalMb < 10) {
-                                progressBar.progress = (currentMb * 10).toInt().coerceIn(0, maxScale)
-                            } else {
-                                progressBar.progress = currentMb.toInt().coerceIn(0, maxScale)
-                            }
-                        }
-                    },
-                    { success, errorMsg ->
-                        activity.runOnUiThread {
-                            completedBaseBytes += lastFileDownloadedBytes
-                            lastFileName = ""
-                            lastFileDownloadedBytes = 0L
-
-                            if (!success) {
-                                Toast.makeText(
-                                    activity,
-                                    "Error downloading ${step.name}: $errorMsg",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                            executeStep(index + 1)
-                        }
+                )
+            } else if (worldNeedsUpdate || MapDownloadManager.isWorldMapUpdateAvailable()) {
+                list.add(
+                    UpdateItem(
+                        BlockType.MAPS,
+                        "Світ", "World",
+                        MapDownloadManager.WORLD_MAP_FILE_NAME,
+                        ItemStatus.UPDATE,
+                        3_211_280L
+                    ) { onBytes, isCancel ->
+                        downloadFileDirect("https://download.mapsforge.org/maps/v5/world/world.map", worldFile, onBytes, isCancel)
                     }
                 )
             }
 
-            executeStep(0)
+            // 2. Країна
+            val c = selectedCountry
+            val mapFile = File(MushroomStorageManager.mapsDir, c.mapFileName)
+            if (!mapFile.exists() || mapFile.length() < 1024L) {
+                list.add(
+                    UpdateItem(
+                        BlockType.MAPS,
+                        "Країна", "Country",
+                        "${if (isUk) c.nameUk else c.name} (${c.mapFileName})",
+                        ItemStatus.MISSING,
+                        100_000_000L
+                    ) { onBytes, isCancel ->
+                        downloadFileDirect(c.mapUrl, mapFile, onBytes, isCancel)
+                    }
+                )
+            } else if (countryNeedsUpdate) {
+                list.add(
+                    UpdateItem(
+                        BlockType.MAPS,
+                        "Країна", "Country",
+                        "${if (isUk) c.nameUk else c.name} (${c.mapFileName})",
+                        ItemStatus.UPDATE,
+                        100_000_000L
+                    ) { onBytes, isCancel ->
+                        downloadFileDirect(c.mapUrl, mapFile, onBytes, isCancel)
+                    }
+                )
+            }
+
+            // 3. Навігація (файли) rd5
+            for (seg in c.getRd5Segments()) {
+                val segFile = File(MushroomStorageManager.navigationDir, seg)
+                if (!segFile.exists() || segFile.length() < 1024L) {
+                    list.add(
+                        UpdateItem(
+                            BlockType.MAPS,
+                            "Навігація (файли)", "Navigation (files)",
+                            seg,
+                            ItemStatus.MISSING,
+                            2_000_000L
+                        ) { onBytes, isCancel ->
+                            downloadFileDirect("https://brouter.de/brouter/segments4/$seg", segFile, onBytes, isCancel, allowHttpErrors = true)
+                        }
+                    )
+                }
+            }
+
+            // 4. Локації POI
+            val poiFile = File(MushroomStorageManager.poiDir, c.poiFileName)
+            if (!poiFile.exists() || poiFile.length() < 1024L) {
+                list.add(
+                    UpdateItem(
+                        BlockType.MAPS,
+                        "Локації", "Locations",
+                        c.poiFileName,
+                        ItemStatus.MISSING,
+                        10_000_000L
+                    ) { onBytes, isCancel ->
+                        downloadFileDirect(c.poiUrl, poiFile, onBytes, isCancel)
+                    }
+                )
+            } else if (countryNeedsUpdate) {
+                list.add(
+                    UpdateItem(
+                        BlockType.MAPS,
+                        "Локації", "Locations",
+                        c.poiFileName,
+                        ItemStatus.UPDATE,
+                        10_000_000L
+                    ) { onBytes, isCancel ->
+                        downloadFileDirect(c.poiUrl, poiFile, onBytes, isCancel)
+                    }
+                )
+            }
+
+            // --- БЛОК 2: ГРИБИ ---
+            // 1. Енциклопедія - архіви (mushrooms.db / DB_PARTS)
+            val dbDir = MushroomDatabaseManager.getDatabaseDirectory(activity)
+            val finalDb = File(dbDir, MushroomDataConfig.DB_FILE_NAME)
+            val isDbReady = finalDb.exists() && finalDb.length() == MushroomDataConfig.DB_FULL_SIZE
+            if (!isDbReady) {
+                for (part in MushroomDataConfig.DB_PARTS) {
+                    val partFile = File(dbDir, part.fileName)
+                    if (!partFile.exists() || partFile.length() != part.exactSize) {
+                        val st = if (finalDb.exists()) ItemStatus.UPDATE else ItemStatus.MISSING
+                        list.add(
+                            UpdateItem(
+                                BlockType.MUSHROOMS,
+                                "Енциклопедія - архіви", "Encyclopedia - archives",
+                                part.fileName,
+                                st,
+                                part.exactSize
+                            ) { onBytes, isCancel ->
+                                downloadPartWithResume("${MushroomDataConfig.DB_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, isCancel)
+                            }
+                        )
+                    }
+                }
+            }
+
+            // 2. Визначник - архіви (model.zip / MODEL_PARTS)
+            val modelReady = MushroomClassifier.checkModelStatus(activity) == MushroomClassifier.ModelStatus.READY
+            if (!modelReady) {
+                val modelDir = MushroomClassifier.getModelDirectory()
+                for (part in MushroomDataConfig.MODEL_PARTS) {
+                    val partFile = File(modelDir, part.fileName)
+                    if (!partFile.exists() || partFile.length() != part.exactSize) {
+                        val st = if (MushroomClassifier.checkModelStatus(activity) == MushroomClassifier.ModelStatus.NEEDS_UPDATE) ItemStatus.UPDATE else ItemStatus.MISSING
+                        list.add(
+                            UpdateItem(
+                                BlockType.MUSHROOMS,
+                                "Визначник - архіви", "Classifier - archives",
+                                part.fileName,
+                                st,
+                                part.exactSize
+                            ) { onBytes, isCancel ->
+                                downloadPartWithResume("${MushroomDataConfig.MODEL_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, isCancel)
+                            }
+                        )
+                    }
+                }
+            }
+
+            // 3. Додаток (новий APK з GitHub)
+            val upd = appUpdateData
+            if (upd != null && upd.hasUpdate) {
+                list.add(
+                    UpdateItem(
+                        BlockType.MUSHROOMS,
+                        "Додаток", "App",
+                        "Mushroom (${upd.latestVerName})",
+                        ItemStatus.UPDATE,
+                        upd.assetSize
+                    ) { onBytes, isCancel ->
+                        AppUpdateManager.downloadApkDirect(upd.downloadUrl, upd.apkFile, onBytes, isCancel)
+                    }
+                )
+            }
+
+            return list
+        }
+
+        // Рендеринг карток списку
+        fun renderItemsList() {
+            cardsContainer.removeAllViews()
+
+            if (currentItems.isEmpty()) {
+                val emptyTv = TextView(activity).apply {
+                    text = if (isUk) "✓ Всі компоненти встановлені та актуальні" else "✓ All components are installed and up to date"
+                    setTextColor(Color.parseColor("#10B981"))
+                    textSize = 14f
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(dp(12), dp(20), dp(12), dp(20))
+                    gravity = Gravity.CENTER
+                }
+                cardsContainer.addView(emptyTv)
+                btnDownload.isEnabled = false
+                btnDownload.setBackgroundColor(Color.parseColor("#374151"))
+                btnLater.text = if (isUk) "Закрити" else "Close"
+                return
+            }
+
+            btnDownload.isEnabled = true
+            btnDownload.setBackgroundColor(Color.parseColor("#059669"))
+            btnLater.text = if (isUk) "Пізніше" else "Later"
+
+            fun createBlockCard(headerTitle: String): Pair<LinearLayout, LinearLayout> {
+                val card = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#263226"))
+                        cornerRadius = dp(10).toFloat()
+                        setStroke(dp(1), Color.parseColor("#374737"))
+                    }
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    p.setMargins(0, 0, 0, dp(10))
+                    layoutParams = p
+                }
+                val tvHead = TextView(activity).apply {
+                    text = headerTitle
+                    setTextColor(Color.WHITE)
+                    textSize = 14.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(0, 0, 0, dp(6))
+                }
+                val itemsLayout = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                card.addView(tvHead)
+                card.addView(itemsLayout)
+                return Pair(card, itemsLayout)
+            }
+
+            fun addItemRow(container: LinearLayout, item: UpdateItem) {
+                val row = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(3), 0, dp(3))
+                }
+                val subCat = if (isUk) item.subCategoryUk else item.subCategoryEn
+                val rowTitleTv = TextView(activity).apply {
+                    text = "$subCat: ${item.title}"
+                    setTextColor(Color.parseColor("#E5E7EB"))
+                    textSize = 12.5f
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val badgeTv = TextView(activity).apply {
+                    val isMissing = item.status == ItemStatus.MISSING
+                    text = if (isMissing) (if (isUk) "Відсутній" else "Missing") else (if (isUk) "Оновлення" else "Update")
+                    setTextColor(Color.WHITE)
+                    textSize = 11f
+                    setTypeface(null, Typeface.BOLD)
+                    val bgColor = if (isMissing) Color.parseColor("#EF4444") else Color.parseColor("#0284C7")
+                    background = GradientDrawable().apply {
+                        setColor(bgColor)
+                        cornerRadius = dp(4).toFloat()
+                    }
+                    setPadding(dp(6), dp(2), dp(6), dp(2))
+                }
+                row.addView(rowTitleTv)
+                row.addView(badgeTv)
+                container.addView(row)
+            }
+
+            val mapItems = currentItems.filter { it.block == BlockType.MAPS }
+            if (mapItems.isNotEmpty()) {
+                val (card, container) = createBlockCard(if (isUk) "🗺️ Карти" else "🗺️ Maps")
+                for (it in mapItems) addItemRow(container, it)
+                cardsContainer.addView(card)
+            }
+
+            val mushroomItems = currentItems.filter { it.block == BlockType.MUSHROOMS }
+            if (mushroomItems.isNotEmpty()) {
+                val (card, container) = createBlockCard(if (isUk) "🍄 Гриби" else "🍄 Mushrooms")
+                for (it in mushroomItems) addItemRow(container, it)
+                cardsContainer.addView(card)
+            }
+        }
+
+        fun refreshList() {
+            currentItems = scanItems().toMutableList()
+            renderItemsList()
+        }
+
+        refreshList()
+
+        // Вибір іншої країни
+        btnCountryChange.setOnClickListener {
+            showCountryPicker(activity, selectedCountry) { picked ->
+                selectedCountry = picked
+                val cName = if (isUk) selectedCountry.nameUk else selectedCountry.name
+                tvCountry.text = if (isUk) "Країна: $cName (${selectedCountry.code})" else "Country: $cName (${selectedCountry.code})"
+                countryNeedsUpdate = false
+                refreshList()
+                MapDownloadManager.checkCountryUpdatesAsync(selectedCountry) { hasUpdate ->
+                    if (hasUpdate) {
+                        countryNeedsUpdate = true
+                        activity.runOnUiThread { refreshList() }
+                    }
+                }
+            }
+        }
+
+        // Фонова перевірка оновлень з GitHub
+        AppUpdateManager.checkUpdateStatusAsync(activity) { hasUpdate, latestName, _, downloadUrl ->
+            if (hasUpdate) {
+                val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
+                val apkFile = File(dlDir, "$latestName.apk")
+                appUpdateData = AppUpdateData(true, latestName, downloadUrl, apkFile, 25_000_000L)
+                activity.runOnUiThread { refreshList() }
+            }
+        }
+
+        // Фонова перевірка карти країни
+        MapDownloadManager.checkCountryUpdatesAsync(selectedCountry) { hasUpdate ->
+            if (hasUpdate) {
+                countryNeedsUpdate = true
+                activity.runOnUiThread { refreshList() }
+            }
+        }
+
+        // Фонова перевірка світової карти
+        MapDownloadManager.checkWorldMapUpdatesAsync { hasUpdate ->
+            if (hasUpdate) {
+                worldNeedsUpdate = true
+                activity.runOnUiThread { refreshList() }
+            }
+        }
+
+        // --- ДІЯ: ЗАВАНТАЖЕННЯ ---
+        btnDownload.setOnClickListener {
+            if (currentItems.isEmpty()) return@setOnClickListener
+
+            isDownloadingActive = true
+            buttonRow.visibility = View.GONE
+            btnCountryChange.visibility = View.GONE
+            progressContainer.visibility = View.VISIBLE
+
+            val totalExpectedBytes = currentItems.sumOf { it.expectedBytes }.coerceAtLeast(1L)
+            var totalDownloadedBytes = 0L
+            val startTimeMs = System.currentTimeMillis()
+            var lastUiUpdateMs = 0L
+
+            fun updateProgressUi() {
+                val now = System.currentTimeMillis()
+                if (now - lastUiUpdateMs < 400 && totalDownloadedBytes < totalExpectedBytes) return
+                lastUiUpdateMs = now
+
+                val elapsedSec = (now - startTimeMs) / 1000.0
+                val progressRatio = (totalDownloadedBytes.toDouble() / totalExpectedBytes.toDouble()).coerceIn(0.0, 1.0)
+                val currentProgressVal = (progressRatio * 1000).toInt()
+
+                val timeStr: String
+                if (elapsedSec > 1.2 && totalDownloadedBytes > 60_000L) {
+                    val speed = totalDownloadedBytes / elapsedSec
+                    val remainingBytes = (totalExpectedBytes - totalDownloadedBytes).coerceAtLeast(0L)
+                    val remainingSec = if (speed > 1024) (remainingBytes / speed).roundToLong() else -1L
+
+                    timeStr = if (remainingSec < 0) {
+                        if (isUk) "Обчислення часу..." else "Estimating time..."
+                    } else if (remainingSec >= 3600) {
+                        val h = remainingSec / 3600
+                        val m = (remainingSec % 3600) / 60
+                        if (isUk) "Залишилось: ~$h год $m хв" else "Remaining: ~$h h $m min"
+                    } else if (remainingSec >= 60) {
+                        val m = remainingSec / 60
+                        val s = remainingSec % 60
+                        if (isUk) "Залишилось: ~$m хв $s с" else "Remaining: ~$m min $s sec"
+                    } else {
+                        if (isUk) "Залишилось: ~$remainingSec с" else "Remaining: ~$remainingSec sec"
+                    }
+                } else {
+                    timeStr = if (isUk) "Обчислення часу..." else "Estimating time..."
+                }
+
+                activity.runOnUiThread {
+                    progressBar.progress = currentProgressVal
+                    tvTimeRemaining.text = timeStr
+                }
+            }
+
+            bgExecutor.execute {
+                // Розбиваємо чергу: ресурси (карти, бази, моделі) першими, додаток (APK) — у самому кінці
+                val resourceItems = currentItems.filter { it.subCategoryUk != "Додаток" }
+                val apkItem = currentItems.find { it.subCategoryUk == "Додаток" }
+
+                var hasFailures = false
+
+                for (item in resourceItems) {
+                    if (cancelFlag.get()) break
+                    val ok = item.downloadAction(
+                        { bytesRead ->
+                            totalDownloadedBytes += bytesRead
+                            updateProgressUi()
+                        },
+                        { cancelFlag.get() }
+                    )
+                    if (!ok) {
+                        AppLogger.log(TAG, "download", false, "Failed downloading ${item.title}")
+                        if (item.block != BlockType.MAPS || !item.title.endsWith(".rd5")) {
+                            hasFailures = true
+                        }
+                    }
+                }
+
+                // Розпакування бази даних якщо всі архіви на місці
+                val dbDir = MushroomDatabaseManager.getDatabaseDirectory(activity)
+                val allDbParts = MushroomDataConfig.DB_PARTS.map { File(dbDir, it.fileName) }
+                val allDbExist = allDbParts.all { it.exists() && it.length() > 0 }
+                if (allDbExist && !MushroomDatabaseManager.isDatabaseUpToDate(activity)) {
+                    activity.runOnUiThread {
+                        tvTimeRemaining.text = if (isUk) "Розпакування бази даних..." else "Unpacking database..."
+                    }
+                    MushroomDatabaseManager.unpackDownloadedParts(activity, allDbParts)
+                }
+
+                // Розпакування моделі якщо всі архіви на місці
+                val modelDir = MushroomClassifier.getModelDirectory()
+                val allModelParts = MushroomDataConfig.MODEL_PARTS.map { File(modelDir, it.fileName) }
+                val allModelExist = allModelParts.all { it.exists() && it.length() > 0 }
+                if (allModelExist && !MushroomClassifier.isModelDownloaded(activity)) {
+                    activity.runOnUiThread {
+                        tvTimeRemaining.text = if (isUk) "Розпакування нейромережі..." else "Unpacking model..."
+                    }
+                    MushroomClassifier.unpackDownloadedParts(activity, allModelParts)
+                }
+
+                // Якщо є оновлення додатку — запускаємо його в самому кінці
+                if (apkItem != null && !cancelFlag.get()) {
+                    apkItem.downloadAction(
+                        { bytesRead ->
+                            totalDownloadedBytes += bytesRead
+                            updateProgressUi()
+                        },
+                        { cancelFlag.get() }
+                    )
+                    val apkFile = appUpdateData?.apkFile
+                    if (apkFile != null && apkFile.exists()) {
+                        AppUpdateManager.installApk(activity, apkFile)
+                    }
+                }
+
+                activity.runOnUiThread {
+                    progressBar.progress = 1000
+                    tvTimeRemaining.text = if (isUk) "Готово!" else "Done!"
+                    isDownloadingActive = false
+
+                    if (hasFailures) {
+                        Toast.makeText(
+                            activity,
+                            if (isUk) "Деякі файли не вдалося завантажити" else "Some files failed to download",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                    OsmTileEngine.reloadMaps()
+                    PoiManager.refreshPoiFiles()
+
+                    dialog.dismiss()
+                    onFinished()
+                }
+            }
         }
 
         dialog.setContentView(root)
@@ -836,6 +756,153 @@ object InitialSetupDialog {
             (activity.resources.displayMetrics.heightPixels * 0.90).toInt()
         )
         dialog.show()
+    }
+
+    private fun downloadFileDirect(
+        urlStr: String,
+        destFile: File,
+        onBytesRead: (Long) -> Unit,
+        isCancelled: () -> Boolean,
+        allowHttpErrors: Boolean = false
+    ): Boolean {
+        var conn: HttpURLConnection? = null
+        destFile.parentFile?.mkdirs()
+        val tmpFile = File(destFile.parentFile, "${destFile.name}.${System.currentTimeMillis()}.tmp")
+
+        return try {
+            var currentUrl = urlStr
+            var redirects = 0
+            while (redirects < 5) {
+                val url = URL(currentUrl)
+                conn = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", USER_AGENT)
+                }
+                val code = conn.responseCode
+                if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
+                    val loc = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (loc != null) {
+                        currentUrl = loc
+                        redirects++
+                        continue
+                    }
+                }
+                break
+            }
+
+            if (conn == null || conn.responseCode != HttpURLConnection.HTTP_OK) {
+                if (allowHttpErrors) return true
+                return false
+            }
+
+            conn.inputStream.use { input ->
+                FileOutputStream(tmpFile).use { out ->
+                    val buffer = ByteArray(16384)
+                    var len: Int
+                    while (input.read(buffer).also { len = it } != -1) {
+                        if (isCancelled()) {
+                            tmpFile.delete()
+                            return false
+                        }
+                        out.write(buffer, 0, len)
+                        onBytesRead(len.toLong())
+                    }
+                    out.flush()
+                }
+            }
+
+            if (tmpFile.exists() && tmpFile.length() > 0) {
+                if (destFile.exists()) destFile.delete()
+                val ok = tmpFile.renameTo(destFile)
+                if (!ok) {
+                    tmpFile.copyTo(destFile, overwrite = true)
+                    tmpFile.delete()
+                }
+                val lastMod = conn.lastModified
+                if (lastMod > 0L) {
+                    try { destFile.setLastModified(lastMod) } catch (_: Exception) {}
+                }
+                true
+            } else {
+                tmpFile.delete()
+                false
+            }
+        } catch (e: Exception) {
+            tmpFile.delete()
+            if (allowHttpErrors) true else false
+        } finally {
+            try { conn?.disconnect() } catch (_: Exception) {}
+        }
+    }
+
+    private fun downloadPartWithResume(
+        urlStr: String,
+        destFile: File,
+        expectedSize: Long,
+        onBytesRead: (Long) -> Unit,
+        isCancelled: () -> Boolean
+    ): Boolean {
+        if (destFile.exists() && destFile.length() == expectedSize) {
+            return true
+        }
+        if (destFile.exists() && destFile.length() > expectedSize) {
+            destFile.delete()
+        }
+
+        var attempts = 0
+        while (attempts < 3) {
+            attempts++
+            if (isCancelled()) return false
+            var conn: HttpURLConnection? = null
+            try {
+                val existingLen = if (destFile.exists()) destFile.length() else 0L
+                val url = URL(urlStr)
+                conn = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
+                    if (existingLen > 0) {
+                        setRequestProperty("Range", "bytes=$existingLen-")
+                    }
+                }
+                conn.connect()
+                val code = conn.responseCode
+                if (code == 416) {
+                    destFile.delete()
+                    conn.disconnect()
+                    continue
+                }
+                val isResume = (code == 206)
+                if (code != 200 && code != 206) {
+                    conn.disconnect()
+                    continue
+                }
+                val append = isResume && existingLen > 0
+                conn.inputStream.use { input ->
+                    FileOutputStream(destFile, append).use { out ->
+                        val buffer = ByteArray(32768)
+                        var len: Int
+                        while (input.read(buffer).also { len = it } != -1) {
+                            if (isCancelled()) return false
+                            out.write(buffer, 0, len)
+                            onBytesRead(len.toLong())
+                        }
+                        out.flush()
+                    }
+                }
+                if (expectedSize <= 0L || destFile.length() == expectedSize) {
+                    return true
+                }
+            } catch (_: Exception) {
+                // повторна спроба
+            } finally {
+                try { conn?.disconnect() } catch (_: Exception) {}
+            }
+        }
+        return destFile.exists() && (expectedSize <= 0L || destFile.length() == expectedSize)
     }
 
     private fun showCountryPicker(activity: Activity, current: MapCountry, onPicked: (MapCountry) -> Unit) {

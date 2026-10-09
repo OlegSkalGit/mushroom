@@ -134,7 +134,6 @@ object MushroomDatabaseManager {
             val targetDir = getDatabaseDirectory(context)
             if (!targetDir.exists()) targetDir.mkdirs()
 
-            val finalDbFile = File(targetDir, DB_FILE_NAME)
             val downloadedPartFiles = mutableListOf<File>()
 
             // 1. Завантаження всіх томів .z01 ... .zip
@@ -242,64 +241,72 @@ object MushroomDatabaseManager {
 
             // 2. Потокове розпакування через MultiVolumeZipInputStream
             onProgress(88, "Розпакування бази даних...")
-            val tempDbFile = File(targetDir, "$DB_FILE_NAME.tmp")
-            if (tempDbFile.exists()) tempDbFile.delete()
-
-            try {
-                val multiStream = MultiVolumeZipInputStream(downloadedPartFiles)
-                val zipIn = java.util.zip.ZipInputStream(multiStream)
-                var entry = zipIn.nextEntry
-                val buffer = ByteArray(65536)
-
-                while (entry != null) {
-                    if (entry.name.endsWith(".db") || entry.name == DB_FILE_NAME) {
-                        FileOutputStream(tempDbFile).use { fos ->
-                            var len: Int
-                            var written = 0L
-                            while (zipIn.read(buffer).also { len = it } != -1) {
-                                fos.write(buffer, 0, len)
-                                written += len
-                                val unpackPercent = 88 + ((written * 10) / DB_FULL_SIZE).toInt().coerceIn(0, 10)
-                                onProgress(unpackPercent, "Розпакування: ${written / (1024 * 1024)} МБ...")
-                                onDetailedProgress?.invoke(DB_FILE_NAME, written, DB_FULL_SIZE, DB_PARTS.size, DB_PARTS.size, unpackPercent)
-                            }
-                            fos.flush()
-                        }
-                        break
-                    }
-                    zipIn.closeEntry()
-                    entry = zipIn.nextEntry
-                }
-                zipIn.close()
-
-                if (!tempDbFile.exists() || tempDbFile.length() != DB_FULL_SIZE) {
-                    throw Exception("Розмір розпакованої бази не співпадає (${tempDbFile.length()} байт, очікувалось $DB_FULL_SIZE)")
-                }
-
-                // Заміна старої бази на нову
-                closeDatabase()
-                if (finalDbFile.exists()) finalDbFile.delete()
-                File(targetDir, "$DB_FILE_NAME-wal").let { if (it.exists()) it.delete() }
-                File(targetDir, "$DB_FILE_NAME-shm").let { if (it.exists()) it.delete() }
-                tempDbFile.renameTo(finalDbFile)
-
-
-            } catch (e: Exception) {
-                if (tempDbFile.exists()) tempDbFile.delete()
-                onComplete(false, "Помилка розпакування: ${e.message}")
+            val successUnpack = unpackDownloadedParts(context, downloadedPartFiles)
+            if (!successUnpack) {
+                onComplete(false, "Помилка розпакування або невідповідність розміру бази даних")
                 return@Thread
-            }
-
-            // 3. Видалення завантажених томів для вивільнення ~527 МБ пам'яті
-            onProgress(99, "Очищення тимчасових томів...")
-            for (f in downloadedPartFiles) {
-                try { if (f.exists()) f.delete() } catch (_: Exception) {}
             }
 
             onProgress(100, "Готово!")
             closeDatabase()
             onComplete(true, null)
         }.start()
+    }
+
+    /**
+     * Потокове розпакування багатотомного архіву бази даних SQLite з валідацією розміру.
+     */
+    fun unpackDownloadedParts(context: Context, downloadedPartFiles: List<File>): Boolean {
+        val targetDir = getDatabaseDirectory(context)
+        val finalDbFile = File(targetDir, DB_FILE_NAME)
+        val tempDbFile = File(targetDir, "$DB_FILE_NAME.tmp")
+        if (tempDbFile.exists()) tempDbFile.delete()
+
+        return try {
+            val multiStream = MultiVolumeZipInputStream(downloadedPartFiles)
+            val zipIn = java.util.zip.ZipInputStream(multiStream)
+            var entry = zipIn.nextEntry
+            val buffer = ByteArray(65536)
+
+            while (entry != null) {
+                if (entry.name.endsWith(".db") || entry.name == DB_FILE_NAME) {
+                    FileOutputStream(tempDbFile).use { fos ->
+                        var len: Int
+                        while (zipIn.read(buffer).also { len = it } != -1) {
+                            fos.write(buffer, 0, len)
+                        }
+                        fos.flush()
+                    }
+                    break
+                }
+                zipIn.closeEntry()
+                entry = zipIn.nextEntry
+            }
+            zipIn.close()
+
+            if (!tempDbFile.exists() || tempDbFile.length() != DB_FULL_SIZE) {
+                if (tempDbFile.exists()) tempDbFile.delete()
+                return false
+            }
+
+            closeDatabase()
+            if (finalDbFile.exists()) finalDbFile.delete()
+            File(targetDir, "$DB_FILE_NAME-wal").let { if (it.exists()) it.delete() }
+            File(targetDir, "$DB_FILE_NAME-shm").let { if (it.exists()) it.delete() }
+            val renamed = tempDbFile.renameTo(finalDbFile)
+            if (!renamed) {
+                tempDbFile.copyTo(finalDbFile, overwrite = true)
+                tempDbFile.delete()
+            }
+
+            for (f in downloadedPartFiles) {
+                try { if (f.exists()) f.delete() } catch (_: Exception) {}
+            }
+            true
+        } catch (e: Exception) {
+            if (tempDbFile.exists()) tempDbFile.delete()
+            false
+        }
     }
 
     /**
