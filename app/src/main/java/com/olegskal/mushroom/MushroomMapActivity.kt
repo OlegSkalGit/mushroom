@@ -9,6 +9,7 @@ import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.*
 import android.graphics.drawable.Drawable
 import android.hardware.Sensor
@@ -66,6 +67,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private lateinit var btnRecordTrack: TrackRecordButton
     private lateinit var btnMenu: Button
     private lateinit var btnRouteToggle: Button
+    private lateinit var progressBarRoute: ProgressBar
     private lateinit var btnDownloadMapBanner: Button
 
     // Compass & motion sensors
@@ -277,11 +279,48 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         val actionButtonsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, (4 * resources.displayMetrics.density).toInt(), 0, 0)
             }
         }
+
+        btnRouteToggle = UiUtils.createStyledButton(this, "Маршрут") {
+            handleRouteToggleClick()
+        }.apply {
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            val padH = (12 * resources.displayMetrics.density).toInt()
+            val padV = (4 * resources.displayMetrics.density).toInt()
+            setPadding(padH, padV, padH, padV)
+            setBackgroundColor(Color.parseColor("#333333"))
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        actionButtonsRow.addView(btnRouteToggle)
+
+        progressBarRoute = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = 100
+            progress = 0
+            progressTintList = ColorStateList.valueOf(Color.parseColor("#00E5FF"))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#555555"))
+            visibility = View.GONE
+            val h = (8 * resources.displayMetrics.density).toInt()
+            val w = (100 * resources.displayMetrics.density).toInt()
+            val marginStart = (8 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(w, h).apply {
+                setMargins(marginStart, 0, 0, 0)
+                gravity = Gravity.CENTER_VERTICAL
+            }
+        }
+        actionButtonsRow.addView(progressBarRoute)
+
+        val actionSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1.0f)
+        }
+        actionButtonsRow.addView(actionSpacer)
 
         btnDownloadMapBanner = UiUtils.createStyledButton(this, "⬇️ Завантажити карту") {
             val country = MapDownloadManager.findCountryForLocation(mapView.mapCenterLat, mapView.mapCenterLon)
@@ -310,23 +349,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
         actionButtonsRow.addView(btnDownloadMapBanner)
-
-        btnRouteToggle = UiUtils.createStyledButton(this, "Маршрут") {
-            handleRouteToggleClick()
-        }.apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-            val padH = (12 * resources.displayMetrics.density).toInt()
-            val padV = (4 * resources.displayMetrics.density).toInt()
-            setPadding(padH, padV, padH, padV)
-            setBackgroundColor(Color.parseColor("#333333"))
-            setTextColor(Color.WHITE)
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins((6 * resources.displayMetrics.density).toInt(), 0, 0, 0)
-            }
-        }
-        actionButtonsRow.addView(btnRouteToggle)
         topInfoPanel.addView(actionButtonsRow)
 
         tvRecordingBadge = TextView(this).apply {
@@ -720,24 +742,72 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             Toast.makeText(this, noDataMsg, Toast.LENGTH_LONG).show()
         }
 
-        val loadingMsg = if (isUk) "Розрахунок варіантів маршруту..." else "Calculating route options..."
-        Toast.makeText(this, loadingMsg, Toast.LENGTH_SHORT).show()
+        if (::btnRouteToggle.isInitialized) {
+            btnRouteToggle.isEnabled = false
+        }
+        if (::progressBarRoute.isInitialized) {
+            progressBarRoute.progress = 0
+            progressBarRoute.visibility = View.VISIBLE
+        }
 
         Thread {
-            val result = BRouterEngine.buildRouteSegmentsBetweenWaypoints(waypoints, transport, isUk)
-            runOnUiThread {
-                if (!mapView.isRulerMode || mapView.rulerPoints.size <= 1) return@runOnUiThread
-                mapView.routeSegments.clear()
-                mapView.routeSegments.addAll(result.segments)
-                mapView.routeWaypoints.clear()
-                mapView.routeWaypoints.addAll(result.effectiveWaypoints)
-                mapView.isRouteMode = true
-                updateRouteButtonUi()
-                mapView.invalidate()
-                val count = result.segments.size
-                val msg = if (isUk) "Побудовано $count варіантів відрізків. Натисніть лінію для вибору"
-                          else "Built $count segment variants. Tap a line to select"
-                Toast.makeText(this@MushroomMapActivity, msg, Toast.LENGTH_LONG).show()
+            try {
+                val result = BRouterEngine.buildRouteSegmentsBetweenWaypoints(
+                    waypoints = waypoints,
+                    transport = transport,
+                    isUk = isUk,
+                    onInitialRouteReady = { initialResult ->
+                        runOnUiThread {
+                            if (!mapView.isRulerMode || mapView.rulerPoints.size <= 1) return@runOnUiThread
+                            mapView.routeSegments.clear()
+                            mapView.routeSegments.addAll(initialResult.segments)
+                            mapView.routeWaypoints.clear()
+                            mapView.routeWaypoints.addAll(initialResult.effectiveWaypoints)
+                            mapView.isRouteMode = true
+                            updateRouteButtonUi()
+                            mapView.invalidate()
+                        }
+                    },
+                    onProgress = { pct ->
+                        runOnUiThread {
+                            if (::progressBarRoute.isInitialized) {
+                                progressBarRoute.progress = pct
+                            }
+                        }
+                    }
+                )
+                runOnUiThread {
+                    if (::progressBarRoute.isInitialized) {
+                        progressBarRoute.visibility = View.GONE
+                    }
+                    if (::btnRouteToggle.isInitialized) {
+                        btnRouteToggle.isEnabled = true
+                    }
+                    if (!mapView.isRulerMode || mapView.rulerPoints.size <= 1) return@runOnUiThread
+                    mapView.routeSegments.clear()
+                    mapView.routeSegments.addAll(result.segments)
+                    mapView.routeWaypoints.clear()
+                    mapView.routeWaypoints.addAll(result.effectiveWaypoints)
+                    mapView.isRouteMode = true
+                    updateRouteButtonUi()
+                    mapView.invalidate()
+                    val count = result.segments.size
+                    val msg = if (isUk) "Побудовано $count варіантів відрізків. Натисніть лінію для вибору"
+                              else "Built $count segment variants. Tap a line to select"
+                    Toast.makeText(this@MushroomMapActivity, msg, Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                AppLogger.log("MushroomMapActivity", "calculateAndDisplayRoute", false, "Routing calculation error: ${e.message}")
+                runOnUiThread {
+                    if (::progressBarRoute.isInitialized) {
+                        progressBarRoute.visibility = View.GONE
+                    }
+                    if (::btnRouteToggle.isInitialized) {
+                        btnRouteToggle.isEnabled = true
+                    }
+                    val err = if (isUk) "Помилка розрахунку маршруту" else "Route calculation error"
+                    Toast.makeText(this@MushroomMapActivity, err, Toast.LENGTH_SHORT).show()
+                }
             }
         }.start()
     }
@@ -746,6 +816,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         if (!::btnRouteToggle.isInitialized) return
         val show = mapView.isRulerMode && mapView.rulerPoints.size > 1
         btnRouteToggle.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show && ::progressBarRoute.isInitialized) {
+            progressBarRoute.visibility = View.GONE
+        }
         if (show) {
             updateRouteButtonUi()
         }

@@ -77,21 +77,74 @@ object BRouterEngine {
     fun buildRouteSegmentsBetweenWaypoints(
         waypoints: List<Pair<Double, Double>>,
         transport: TransportType,
-        isUk: Boolean
+        isUk: Boolean,
+        onInitialRouteReady: ((RouteCalculationResult) -> Unit)? = null,
+        onProgress: ((Int) -> Unit)? = null
     ): RouteCalculationResult {
-        if (waypoints.size < 2) return RouteCalculationResult(emptyList(), waypoints)
+        if (waypoints.size < 2) {
+            val emptyRes = RouteCalculationResult(emptyList(), waypoints)
+            onInitialRouteReady?.invoke(emptyRes)
+            onProgress?.invoke(100)
+            return emptyRes
+        }
 
         OsmTileEngine.appContext?.let { ensureProfilesExtracted(it) }
 
+        onProgress?.invoke(5)
+
+        val totalLegs = waypoints.size - 1
+        val profileOptions = getProfileOptions(transport)
+        val totalSteps = totalLegs * profileOptions.size
+        var completedSteps = 0
+
+        val onStep: () -> Unit = {
+            completedSteps++
+            val pct = 5 + ((completedSteps.toFloat() / totalSteps.toFloat()) * 85f).toInt()
+            onProgress?.invoke(pct.coerceIn(5, 90))
+        }
+
+        // Phase 1: Compute first route (profile 0) for each leg and emit immediately
+        val primaryOpt = profileOptions.first()
+        val primaryAltsPerLeg = ArrayList<RawAlternative>(totalLegs)
+        val initialSegments = mutableListOf<RouteSegment>()
+
+        for (i in 0 until totalLegs) {
+            val start = waypoints[i]
+            val end = waypoints[i + 1]
+            val alt = calculateSingleAlternative(start.first, start.second, end.first, end.second, primaryOpt, 0, isUk)
+                ?: createStraightLineAlternative(start.first, start.second, end.first, end.second, isUk)
+            primaryAltsPerLeg.add(alt)
+            initialSegments.add(
+                RouteSegment(
+                    id = "seg_${i}_0",
+                    legIndex = i,
+                    spanIndex = i,
+                    variantIndex = 0,
+                    points = alt.points,
+                    distanceMeters = alt.distanceMeters,
+                    advantage = alt.advantage,
+                    isSelected = true
+                )
+            )
+            onStep()
+        }
+
+        onInitialRouteReady?.invoke(RouteCalculationResult(initialSegments, waypoints))
+
+        // Phase 2: Compute remaining alternatives and intersection splits in background
         val allSpans = mutableListOf<Pair<Int, List<RawAlternative>>>()
         val allWaypoints = mutableListOf<Pair<Double, Double>>()
         allWaypoints.add(waypoints.first())
 
-        for (i in 0 until waypoints.size - 1) {
+        for (i in 0 until totalLegs) {
             val start = waypoints[i]
             val end = waypoints[i + 1]
 
-            val spanResult = processSpanWithIntersectionSplits(start, end, transport, isUk, depth = 0)
+            val spanResult = processSpanWithIntersectionSplits(
+                start, end, transport, isUk, depth = 0,
+                onStep = onStep,
+                initialAlternative = primaryAltsPerLeg[i]
+            )
             for (span in spanResult.spans) {
                 allSpans.add(Pair(i, span))
             }
@@ -99,6 +152,8 @@ object BRouterEngine {
                 allWaypoints.add(p)
             }
         }
+
+        onProgress?.invoke(95)
 
         val resultSegments = mutableListOf<RouteSegment>()
         for (spanIdx in allSpans.indices) {
@@ -120,6 +175,7 @@ object BRouterEngine {
             }
         }
 
+        onProgress?.invoke(100)
         return RouteCalculationResult(resultSegments, allWaypoints)
     }
 
@@ -138,200 +194,236 @@ object BRouterEngine {
         val params: Map<String, String> = emptyMap()
     )
 
+    private fun getProfileOptions(transport: TransportType): List<ProfileOption> = when (transport) {
+        TransportType.CAR -> listOf(
+            ProfileOption(
+                "car-fast.brf", 0,
+                "🚗 Швидкий автошлях",
+                "🚗 Fast driving route",
+                mapOf("drivestyle" to "3", "fastprofile" to "1", "avoid_unpaved" to "1", "add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "car-fast.brf", 1,
+                "🛣️ Альтернативний автошлях",
+                "🛣️ Alternative driving route",
+                mapOf("drivestyle" to "3", "fastprofile" to "1", "avoid_unpaved" to "1", "add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "car-eco.brf", 0,
+                "🌿 Економічний автошлях",
+                "🌿 Eco driving route",
+                mapOf("drivestyle" to "1", "avoid_unpaved" to "1", "add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "car-fast.brf", 0,
+                "⚡ Регіональний об'їзд (без магістралей)",
+                "⚡ Regional bypass (avoid motorways)",
+                mapOf("avoid_motorways" to "1", "avoid_unpaved" to "1", "drivestyle" to "2", "add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "car-fast.brf", 0,
+                "🚙 Коротший проїзд (включно з ґрунтовками)",
+                "🚙 Shortest route (including unpaved)",
+                mapOf("avoid_unpaved" to "0", "drivestyle" to "0", "add_beeline" to "1", "waypointCatchingRange" to "2500")
+            )
+        )
+        TransportType.FOOT -> listOf(
+            ProfileOption(
+                "hiking-mountain.brf", 0,
+                "🌲 Стежка лісом (мальовнича)",
+                "🌲 Scenic forest trail",
+                mapOf("path_preference" to "20.0", "consider_forest" to "true", "add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "trekking.brf", 0,
+                "🚶 Зручний пішохідний трекінг",
+                "🚶 Convenient walking trek",
+                mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "shortest.brf", 0,
+                "⚡ Найкоротший прямий маршрут пішки",
+                "⚡ Shortest direct walking route",
+                mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "hiking-mountain.brf", 1,
+                "🌿 Альтернативна пішохідна стежка",
+                "🌿 Alternative walking trail",
+                mapOf("path_preference" to "0.0", "add_beeline" to "1", "waypointCatchingRange" to "2500")
+            )
+        )
+        TransportType.BICYCLE -> listOf(
+            ProfileOption(
+                "fastbike.brf", 0,
+                "🚴 Швидкісний веломаршрут з якісним покриттям",
+                "🚴 Fast cycling route with paved surface",
+                mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "trekking.brf", 0,
+                "🌿 Зручний веломаршрут ґрунтовими та лісовими дорогами",
+                "🌿 Convenient cycling path via trails",
+                mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "fastbike.brf", 1,
+                "🛣️ Альтернативний велооб'їзд",
+                "🛣️ Alternative cycling bypass",
+                mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
+            ),
+            ProfileOption(
+                "shortest.brf", 0,
+                "⚡ Найкоротший веломаршрут",
+                "⚡ Shortest cycling route",
+                mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
+            )
+        )
+    }
+
+    private fun calculateSingleAlternative(
+        startLat: Double,
+        startLon: Double,
+        endLat: Double,
+        endLon: Double,
+        opt: ProfileOption,
+        idx: Int,
+        isUk: Boolean
+    ): RawAlternative? {
+        val profFile = File(profilesDir, opt.filename)
+        var computedPoints: List<Pair<Double, Double>>? = null
+        var computedDist = 0f
+
+        if (profFile.exists() && (hasNavigationDataFor(startLat, startLon) || hasNavigationDataFor(endLat, endLon))) {
+            var rc: btools.router.RoutingContext? = null
+            try {
+                rc = btools.router.RoutingContext().apply {
+                    localFunction = profFile.absolutePath
+                    setAlternativeIdx(opt.altIdx)
+                    keyValues = HashMap<String, String>().apply {
+                        put("add_beeline", "1")
+                        put("waypointCatchingRange", "2500")
+                        opt.params.forEach { (k, v) -> put(k, v) }
+                    }
+                }
+                btools.router.ProfileCache.parseProfile(rc)
+
+                val startNode = btools.router.OsmNodeNamed().apply {
+                    ilat = floor((startLat + 90.0) * 1e6 + 0.5).toInt()
+                    ilon = floor((startLon + 180.0) * 1e6 + 0.5).toInt()
+                    name = "from"
+                }
+                val endNode = btools.router.OsmNodeNamed().apply {
+                    ilat = floor((endLat + 90.0) * 1e6 + 0.5).toInt()
+                    ilon = floor((endLon + 180.0) * 1e6 + 0.5).toInt()
+                    name = "to"
+                }
+
+                val engine = btools.router.RoutingEngine(
+                    null,
+                    null,
+                    MushroomStorageManager.navigationDir,
+                    listOf(startNode, endNode),
+                    rc
+                )
+                engine.quite = true
+                engine.doRun(15000L)
+
+                val trk = engine.foundTrack
+                if (trk != null && trk.nodes != null && trk.nodes.size >= 2) {
+                    val pts = ArrayList<Pair<Double, Double>>(trk.nodes.size + 2)
+                    val firstLat = (trk.nodes[0].getILat() - 90000000) / 1000000.0
+                    val firstLon = (trk.nodes[0].getILon() - 180000000) / 1000000.0
+                    if (GeoMath.calculateDistance(startLat, startLon, firstLat, firstLon) > 3f) {
+                        pts.add(Pair(startLat, startLon))
+                    }
+                    for (node in trk.nodes) {
+                        val lat = (node.getILat() - 90000000) / 1000000.0
+                        val lon = (node.getILon() - 180000000) / 1000000.0
+                        pts.add(Pair(lat, lon))
+                    }
+                    val last = pts.last()
+                    if (GeoMath.calculateDistance(endLat, endLon, last.first, last.second) > 3f) {
+                        pts.add(Pair(endLat, endLon))
+                    }
+                    computedPoints = pts
+                    computedDist = computePolylineDistance(pts)
+                }
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "calculateSingleAlternative", false, "Routing error with ${opt.filename}: ${e.message}")
+            } finally {
+                rc?.let {
+                    try { btools.router.ProfileCache.releaseProfile(it) } catch (_: Exception) {}
+                }
+            }
+        }
+
+        if (computedPoints != null && computedPoints.size >= 2) {
+            val km = computedDist / 1000f
+            val unit = if (isUk) "км" else "km"
+            val title = if (isUk) opt.titleUk else opt.titleEn
+            val fullAdvantage = "$title (${String.format(Locale.US, "%.2f", km)} $unit)"
+            return RawAlternative(idx, computedPoints, computedDist, fullAdvantage)
+        }
+        return null
+    }
+
+    private fun createStraightLineAlternative(
+        startLat: Double,
+        startLon: Double,
+        endLat: Double,
+        endLon: Double,
+        isUk: Boolean
+    ): RawAlternative {
+        val dist = GeoMath.calculateDistance(startLat, startLon, endLat, endLon)
+        val km = dist / 1000f
+        val unit = if (isUk) "км" else "km"
+        val title = if (isUk) "Пряма лінія" else "Direct line"
+        val advantage = "$title (${String.format(Locale.US, "%.2f", km)} $unit)"
+        return RawAlternative(0, listOf(Pair(startLat, startLon), Pair(endLat, endLon)), dist, advantage)
+    }
+
     private fun calculateRawAlternatives(
         startLat: Double,
         startLon: Double,
         endLat: Double,
         endLon: Double,
         transport: TransportType,
-        isUk: Boolean
+        isUk: Boolean,
+        onStep: (() -> Unit)? = null,
+        initialAlternative: RawAlternative? = null
     ): List<RawAlternative> {
-        val profileOptions = when (transport) {
-            TransportType.CAR -> listOf(
-                ProfileOption(
-                    "car-fast.brf", 0,
-                    "🚗 Швидкий автошлях",
-                    "🚗 Fast driving route",
-                    mapOf("drivestyle" to "3", "fastprofile" to "1", "avoid_unpaved" to "1", "add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "car-fast.brf", 1,
-                    "🛣️ Альтернативний автошлях",
-                    "🛣️ Alternative driving route",
-                    mapOf("drivestyle" to "3", "fastprofile" to "1", "avoid_unpaved" to "1", "add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "car-eco.brf", 0,
-                    "🌿 Економічний автошлях",
-                    "🌿 Eco driving route",
-                    mapOf("drivestyle" to "1", "avoid_unpaved" to "1", "add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "car-fast.brf", 0,
-                    "⚡ Регіональний об'їзд (без магістралей)",
-                    "⚡ Regional bypass (avoid motorways)",
-                    mapOf("avoid_motorways" to "1", "avoid_unpaved" to "1", "drivestyle" to "2", "add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "car-fast.brf", 0,
-                    "🚙 Коротший проїзд (включно з ґрунтовками)",
-                    "🚙 Shortest route (including unpaved)",
-                    mapOf("avoid_unpaved" to "0", "drivestyle" to "0", "add_beeline" to "1", "waypointCatchingRange" to "2500")
-                )
-            )
-            TransportType.FOOT -> listOf(
-                ProfileOption(
-                    "hiking-mountain.brf", 0,
-                    "🌲 Стежка лісом (мальовнича)",
-                    "🌲 Scenic forest trail",
-                    mapOf("path_preference" to "20.0", "consider_forest" to "true", "add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "trekking.brf", 0,
-                    "🚶 Зручний пішохідний трекінг",
-                    "🚶 Convenient walking trek",
-                    mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "shortest.brf", 0,
-                    "⚡ Найкоротший прямий маршрут пішки",
-                    "⚡ Shortest direct walking route",
-                    mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "hiking-mountain.brf", 1,
-                    "🌿 Альтернативна пішохідна стежка",
-                    "🌿 Alternative walking trail",
-                    mapOf("path_preference" to "0.0", "add_beeline" to "1", "waypointCatchingRange" to "2500")
-                )
-            )
-            TransportType.BICYCLE -> listOf(
-                ProfileOption(
-                    "fastbike.brf", 0,
-                    "🚴 Швидкісний веломаршрут з якісним покриттям",
-                    "🚴 Fast cycling route with paved surface",
-                    mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "trekking.brf", 0,
-                    "🌿 Зручний веломаршрут ґрунтовими та лісовими дорогами",
-                    "🌿 Convenient cycling path via trails",
-                    mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "fastbike.brf", 1,
-                    "🛣️ Альтернативний велооб'їзд",
-                    "🛣️ Alternative cycling bypass",
-                    mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
-                ),
-                ProfileOption(
-                    "shortest.brf", 0,
-                    "⚡ Найкоротший веломаршрут",
-                    "⚡ Shortest cycling route",
-                    mapOf("add_beeline" to "1", "waypointCatchingRange" to "2500")
-                )
-            )
-        }
-
+        val profileOptions = getProfileOptions(transport)
         val alternatives = mutableListOf<RawAlternative>()
 
-        for (idx in profileOptions.indices) {
+        val startIndex: Int
+        if (initialAlternative != null) {
+            alternatives.add(initialAlternative)
+            startIndex = 1
+        } else {
+            startIndex = 0
+        }
+
+        for (idx in startIndex until profileOptions.size) {
             val opt = profileOptions[idx]
-            val profFile = File(profilesDir, opt.filename)
-            var computedPoints: List<Pair<Double, Double>>? = null
-            var computedDist = 0f
-
-            if (profFile.exists() && (hasNavigationDataFor(startLat, startLon) || hasNavigationDataFor(endLat, endLon))) {
-                var rc: btools.router.RoutingContext? = null
-                try {
-                    rc = btools.router.RoutingContext().apply {
-                        localFunction = profFile.absolutePath
-                        setAlternativeIdx(opt.altIdx)
-                        keyValues = HashMap<String, String>().apply {
-                            put("add_beeline", "1")
-                            put("waypointCatchingRange", "2500")
-                            opt.params.forEach { (k, v) -> put(k, v) }
-                        }
-                    }
-                    btools.router.ProfileCache.parseProfile(rc)
-
-                    val startNode = btools.router.OsmNodeNamed().apply {
-                        ilat = floor((startLat + 90.0) * 1e6 + 0.5).toInt()
-                        ilon = floor((startLon + 180.0) * 1e6 + 0.5).toInt()
-                        name = "from"
-                    }
-                    val endNode = btools.router.OsmNodeNamed().apply {
-                        ilat = floor((endLat + 90.0) * 1e6 + 0.5).toInt()
-                        ilon = floor((endLon + 180.0) * 1e6 + 0.5).toInt()
-                        name = "to"
-                    }
-
-                    val engine = btools.router.RoutingEngine(
-                        null,
-                        null,
-                        MushroomStorageManager.navigationDir,
-                        listOf(startNode, endNode),
-                        rc
-                    )
-                    engine.quite = true
-                    engine.doRun(15000L)
-
-                    val trk = engine.foundTrack
-                    if (trk != null && trk.nodes != null && trk.nodes.size >= 2) {
-                        val pts = ArrayList<Pair<Double, Double>>(trk.nodes.size + 2)
-                        val firstLat = (trk.nodes[0].getILat() - 90000000) / 1000000.0
-                        val firstLon = (trk.nodes[0].getILon() - 180000000) / 1000000.0
-                        if (GeoMath.calculateDistance(startLat, startLon, firstLat, firstLon) > 3f) {
-                            pts.add(Pair(startLat, startLon))
-                        }
-                        for (node in trk.nodes) {
-                            val lat = (node.getILat() - 90000000) / 1000000.0
-                            val lon = (node.getILon() - 180000000) / 1000000.0
-                            pts.add(Pair(lat, lon))
-                        }
-                        val last = pts.last()
-                        if (GeoMath.calculateDistance(endLat, endLon, last.first, last.second) > 3f) {
-                            pts.add(Pair(endLat, endLon))
-                        }
-                        computedPoints = pts
-                        computedDist = computePolylineDistance(pts)
-                    }
-                } catch (e: Exception) {
-                    AppLogger.log(TAG, "calculateRawAlternatives", false, "Routing error with ${opt.filename}: ${e.message}")
-                } finally {
-                    rc?.let {
-                        try { btools.router.ProfileCache.releaseProfile(it) } catch (_: Exception) {}
-                    }
-                }
-            }
-
-            if (computedPoints != null && computedPoints.size >= 2) {
+            val alt = calculateSingleAlternative(startLat, startLon, endLat, endLon, opt, idx, isUk)
+            if (alt != null) {
                 val isUnpavedOpt = opt.params["avoid_unpaved"] == "0"
                 val shouldAdd = if (isUnpavedOpt && alternatives.isNotEmpty()) {
                     val primaryDist = alternatives.first().distanceMeters
-                    computedDist < primaryDist - 25f || alternatives.first().points.size <= 2
+                    alt.distanceMeters < primaryDist - 25f || alternatives.first().points.size <= 2
                 } else {
                     true
                 }
-
                 if (shouldAdd) {
-                    val km = computedDist / 1000f
-                    val unit = if (isUk) "км" else "km"
-                    val title = if (isUk) opt.titleUk else opt.titleEn
-                    val fullAdvantage = "$title (${String.format(Locale.US, "%.2f", km)} $unit)"
-                    alternatives.add(RawAlternative(idx, computedPoints, computedDist, fullAdvantage))
+                    alternatives.add(alt)
                 }
             }
+            onStep?.invoke()
         }
 
-        // If no routed paths could be found (off-grid point or no rd5 data), use direct straight line
         if (alternatives.isEmpty()) {
-            val dist = GeoMath.calculateDistance(startLat, startLon, endLat, endLon)
-            val km = dist / 1000f
-            val unit = if (isUk) "км" else "km"
-            val title = if (isUk) "Пряма лінія" else "Direct line"
-            val advantage = "$title (${String.format(Locale.US, "%.2f", km)} $unit)"
-            alternatives.add(RawAlternative(0, listOf(Pair(startLat, startLon), Pair(endLat, endLon)), dist, advantage))
+            alternatives.add(createStraightLineAlternative(startLat, startLon, endLat, endLon, isUk))
         }
 
         return alternatives
@@ -386,9 +478,14 @@ object BRouterEngine {
         end: Pair<Double, Double>,
         transport: TransportType,
         isUk: Boolean,
-        depth: Int
+        depth: Int,
+        onStep: (() -> Unit)? = null,
+        initialAlternative: RawAlternative? = null
     ): IntermediateSpanResult {
-        val rawAlternatives = calculateRawAlternatives(start.first, start.second, end.first, end.second, transport, isUk)
+        val rawAlternatives = calculateRawAlternatives(
+            start.first, start.second, end.first, end.second, transport, isUk, onStep,
+            initialAlternative = if (depth == 0) initialAlternative else null
+        )
         val filtered = filterDuplicates(rawAlternatives)
 
         if (depth >= 2 || filtered.size < 2) {
@@ -406,7 +503,7 @@ object BRouterEngine {
         val firstHalf = if (depth < 1 && firstSpanAlts.size >= 2) {
             val subInter = findFirstIntersection(firstSpanAlts, start, interCoord)
             if (subInter != null) {
-                processSpanWithIntersectionSplits(start, interCoord, transport, isUk, depth + 1)
+                processSpanWithIntersectionSplits(start, interCoord, transport, isUk, depth + 1, onStep)
             } else {
                 IntermediateSpanResult(listOf(firstSpanAlts), listOf(start, interCoord))
             }
@@ -417,7 +514,7 @@ object BRouterEngine {
         val secondHalf = if (depth < 1 && secondSpanAlts.size >= 2) {
             val subInter = findFirstIntersection(secondSpanAlts, interCoord, end)
             if (subInter != null) {
-                processSpanWithIntersectionSplits(interCoord, end, transport, isUk, depth + 1)
+                processSpanWithIntersectionSplits(interCoord, end, transport, isUk, depth + 1, onStep)
             } else {
                 IntermediateSpanResult(listOf(secondSpanAlts), listOf(interCoord, end))
             }
