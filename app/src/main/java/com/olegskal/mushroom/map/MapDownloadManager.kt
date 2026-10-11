@@ -73,7 +73,7 @@ object MapDownloadManager {
     private const val USER_AGENT = "Mushroom/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
     private const val BROUTER_SEGMENTS_URL = "https://brouter.de/brouter/segments4"
     const val WORLD_MAP_FILE_NAME = "world.map"
-    private const val WORLD_MAP_URL = "https://download.mapsforge.org/maps/v5/world/world.map"
+    const val WORLD_MAP_URL = "https://download.mapsforge.org/maps/v5/world/world.map"
 
     private val executor = Executors.newSingleThreadExecutor()
     private val isDownloading = AtomicBoolean(false)

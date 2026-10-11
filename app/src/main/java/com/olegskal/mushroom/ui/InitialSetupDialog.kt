@@ -399,11 +399,20 @@ object InitialSetupDialog {
             }
         }
 
-        // Фонова перевірка світової карти
+        // Фонова перевірка світової карти та отримання її розміру безпосередньо з сервера
         MapDownloadManager.checkWorldMapUpdatesAsync { hasUpdate ->
             if (hasUpdate) {
                 worldNeedsUpdate = true
                 activity.runOnUiThread { refreshList() }
+            }
+        }
+        MapDownloadManager.fetchRemoteFileSizeAsync(MapDownloadManager.WORLD_MAP_URL, MapDownloadManager.WORLD_MAP_FILE_NAME) { len ->
+            if (len > 0L) {
+                activity.runOnUiThread {
+                    if (!isDownloadRunning.get()) {
+                        refreshList()
+                    }
+                }
             }
         }
 
@@ -485,18 +494,21 @@ object InitialSetupDialog {
             return list // Якщо є нова версія додатку — оновлюємо спочатку ТІЛЬКИ її
         }
 
-        // 2. ОГЛЯДОВА КАРТА
+        // 2. ОГЛЯДОВА КАРТА (розмір визначається виключно з сервера)
         val worldFile = File(MushroomStorageManager.mapsDir, MapDownloadManager.WORLD_MAP_FILE_NAME)
         if (!worldFile.exists() || worldFile.length() < 1024L || worldNeedsUpdate || MapDownloadManager.isWorldMapUpdateAvailable()) {
+            val remoteWorldSize = MapDownloadManager.getRemoteFileSize(MapDownloadManager.WORLD_MAP_FILE_NAME)
+                ?: MapDownloadManager.getRemoteFileSize(MapDownloadManager.WORLD_MAP_URL)
+                ?: 0L
             list.add(
                 UpdateItem(
                     "map_world",
                     BlockType.MAPS,
                     "Оглядова карта", "Overview map",
                     MapDownloadManager.WORLD_MAP_FILE_NAME,
-                    3_276_950L
+                    remoteWorldSize
                 ) { onBytes, onSizeDiscovered, isCancel ->
-                    downloadFileWithResume("https://download.mapsforge.org/maps/v5/world/world.map", worldFile, 3_276_950L, onBytes, onSizeDiscovered, isCancel)
+                    downloadFileWithResume(MapDownloadManager.WORLD_MAP_URL, worldFile, -1L, onBytes, onSizeDiscovered, isCancel)
                 }
             )
         }
@@ -1195,8 +1207,24 @@ object InitialSetupDialog {
                 if (code == 416) {
                     val cr = conn.getHeaderField("Content-Range")
                     val totalFromCr = cr?.substringAfterLast('/')?.trim()?.toLongOrNull()
-                    if ((totalFromCr != null && totalFromCr > 0L && partFile.length() == totalFromCr) ||
-                        (expectedSize > 0L && partFile.length() == expectedSize)) {
+                    var serverTotalSize = totalFromCr ?: (if (expectedSize > 0L) expectedSize else -1L)
+                    if (serverTotalSize <= 0L && partFile.length() > 1024L) {
+                        try {
+                            val headConn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                                requestMethod = "HEAD"
+                                connectTimeout = 6000
+                                readTimeout = 6000
+                                setRequestProperty("User-Agent", USER_AGENT)
+                            }
+                            if (headConn.responseCode == HttpURLConnection.HTTP_OK) {
+                                val hl = headConn.contentLengthLong
+                                if (hl > 0L) serverTotalSize = hl
+                            }
+                            headConn.disconnect()
+                        } catch (_: Exception) {}
+                    }
+
+                    if (serverTotalSize > 0L && partFile.length() == serverTotalSize) {
                         if (destFile.exists()) destFile.delete()
                         if (!partFile.renameTo(destFile)) {
                             partFile.copyTo(destFile, overwrite = true)
