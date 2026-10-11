@@ -60,7 +60,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     // UI overlays
     private lateinit var tvRecordingBadge: TextView
-    private lateinit var btnCenter: CenterLocationButton
     private lateinit var compassButton: CompassButton
     private lateinit var btnRuler: RulerButton
     private lateinit var btnAddMarker: FlagMarkerButton
@@ -99,12 +98,15 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         if (changed) {
             AppPrefs.setFollowUser(this, follow)
         }
-        if (!follow && ::mapView.isInitialized) {
-            mapView.cancelCenterAnimation()
+        if (!follow) {
+            if (::mapView.isInitialized) {
+                mapView.cancelCenterAnimation()
+            }
+            if (isFollowHeading) {
+                setFollowHeading(false)
+            }
         }
-        if (::btnCenter.isInitialized) {
-            btnCenter.setActive(!follow)
-        }
+        updateCompassButtonState()
     }
 
     fun setFollowHeading(follow: Boolean) {
@@ -113,9 +115,15 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             mapView.cancelBearingAnimation()
             mapView.resetHeadingTracking()
         }
-        if (::compassButton.isInitialized) {
-            compassButton.setBearing(-mapView.mapBearing, active = (isFollowHeading || abs(mapView.mapBearing % 360f) > 0.5f))
-        }
+        updateCompassButtonState()
+    }
+
+    fun updateCompassButtonState(angle: Float = if (::mapView.isInitialized) -mapView.mapBearing else 0f) {
+        if (!::compassButton.isInitialized || !::mapView.isInitialized) return
+        val isNotNorth = abs(mapView.mapBearing % 360f) > 0.5f
+        val isShifted = !isFollowLocation
+        val isActive = isShifted || isNotNorth || isFollowHeading
+        compassButton.setBearing(angle, active = isActive)
     }
 
     private val uiHandler = Handler(Looper.getMainLooper())
@@ -250,23 +258,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
-        btnCenter = CenterLocationButton(this).apply {
-            layoutParams = ctrlParams
-            contentDescription = "Center on Current Location"
-            setActive(!isFollowLocation)
-            setOnClickListener {
-                setFollowLocation(true)
-                mapView.centerOnCurrentLocation()
-            }
-        }
-
         compassButton = CompassButton(this).apply {
             layoutParams = ctrlParams
-            setBearing(-mapView.mapBearing, active = (isFollowHeading || abs(mapView.mapBearing % 360f) > 0.5f))
+            contentDescription = "Compass"
             setOnClickListener {
                 handleCompassClick()
             }
         }
+        updateCompassButtonState()
 
         topHeaderRow.addView(btnMenu)
         topHeaderRow.addView(View(this).apply {
@@ -275,7 +274,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         topHeaderRow.addView(btnRuler)
         topHeaderRow.addView(btnAddMarker)
         topHeaderRow.addView(btnRecordTrack)
-        topHeaderRow.addView(btnCenter)
         topHeaderRow.addView(compassButton)
         topInfoPanel.addView(topHeaderRow)
 
@@ -609,17 +607,17 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     private fun handleCompassClick() {
         val isUk = AppPrefs.isUk(this)
-        val isNotNorth = (abs(mapView.mapBearing % 360f) > 0.5f)
+        val isNotNorth = abs(mapView.mapBearing % 360f) > 0.5f
+        val isShifted = !isFollowLocation
+        val isDisplacedOrRotated = isShifted || isNotNorth || isFollowHeading
 
-        if (isFollowHeading) {
+        if (isDisplacedOrRotated) {
             setFollowHeading(false)
             mapView.animateBearingTo(0f, activeOnEnd = false)
-            val msg = if (isUk) "Карту вирівняно на північ" else "Map aligned to North"
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-        } else if (isNotNorth) {
-            setFollowHeading(false)
-            mapView.animateBearingTo(0f, activeOnEnd = false)
-            val msg = if (isUk) "Карту вирівняно на північ" else "Map aligned to North"
+            setFollowLocation(true)
+            mapView.centerOnCurrentLocation()
+            updateCompassButtonState(0f)
+            val msg = if (isUk) "Карту вирівняно на північ та відцентровано" else "Map aligned to North & centered"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         } else {
             setFollowHeading(true)
@@ -627,6 +625,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             mapView.centerOnCurrentLocation()
             val targetHeading = mapView.getUserHeading() ?: 0f
             mapView.animateBearingTo(targetHeading, activeOnEnd = true)
+            updateCompassButtonState(-targetHeading)
             val msg = if (isUk) "Вирівнювання за стрілкою індикатора" else "Tracking heading orientation"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
@@ -1024,11 +1023,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         if (::btnRecordTrack.isInitialized) {
             btnRecordTrack.contentDescription = if (lang == "uk") "Запис треку" else "Record Track"
         }
-        if (::btnCenter.isInitialized) {
-            btnCenter.contentDescription = if (lang == "uk") "Центрувати на мені" else "Center on Current Location"
-        }
         if (::compassButton.isInitialized) {
-            compassButton.contentDescription = if (lang == "uk") "Компас" else "Compass"
+            compassButton.contentDescription = if (lang == "uk") "Компас та центрування" else "Compass & Center"
         }
         updateMapDownloadBanner()
         updateRouteButtonVisibility()
@@ -2024,12 +2020,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             else runOnUiThread { updateLiveStats(); mapView.reloadTracks() }
         }
 
-        if (::compassButton.isInitialized) {
-            compassButton.setBearing(-mapView.mapBearing, active = (isFollowHeading || abs(mapView.mapBearing % 360f) > 0.5f))
-        }
-        if (::btnCenter.isInitialized) {
-            btnCenter.setActive(!isFollowLocation)
-        }
+        updateCompassButtonState()
 
         // Register hardware orientation sensors for instant, real-time compass
         if (rotationVectorSensor != null) {
@@ -2838,7 +2829,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                                 mapBearing = (mapBearing - deltaAngle) % 360f
                                 if (mapBearing < 0f) mapBearing += 360f
                                 prevAngle = angle
-                                compassButton.setBearing(-mapBearing, active = true)
+                                updateCompassButtonState(-mapBearing)
                             }
 
                             // 3. Smooth Continuous Pinch Zoom
@@ -3045,7 +3036,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                                     mapBearing = (mapBearing - deltaAngle) % 360f
                                     if (mapBearing < 0f) mapBearing += 360f
                                     prevAngle = curAngle
-                                    compassButton.setBearing(-mapBearing, active = true)
+                                    updateCompassButtonState(-mapBearing)
                                 }
                             } else {
                                 prevAngle = Math.toDegrees(atan2((curY - anchorY).toDouble(), (curX - anchorX).toDouble())).toFloat()
@@ -3089,7 +3080,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                             mapBearing = (mapBearing - deltaAngle) % 360f
                             if (mapBearing < 0f) mapBearing += 360f
                             prevAngle = angle
-                            compassButton.setBearing(-mapBearing, active = true)
+                            updateCompassButtonState(-mapBearing)
                         }
 
                         // 3. Smooth Continuous Pinch Zoom
@@ -3219,7 +3210,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             cancelBearingAnimation()
             if (abs(diff) < 0.5f) {
                 mapBearing = normTarget
-                compassButton.setBearing(-mapBearing, active = activeOnEnd)
+                updateCompassButtonState(-mapBearing)
+                if (activeOnEnd) compassButton.setActive(true)
                 invalidate()
                 if (saveOnEnd) saveMapState()
                 return
@@ -3233,13 +3225,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 addUpdateListener { va ->
                     val v = va.animatedValue as Float
                     mapBearing = (v % 360f + 360f) % 360f
-                    compassButton.setBearing(-mapBearing, active = activeOnEnd || (abs(mapBearing % 360f) > 0.5f))
+                    updateCompassButtonState(-mapBearing)
                     invalidate()
                 }
                 addListener(object : AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: Animator) {
                         mapBearing = normTarget
-                        compassButton.setBearing(-mapBearing, active = activeOnEnd)
+                        updateCompassButtonState(-mapBearing)
+                        if (activeOnEnd) compassButton.setActive(true)
                         alignAnimator = null
                         invalidate()
                         if (saveOnEnd) {
@@ -3463,11 +3456,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         if (absDiff < 0.3f) {
                             mapBearing = userH
                             isHeadingTrackingActive = false
-                            compassButton.setBearing(-mapBearing, active = true)
+                            updateCompassButtonState(-mapBearing)
                             invalidate()
                         } else {
                             mapBearing = (mapBearing + bDiff * 0.35f + 360f) % 360f
-                            compassButton.setBearing(-mapBearing, active = true)
+                            updateCompassButtonState(-mapBearing)
                             invalidate()
                         }
                     }

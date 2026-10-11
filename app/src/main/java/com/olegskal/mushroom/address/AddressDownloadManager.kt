@@ -76,8 +76,8 @@ object AddressDownloadManager {
             val cursor = db.rawQuery("""
                 SELECT count(*) FROM houses h
                 JOIN streets s ON h.street_id = s.id
-                WHERE s.region_id = (SELECT id FROM admin_places WHERE level = 4 AND name = ? LIMIT 1);
-            """.trimIndent(), arrayOf(regionName))
+                WHERE s.region_id IN (SELECT id FROM admin_places WHERE level = 4 AND (name = ? OR name LIKE ?));
+            """.trimIndent(), arrayOf(regionName, "%$regionName%"))
             cursor.use {
                 if (it.moveToFirst()) it.getLong(0) else 0L
             }
@@ -86,16 +86,88 @@ object AddressDownloadManager {
         }
     }
 
+    fun loadCachedRegionsFromDb(db: SQLiteDatabase, countryId: Long): List<RegionTarget> {
+        return try {
+            val cursor = db.rawQuery("""
+                SELECT osm_id, name FROM admin_places 
+                WHERE parent_id = ? AND level = 4 
+                ORDER BY name ASC;
+            """.trimIndent(), arrayOf(countryId.toString()))
+            val list = mutableListOf<RegionTarget>()
+            cursor.use {
+                while (it.moveToNext()) {
+                    val osmId = it.getLong(0)
+                    val name = it.getString(1) ?: ""
+                    if (name.isNotBlank()) {
+                        list.add(RegionTarget(osmId, name))
+                    }
+                }
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveRegionsToDb(db: SQLiteDatabase, countryId: Long, regions: List<RegionTarget>) {
+        try {
+            val existingNames = mutableSetOf<String>()
+            val cur = db.rawQuery(
+                "SELECT name FROM admin_places WHERE parent_id = ? AND level = 4;",
+                arrayOf(countryId.toString())
+            )
+            cur.use {
+                while (it.moveToNext()) {
+                    existingNames.add(it.getString(0).lowercase().trim())
+                }
+            }
+            db.beginTransaction()
+            try {
+                val stmt = db.compileStatement(
+                    "INSERT INTO admin_places (osm_id, parent_id, level, name) VALUES (?, ?, 4, ?);"
+                )
+                for (r in regions) {
+                    val clean = r.name.lowercase().trim()
+                    if (clean in existingNames) continue
+                    stmt.bindLong(1, if (r.relId > 0) r.relId else 0L)
+                    stmt.bindLong(2, countryId)
+                    stmt.bindString(3, r.name)
+                    stmt.executeInsert()
+                    existingNames.add(clean)
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "saveRegionsToDb", false, "Error saving regions to DB: ${e.message}")
+        }
+    }
+
     fun fetchOverpassRegions(
         country: MapCountry,
         logFn: (String) -> Unit = {},
         isCancelled: () -> Boolean = { false },
-        maxPasses: Int = 3
+        maxPasses: Int = 3,
+        db: SQLiteDatabase? = null,
+        countryId: Long? = null
     ): List<RegionTarget> {
         val code = country.code.uppercase()
         val cached = cachedRegions[code]
         if (cached != null && cached.isNotEmpty()) {
             return cached
+        }
+
+        // 1. Перевірка збережених регіонів у SQLite (миттєво 0 мс при перезапуску додатку)
+        if (db != null && countryId != null) {
+            val dbRegions = loadCachedRegionsFromDb(db, countryId)
+            val minExpected = if (code == "UA") 25 else 2
+            if (dbRegions.size >= minExpected) {
+                cachedRegionCounts[code] = dbRegions.size
+                cachedRegions[code] = dbRegions
+                logFn("[+] Завантажено ${dbRegions.size} регіонів зі збереженої бази даних")
+                return dbRegions
+            }
         }
 
         val regions = mutableListOf<RegionTarget>()
@@ -157,6 +229,9 @@ object AddressDownloadManager {
             if (regions.size >= 2) {
                 cachedRegionCounts[code] = regions.size
                 cachedRegions[code] = regions
+                if (db != null && countryId != null) {
+                    saveRegionsToDb(db, countryId, regions)
+                }
                 logFn("[+] Знайдено ${regions.size} адміністративних регіонів для ${country.nameUk}")
                 return regions
             }
@@ -168,10 +243,13 @@ object AddressDownloadManager {
 
         // Резервний перелік для України (якщо всі Overpass запити зазнали збою через ліміти/мережу)
         if (code == "UA" && regions.size < 25) {
-            logFn("[i] Резерв: завантажено структуру 25 областей України")
+            logFn("[i] Резерв: завантажено структуру 27 регіонів України")
             val uaList = UKRAINE_REGIONS.map { RegionTarget(it.first, it.second) }
             cachedRegionCounts["UA"] = uaList.size
             cachedRegions["UA"] = uaList
+            if (db != null && countryId != null) {
+                saveRegionsToDb(db, countryId, uaList)
+            }
             return uaList
         }
 
@@ -220,7 +298,7 @@ object AddressDownloadManager {
 
     fun getEstimatedRegionCount(countryCode: String): Int {
         return when (countryCode.uppercase()) {
-            "UA" -> 25
+            "UA" -> 27
             "PL" -> 16
             "DE" -> 16
             "FR" -> 18
@@ -248,31 +326,33 @@ object AddressDownloadManager {
     }
 
     private val UKRAINE_REGIONS = listOf(
-        Pair(71248L, "Автономна Республіка Крим"),
-        Pair(71249L, "Вінницька область"),
-        Pair(71244L, "Волинська область"),
-        Pair(71250L, "Дніпропетровська область"),
-        Pair(71251L, "Донецька область"),
+        Pair(72639L, "Автономна Республіка Крим"),
+        Pair(90726L, "Вінницька область"),
+        Pair(71064L, "Волинська область"),
+        Pair(101746L, "Дніпропетровська область"),
+        Pair(71973L, "Донецька область"),
         Pair(71245L, "Житомирська область"),
-        Pair(71243L, "Закарпатська область"),
-        Pair(71252L, "Запорізька область"),
-        Pair(71242L, "Івано-Франківська область"),
-        Pair(71246L, "Київська область"),
-        Pair(71253L, "Кіровоградська область"),
-        Pair(71254L, "Луганська область"),
-        Pair(71241L, "Львівська область"),
-        Pair(71255L, "Миколаївська область"),
-        Pair(71256L, "Одеська область"),
-        Pair(71257L, "Полтавська область"),
-        Pair(71247L, "Рівненська область"),
-        Pair(71258L, "Сумська область"),
-        Pair(71240L, "Тернопільська область"),
-        Pair(71259L, "Харківська область"),
-        Pair(71260L, "Херсонська область"),
-        Pair(71239L, "Хмельницька область"),
-        Pair(71261L, "Черкаська область"),
-        Pair(71238L, "Чернівецька область"),
-        Pair(71262L, "Чернігівська область")
+        Pair(72489L, "Закарпатська область"),
+        Pair(71980L, "Запорізька область"),
+        Pair(72488L, "Івано-Франківська область"),
+        Pair(421866L, "Київ"),
+        Pair(71248L, "Київська область"),
+        Pair(101859L, "Кіровоградська область"),
+        Pair(71971L, "Луганська область"),
+        Pair(72380L, "Львівська область"),
+        Pair(72635L, "Миколаївська область"),
+        Pair(72634L, "Одеська область"),
+        Pair(91294L, "Полтавська область"),
+        Pair(71236L, "Рівненська область"),
+        Pair(1574364L, "Севастополь"),
+        Pair(71250L, "Сумська область"),
+        Pair(72525L, "Тернопільська область"),
+        Pair(71254L, "Харківська область"),
+        Pair(71022L, "Херсонська область"),
+        Pair(90742L, "Хмельницька область"),
+        Pair(91278L, "Черкаська область"),
+        Pair(72526L, "Чернівецька область"),
+        Pair(71249L, "Чернігівська область")
     )
 
     private fun fetchAssociatedStreets(
@@ -477,7 +557,9 @@ object AddressDownloadManager {
                     AppLogger.log(TAG, "fetchRegions", true, detail)
                 },
                 isCancelled = isCancelled,
-                maxPasses = 3
+                maxPasses = 3,
+                db = db,
+                countryId = ingestor.countryId
             )
 
             if (regions.isEmpty() || isCancelled()) {
@@ -489,6 +571,47 @@ object AddressDownloadManager {
             var pending = regions.mapIndexed { idx, reg -> Pair(idx + 1, reg) }
             val maxPasses = 5
 
+            // Префлайт-перевірка: миттєво за 1 швидкий SQL-запит зчитуємо всі регіони, що вже мають будинки в базі
+            val loadedOsmIds = mutableSetOf<Long>()
+            val loadedNames = mutableSetOf<String>()
+            try {
+                val pCur = db.rawQuery("""
+                    SELECT DISTINCT ap.osm_id, ap.name
+                    FROM streets s
+                    JOIN admin_places ap ON s.region_id = ap.id
+                    WHERE s.country_id = ?
+                      AND EXISTS (SELECT 1 FROM houses h WHERE h.street_id = s.id LIMIT 1);
+                """.trimIndent(), arrayOf(ingestor.countryId.toString()))
+                pCur.use {
+                    while (it.moveToNext()) {
+                        val osmId = it.getLong(0)
+                        val name = it.getString(1) ?: ""
+                        if (osmId > 0) loadedOsmIds.add(osmId)
+                        if (name.isNotBlank()) loadedNames.add(name.trim().lowercase())
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "preflight", false, "Preflight loaded regions warning: ${e.message}")
+            }
+
+            fun isRegionAlreadyLoaded(reg: RegionTarget): Boolean {
+                if (reg.relId > 0 && loadedOsmIds.contains(reg.relId)) return true
+                val clean = reg.name.trim().lowercase()
+                if (loadedNames.contains(clean)) return true
+                val stem = clean.replace(" область", "")
+                    .replace(" обл.", "")
+                    .replace(" автономна республіка", "")
+                    .replace(" ар ", "")
+                    .trim()
+                if (stem.length >= 4 && loadedNames.any { loadedName ->
+                    val lStem = loadedName.replace(" область", "").replace(" обл.", "").trim()
+                    lStem == stem || loadedName.contains(stem) || clean.contains(lStem)
+                }) {
+                    return true
+                }
+                return false
+            }
+
             for (pass in 1..maxPasses) {
                 if (pending.isEmpty() || isCancelled()) break
 
@@ -498,9 +621,11 @@ object AddressDownloadManager {
                     if (isCancelled()) break
 
                     val statusMsg = "${country.nameUk} ($totalRegions регіонів) • Регіон $idx/$totalRegions: ${region.name}"
-                    val existingCount = getRegionHouseCount(db, region.name)
-                    if (existingCount > 100L && pass == 1) {
-                        onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, statusMsg)
+
+                    if (pass == 1 && isRegionAlreadyLoaded(region)) {
+                        val skipMsg = "$statusMsg [готово]"
+                        onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, skipMsg)
+                        AppLogger.log(TAG, "ingest", true, "Регіон $idx/$totalRegions (${region.name}) вже завантажено в базі, миттєво пропускаємо")
                         continue
                     }
 
@@ -548,69 +673,77 @@ object AddressDownloadManager {
                         continue
                     }
 
-                    val regPlaceId = ingestor.getOrCreatePlace(ingestor.countryId, region.name, level = 4, osmId = if (region.relId > 0) region.relId else null)
+                    db.beginTransaction()
+                    try {
+                        val regPlaceId = ingestor.getOrCreatePlace(ingestor.countryId, region.name, level = 4, osmId = if (region.relId > 0) region.relId else null)
 
-                    for (line in tsvData.lines()) {
-                        val trimmed = line.trim()
-                        if (trimmed.isBlank()) continue
-                        val parts = if (trimmed.contains(";")) trimmed.split(";") else trimmed.split("\t")
-                        if (parts.size < 6) continue
+                        for (line in tsvData.lineSequence()) {
+                            val trimmed = line.trim()
+                            if (trimmed.isBlank()) continue
+                            val parts = if (trimmed.contains(";")) trimmed.split(";") else trimmed.split("\t")
+                            if (parts.size < 6) continue
 
-                        val osmId = parts[0].trim().toLongOrNull() ?: 0L
-                        val osmType = parts[1].trim()
-                        val lat = parts[2].trim().toDoubleOrNull() ?: continue
-                        val lon = parts[3].trim().toDoubleOrNull() ?: continue
+                            val osmId = parts[0].trim().toLongOrNull() ?: 0L
+                            val osmType = parts[1].trim()
+                            val lat = parts[2].trim().toDoubleOrNull() ?: continue
+                            val lon = parts[3].trim().toDoubleOrNull() ?: continue
 
-                        val rowCity = parts.getOrNull(4)?.trim() ?: ""
-                        val rowTown = parts.getOrNull(5)?.trim() ?: ""
-                        val rowVillage = parts.getOrNull(6)?.trim() ?: ""
-                        val rowHamlet = parts.getOrNull(7)?.trim() ?: ""
-                        val rowSuburb = parts.getOrNull(8)?.trim() ?: ""
-                        val rowPlace = parts.getOrNull(9)?.trim() ?: ""
+                            val rowCity = parts.getOrNull(4)?.trim() ?: ""
+                            val rowTown = parts.getOrNull(5)?.trim() ?: ""
+                            val rowVillage = parts.getOrNull(6)?.trim() ?: ""
+                            val rowHamlet = parts.getOrNull(7)?.trim() ?: ""
+                            val rowSuburb = parts.getOrNull(8)?.trim() ?: ""
+                            val rowPlace = parts.getOrNull(9)?.trim() ?: ""
 
-                        val district = (parts.getOrNull(10)?.trim() ?: "").ifBlank { parts.getOrNull(11)?.trim() ?: "" }
-                        val subdistrict = (parts.getOrNull(12)?.trim() ?: "").ifBlank { parts.getOrNull(13)?.trim() ?: "" }
+                            val district = (parts.getOrNull(10)?.trim() ?: "").ifBlank { parts.getOrNull(11)?.trim() ?: "" }
+                            val subdistrict = (parts.getOrNull(12)?.trim() ?: "").ifBlank { parts.getOrNull(13)?.trim() ?: "" }
 
-                        val rowStreet = parts.getOrNull(14)?.trim() ?: ""
-                        val contactStreet = parts.getOrNull(15)?.trim() ?: ""
-                        val parentStreet = parts.getOrNull(16)?.trim() ?: ""
-                        val isInStreet = parts.getOrNull(17)?.trim() ?: ""
+                            val rowStreet = parts.getOrNull(14)?.trim() ?: ""
+                            val contactStreet = parts.getOrNull(15)?.trim() ?: ""
+                            val parentStreet = parts.getOrNull(16)?.trim() ?: ""
+                            val isInStreet = parts.getOrNull(17)?.trim() ?: ""
 
-                        val houseNumber = (parts.getOrNull(18)?.trim() ?: "")
-                            .ifBlank { (parts.getOrNull(19)?.trim() ?: "")
-                                .ifBlank { parts.getOrNull(20)?.trim() ?: "" } }
+                            val houseNumber = (parts.getOrNull(18)?.trim() ?: "")
+                                .ifBlank { (parts.getOrNull(19)?.trim() ?: "")
+                                    .ifBlank { parts.getOrNull(20)?.trim() ?: "" } }
 
-                        val isInCity = parts.getOrNull(21)?.trim() ?: ""
-                        val isInTown = parts.getOrNull(22)?.trim() ?: ""
-                        val isInVillage = parts.getOrNull(23)?.trim() ?: ""
-                        val isInMuni = parts.getOrNull(24)?.trim() ?: ""
+                            val isInCity = parts.getOrNull(21)?.trim() ?: ""
+                            val isInTown = parts.getOrNull(22)?.trim() ?: ""
+                            val isInVillage = parts.getOrNull(23)?.trim() ?: ""
+                            val isInMuni = parts.getOrNull(24)?.trim() ?: ""
 
-                        var street = rowStreet.ifBlank { contactStreet.ifBlank { parentStreet.ifBlank { isInStreet } } }
-                        if (street.isBlank() && osmId > 0) {
-                            street = assocStreets[Pair(osmType, osmId)] ?: ""
+                            var street = rowStreet.ifBlank { contactStreet.ifBlank { parentStreet.ifBlank { isInStreet } } }
+                            if (street.isBlank() && osmId > 0) {
+                                street = assocStreets[Pair(osmType, osmId)] ?: ""
+                            }
+                            if (street.isBlank() && rowPlace.isNotBlank() && houseNumber.isNotBlank()) {
+                                street = rowPlace
+                            }
+
+                            if (houseNumber.isBlank() && street.isBlank()) continue
+
+                            var city = rowCity.ifBlank { rowTown.ifBlank { rowVillage.ifBlank { rowHamlet.ifBlank { rowSuburb.ifBlank { isInCity.ifBlank { isInTown.ifBlank { isInVillage.ifBlank { isInMuni.ifBlank { rowPlace } } } } } } } } }
+                            if (city.isBlank()) {
+                                city = settlementIndex.resolve(lat, lon)
+                            }
+
+                            var curParent = regPlaceId
+                            if (district.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, district, level = 6)
+                            if (subdistrict.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, subdistrict, level = 7)
+
+                            val cityPlaceId = ingestor.getOrCreatePlace(curParent, city, level = 8)
+                            val streetId = ingestor.getOrCreateStreet(cityPlaceId, street, region.name, city, regPlaceId)
+
+                            ingestor.addHouse(streetId, houseNumber, lat, lon)
                         }
-                        if (street.isBlank() && rowPlace.isNotBlank() && houseNumber.isNotBlank()) {
-                            street = rowPlace
-                        }
 
-                        if (houseNumber.isBlank() && street.isBlank()) continue
-
-                        var city = rowCity.ifBlank { rowTown.ifBlank { rowVillage.ifBlank { rowHamlet.ifBlank { rowSuburb.ifBlank { isInCity.ifBlank { isInTown.ifBlank { isInVillage.ifBlank { isInMuni.ifBlank { rowPlace } } } } } } } } }
-                        if (city.isBlank()) {
-                            city = settlementIndex.resolve(lat, lon)
-                        }
-
-                        var curParent = regPlaceId
-                        if (district.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, district, level = 6)
-                        if (subdistrict.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, subdistrict, level = 7)
-
-                        val cityPlaceId = ingestor.getOrCreatePlace(curParent, city, level = 8)
-                        val streetId = ingestor.getOrCreateStreet(cityPlaceId, street, region.name, city, regPlaceId)
-
-                        ingestor.addHouse(streetId, houseNumber, lat, lon)
+                        ingestor.flush()
+                        db.setTransactionSuccessful()
+                        if (region.relId > 0) loadedOsmIds.add(region.relId)
+                        loadedNames.add(region.name.trim().lowercase())
+                    } finally {
+                        db.endTransaction()
                     }
-
-                    ingestor.flush()
                     onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, statusMsg)
                 }
 

@@ -154,7 +154,13 @@ class CompassButton(context: Context) : View(context) {
         }
 
         // 1. Dark Circular Background (70% transparent)
-        bgPaint.color = if (isTouchPressed) Color.parseColor("#80111111") else Color.parseColor("#4D222222")
+        bgPaint.color = if (isTouchPressed) {
+            Color.parseColor("#80111111")
+        } else if (isCompassActive) {
+            Color.parseColor("#661A333A") // Highlighted with subtle cyan tint
+        } else {
+            Color.parseColor("#4D222222")
+        }
         canvas.drawCircle(cx, cy, radius, bgPaint)
 
         // 2. Active Mode Rim

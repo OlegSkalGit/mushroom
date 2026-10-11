@@ -19,11 +19,11 @@ class OverpassAddressClient(
         private const val TAG = "OverpassClient"
         const val USER_AGENT = "Mushroom-Address-Tool/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
         val DEFAULT_MIRRORS = listOf(
+            "https://gall.openstreetmap.de/api/interpreter",
+            "https://lambert.openstreetmap.de/api/interpreter",
+            "https://overpass-api.de/api/interpreter",
             "https://z.overpass-api.de/api/interpreter",
             "https://lz4.overpass-api.de/api/interpreter",
-            "https://overpass-api.de/api/interpreter",
-            "https://lambert.openstreetmap.de/api/interpreter",
-            "https://gall.openstreetmap.de/api/interpreter",
             "https://overpass.kumi.systems/api/interpreter"
         )
     }
@@ -67,12 +67,7 @@ class OverpassAddressClient(
             val effWait = if (avail > 0) 0 else (if (waitSec > 0) waitSec else 60)
             MirrorRank(mirror, effWait, avail)
         } catch (_: Exception) {
-            val now2 = System.currentTimeMillis()
-            if ((failedUntil[mirror] ?: 0L) > now2) {
-                MirrorRank(mirror, 9999, 0)
-            } else {
-                MirrorRank(mirror, 15, 1)
-            }
+            MirrorRank(mirror, 9999, 0)
         }
     }
 
