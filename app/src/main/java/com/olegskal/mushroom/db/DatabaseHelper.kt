@@ -16,19 +16,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         private const val DATABASE_NAME = "mushroom.db"
         private const val DATABASE_VERSION = 5
 
-        // Markers table
-        const val TABLE_MARKERS = "markers"
-        const val COL_MARKER_ID = "id"
-        const val COL_MARKER_NAME = "name"
-        const val COL_MARKER_TYPE = "type"
-        const val COL_MARKER_LAT = "lat"
-        const val COL_MARKER_LON = "lon"
-        const val COL_MARKER_ALT = "altitude"
-        const val COL_MARKER_TIME = "timestamp"
-        const val COL_MARKER_NOTE = "note"
-        const val COL_MARKER_COLOR = "color"
-        const val COL_MARKER_VISIBLE = "is_visible"
-
         // Tracks table
         const val TABLE_TRACKS = "tracks"
         const val COL_TRACK_ID = "id"
@@ -53,24 +40,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL(
-            """
-            CREATE TABLE $TABLE_MARKERS (
-                $COL_MARKER_ID INTEGER PRIMARY KEY,
-                $COL_MARKER_NAME TEXT NOT NULL,
-                $COL_MARKER_TYPE TEXT NOT NULL,
-                $COL_MARKER_LAT REAL NOT NULL,
-                $COL_MARKER_LON REAL NOT NULL,
-                $COL_MARKER_ALT REAL DEFAULT 0,
-                $COL_MARKER_TIME INTEGER NOT NULL,
-                $COL_MARKER_NOTE TEXT,
-                $COL_MARKER_COLOR INTEGER,
-                $COL_MARKER_VISIBLE INTEGER DEFAULT 1
-            )
-            """.trimIndent()
-        )
-        db.execSQL("CREATE INDEX idx_marker_coords ON $TABLE_MARKERS($COL_MARKER_LAT, $COL_MARKER_LON)")
-
         db.execSQL(
             """
             CREATE TABLE $TABLE_TRACKS (
@@ -101,130 +70,110 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         )
         db.execSQL("CREATE INDEX idx_track_pts ON $TABLE_TRACK_POINTS($COL_PT_TRACK_ID, $COL_PT_TIME)")
 
-        AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_MARKERS, $TABLE_TRACKS, $TABLE_TRACK_POINTS) created.")
+        AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_TRACKS, $TABLE_TRACK_POINTS) created.")
     }
 
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        migrateMarkersFromSqliteIfPresent(db)
+    }
 
+    private fun migrateMarkersFromSqliteIfPresent(db: SQLiteDatabase) {
+        try {
+            val cursor = db.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='markers'",
+                null
+            )
+            val tableExists = cursor.use { it.moveToFirst() }
+            if (tableExists) {
+                val existingJsonMarkers = MushroomStorageManager.loadMarkers()
+                if (existingJsonMarkers.isEmpty()) {
+                    val sqliteMarkers = ArrayList<MushroomMarker>()
+                    db.query("markers", null, null, null, null, null, "timestamp DESC").use { c ->
+                        val idIdx = c.getColumnIndexOrThrow("id")
+                        val nameIdx = c.getColumnIndexOrThrow("name")
+                        val typeIdx = c.getColumnIndexOrThrow("type")
+                        val latIdx = c.getColumnIndexOrThrow("lat")
+                        val lonIdx = c.getColumnIndexOrThrow("lon")
+                        val altIdx = c.getColumnIndexOrThrow("altitude")
+                        val timeIdx = c.getColumnIndexOrThrow("timestamp")
+                        val noteIdx = c.getColumnIndexOrThrow("note")
+                        val colorIdx = c.getColumnIndexOrThrow("color")
+                        val visIdx = c.getColumnIndexOrThrow("is_visible")
+                        while (c.moveToNext()) {
+                            sqliteMarkers.add(
+                                MushroomMarker(
+                                    id = c.getLong(idIdx),
+                                    name = c.getString(nameIdx),
+                                    type = c.getString(typeIdx),
+                                    lat = c.getDouble(latIdx),
+                                    lon = c.getDouble(lonIdx),
+                                    altitude = c.getDouble(altIdx),
+                                    timestamp = c.getLong(timeIdx),
+                                    note = c.getString(noteIdx) ?: "",
+                                    color = c.getInt(colorIdx),
+                                    isVisible = c.getInt(visIdx) == 1
+                                )
+                            )
+                        }
+                    }
+                    if (sqliteMarkers.isNotEmpty()) {
+                        MushroomStorageManager.saveMarkers(sqliteMarkers)
+                        AppLogger.log("DatabaseHelper", "migrateMarkers", true, "Migrated ${sqliteMarkers.size} markers to markers.json")
+                    }
+                }
+                db.execSQL("DROP TABLE IF EXISTS markers")
+                AppLogger.log("DatabaseHelper", "migrateMarkers", true, "Dropped markers table from SQLite")
+            }
+        } catch (e: Exception) {
+            AppLogger.log("DatabaseHelper", "migrateMarkers", false, "Migration error: ${e.message}")
+        }
+    }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_MARKERS")
+        db.execSQL("DROP TABLE IF EXISTS markers")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_TRACKS")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_TRACK_POINTS")
         onCreate(db)
         AppLogger.log("DatabaseHelper", "onUpgrade", true, "Upgraded DB from v$oldVersion to v$newVersion.")
     }
 
-    // --- MARKERS CRUD ---
+    // --- MARKERS CRUD (Primary & Only Storage: /storage/emulated/0/mushroom/markers/markers.json) ---
 
     fun insertMarker(marker: MushroomMarker) {
-        val db = writableDatabase
-        val cv = ContentValues().apply {
-            put(COL_MARKER_ID, marker.id)
-            put(COL_MARKER_NAME, marker.name)
-            put(COL_MARKER_TYPE, marker.type)
-            put(COL_MARKER_LAT, marker.lat)
-            put(COL_MARKER_LON, marker.lon)
-            put(COL_MARKER_ALT, marker.altitude)
-            put(COL_MARKER_TIME, marker.timestamp)
-            put(COL_MARKER_NOTE, marker.note)
-            put(COL_MARKER_COLOR, marker.color)
-            put(COL_MARKER_VISIBLE, if (marker.isVisible) 1 else 0)
-        }
-        db.insertWithOnConflict(TABLE_MARKERS, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-        syncMarkersToStorage()
+        MushroomStorageManager.insertMarker(marker)
     }
 
     fun updateMarker(marker: MushroomMarker) {
-        val db = writableDatabase
-        val cv = ContentValues().apply {
-            put(COL_MARKER_NAME, marker.name)
-            put(COL_MARKER_TYPE, marker.type)
-            put(COL_MARKER_NOTE, marker.note)
-            put(COL_MARKER_COLOR, marker.color)
-            put(COL_MARKER_VISIBLE, if (marker.isVisible) 1 else 0)
-        }
-        db.update(TABLE_MARKERS, cv, "$COL_MARKER_ID = ?", arrayOf(marker.id.toString()))
-        syncMarkersToStorage()
+        MushroomStorageManager.updateMarker(marker)
     }
 
     fun deleteMarker(markerId: Long) {
-        val db = writableDatabase
-        db.delete(TABLE_MARKERS, "$COL_MARKER_ID = ?", arrayOf(markerId.toString()))
-        syncMarkersToStorage()
+        MushroomStorageManager.deleteMarker(markerId)
     }
 
     fun updateMarkerName(markerId: Long, newName: String) {
-        val db = writableDatabase
-        val cv = ContentValues().apply {
-            put(COL_MARKER_NAME, newName)
-        }
-        db.update(TABLE_MARKERS, cv, "$COL_MARKER_ID = ?", arrayOf(markerId.toString()))
-        syncMarkersToStorage()
+        MushroomStorageManager.updateMarkerName(markerId, newName)
     }
 
     fun updateMarker(markerId: Long, newName: String, newColor: Int) {
-        val db = writableDatabase
-        val cv = ContentValues().apply {
-            put(COL_MARKER_NAME, newName)
-            put(COL_MARKER_COLOR, newColor)
-        }
-        db.update(TABLE_MARKERS, cv, "$COL_MARKER_ID = ?", arrayOf(markerId.toString()))
-        syncMarkersToStorage()
+        MushroomStorageManager.updateMarker(markerId, newName, newColor)
     }
 
     fun setMarkerVisibility(markerId: Long, isVisible: Boolean) {
-        val db = writableDatabase
-        val cv = ContentValues().apply {
-            put(COL_MARKER_VISIBLE, if (isVisible) 1 else 0)
-        }
-        db.update(TABLE_MARKERS, cv, "$COL_MARKER_ID = ?", arrayOf(markerId.toString()))
-        syncMarkersToStorage()
+        MushroomStorageManager.setMarkerVisibility(markerId, isVisible)
     }
 
     fun getAllMarkers(): List<MushroomMarker> {
-        val list = ArrayList<MushroomMarker>()
-        val db = readableDatabase
-        db.query(
-            TABLE_MARKERS,
-            null, null, null, null, null,
-            "$COL_MARKER_TIME DESC"
-        ).use { c ->
-            val idIdx = c.getColumnIndexOrThrow(COL_MARKER_ID)
-            val nameIdx = c.getColumnIndexOrThrow(COL_MARKER_NAME)
-            val typeIdx = c.getColumnIndexOrThrow(COL_MARKER_TYPE)
-            val latIdx = c.getColumnIndexOrThrow(COL_MARKER_LAT)
-            val lonIdx = c.getColumnIndexOrThrow(COL_MARKER_LON)
-            val altIdx = c.getColumnIndexOrThrow(COL_MARKER_ALT)
-            val timeIdx = c.getColumnIndexOrThrow(COL_MARKER_TIME)
-            val noteIdx = c.getColumnIndexOrThrow(COL_MARKER_NOTE)
-            val colorIdx = c.getColumnIndexOrThrow(COL_MARKER_COLOR)
-            val visIdx = c.getColumnIndexOrThrow(COL_MARKER_VISIBLE)
-
-            while (c.moveToNext()) {
-                list.add(
-                    MushroomMarker(
-                        id = c.getLong(idIdx),
-                        name = c.getString(nameIdx),
-                        type = c.getString(typeIdx),
-                        lat = c.getDouble(latIdx),
-                        lon = c.getDouble(lonIdx),
-                        altitude = c.getDouble(altIdx),
-                        timestamp = c.getLong(timeIdx),
-                        note = c.getString(noteIdx) ?: "",
-                        color = c.getInt(colorIdx),
-                        isVisible = c.getInt(visIdx) == 1
-                    )
-                )
-            }
-        }
-        return list
+        return MushroomStorageManager.loadMarkers()
     }
 
-    private fun syncMarkersToStorage() {
-        try {
-            val list = getAllMarkers()
-            MushroomStorageManager.saveMarkers(list)
-        } catch (_: Exception) {}
+    fun getMarker(markerId: Long): MushroomMarker? {
+        return MushroomStorageManager.getMarker(markerId)
+    }
+
+    fun syncMarkersToStorage() {
+        // No-op: markers are always saved directly to /storage/emulated/0/mushroom/markers/markers.json
     }
 
     // --- TRACKS CRUD ---
@@ -421,13 +370,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     fun restoreDataFromExternalStorageIfDbEmpty() {
         try {
-            val currentMarkers = getAllMarkers()
-            if (currentMarkers.isEmpty()) {
-                val loaded = MushroomStorageManager.loadMarkers()
-                for (m in loaded) {
-                    insertMarker(m)
-                }
-            }
             val currentTracks = getAllTracks()
             if (currentTracks.isEmpty()) {
                 val loadedTracks = MushroomStorageManager.loadTracks()

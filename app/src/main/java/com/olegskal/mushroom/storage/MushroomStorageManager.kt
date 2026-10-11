@@ -124,21 +124,24 @@ object MushroomStorageManager {
         } catch (_: Exception) {}
     }
 
-    // --- Markers ---
-    private val markersFile: File
+    // --- Markers (Primary & Only Storage: /storage/emulated/0/mushroom/markers/markers.json) ---
+    val markersFile: File
         get() = File(markersDir, "markers.json")
 
+    @Synchronized
     fun loadMarkers(): List<MushroomMarker> {
         val list = ArrayList<MushroomMarker>()
         try {
             val file = markersFile
             if (!file.exists()) return list
-            val content = file.readText(Charsets.UTF_8)
+            val content = file.readText(Charsets.UTF_8).trim()
+            if (content.isEmpty()) return list
             val arr = JSONArray(content)
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
                 list.add(MushroomMarker.fromJson(obj))
             }
+            list.sortByDescending { it.timestamp }
             AppLogger.log(TAG, "loadMarkers", true, "Loaded ${list.size} markers from ${file.absolutePath}")
         } catch (e: Exception) {
             AppLogger.log(TAG, "loadMarkers", false, "Error loading markers: ${e.message}")
@@ -146,6 +149,7 @@ object MushroomStorageManager {
         return list
     }
 
+    @Synchronized
     fun saveMarkers(markers: List<MushroomMarker>) {
         try {
             val arr = JSONArray()
@@ -153,11 +157,92 @@ object MushroomStorageManager {
                 arr.put(m.toJson())
             }
             val file = markersFile
-            file.writeText(arr.toString(2), Charsets.UTF_8)
-            AppLogger.log(TAG, "saveMarkers", true, "Saved ${markers.size} markers to ${file.absolutePath}")
+            val tmpFile = File(markersDir, "markers.json.tmp")
+            tmpFile.writeText(arr.toString(2), Charsets.UTF_8)
+            if (file.exists()) {
+                file.delete()
+            }
+            if (tmpFile.renameTo(file)) {
+                AppLogger.log(TAG, "saveMarkers", true, "Saved ${markers.size} markers to ${file.absolutePath}")
+            } else {
+                file.writeText(arr.toString(2), Charsets.UTF_8)
+                tmpFile.delete()
+                AppLogger.log(TAG, "saveMarkers", true, "Saved (fallback) ${markers.size} markers to ${file.absolutePath}")
+            }
         } catch (e: Exception) {
             AppLogger.log(TAG, "saveMarkers", false, "Error saving markers: ${e.message}")
         }
+    }
+
+    @Synchronized
+    fun insertMarker(marker: MushroomMarker) {
+        val list = loadMarkers().toMutableList()
+        val index = list.indexOfFirst { it.id == marker.id }
+        if (index != -1) {
+            list[index] = marker
+        } else {
+            list.add(0, marker)
+        }
+        saveMarkers(list)
+    }
+
+    @Synchronized
+    fun updateMarker(marker: MushroomMarker) {
+        val list = loadMarkers().toMutableList()
+        val index = list.indexOfFirst { it.id == marker.id }
+        if (index != -1) {
+            list[index] = marker
+        } else {
+            list.add(0, marker)
+        }
+        saveMarkers(list)
+    }
+
+    @Synchronized
+    fun updateMarker(markerId: Long, newName: String, newColor: Int) {
+        val list = loadMarkers().toMutableList()
+        val index = list.indexOfFirst { it.id == markerId }
+        if (index != -1) {
+            val m = list[index]
+            m.name = newName
+            m.color = newColor
+            saveMarkers(list)
+        }
+    }
+
+    @Synchronized
+    fun updateMarkerName(markerId: Long, newName: String) {
+        val list = loadMarkers().toMutableList()
+        val index = list.indexOfFirst { it.id == markerId }
+        if (index != -1) {
+            list[index].name = newName
+            saveMarkers(list)
+        }
+    }
+
+    @Synchronized
+    fun setMarkerVisibility(markerId: Long, isVisible: Boolean) {
+        val list = loadMarkers().toMutableList()
+        val index = list.indexOfFirst { it.id == markerId }
+        if (index != -1) {
+            list[index].isVisible = isVisible
+            saveMarkers(list)
+        }
+    }
+
+    @Synchronized
+    fun deleteMarker(markerId: Long): Boolean {
+        val list = loadMarkers().toMutableList()
+        val removed = list.removeAll { it.id == markerId }
+        if (removed) {
+            saveMarkers(list)
+        }
+        return removed
+    }
+
+    @Synchronized
+    fun getMarker(markerId: Long): MushroomMarker? {
+        return loadMarkers().firstOrNull { it.id == markerId }
     }
 
     // --- Tracks ---

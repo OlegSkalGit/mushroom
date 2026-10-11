@@ -1514,7 +1514,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         "• Меню «Маркери»: перегляд збережених точок, перехід до маркера на карті в один клік, редагування та видалення.\n" +
                         "• Чекбокси видимості: індивідуальне або групове вмикання/вимикання відображення міток на карті.\n" +
                         "• Експорт у GPX: збереження всіх або вибраних точок у стандартний файл .gpx для обміну з друзями або завантаження в інші навігатори.\n" +
-                        "• Зберігання: 100% ОФЛАЙН у базі SQLite (mushroom.db)."
+                        "• Зберігання: 100% ОФЛАЙН у файлі /sdcard/mushroom/markers/markers.json."
                     )
                 ),
                 defaultExpanded = false,
@@ -1664,7 +1664,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         "• /sdcard/mushroom/navigation/ — сегменти маршрутизації BRouter (.rd5).\n" +
                         "• /sdcard/mushroom/poi/ — точки інтересу (.poi) та poi_config.json.\n" +
                         "• /sdcard/mushroom/addresses/ — база адрес (addr.db).\n" +
-                        "• /sdcard/mushroom/markers/ — збережені маркери та база mushroom.db.\n" +
+                        "• /sdcard/mushroom/markers/ — збережені маркери (markers.json).\n" +
                         "• /sdcard/mushroom/tracks/ — збережені та експортовані GPX-треки.\n" +
                         "• /sdcard/mushroom/mushrooms/ — база енциклопедії mushrooms.db та AI модель.\n" +
                         "• /sdcard/mushroom/settings/ — налаштування додатка.\n" +
@@ -1794,7 +1794,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         "• Markers menu: list of all spots, one-click camera centering, edit and delete.\n" +
                         "• Visibility checkboxes: toggle display of individual or all markers on the map.\n" +
                         "• GPX Export: export waypoints to standard .gpx files for sharing or handheld GPS import.\n" +
-                        "• Storage: 100% OFFLINE in local SQLite database (mushroom.db)."
+                        "• Storage: 100% OFFLINE in /sdcard/mushroom/markers/markers.json."
                     )
                 ),
                 defaultExpanded = false,
@@ -1944,7 +1944,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         "• /sdcard/mushroom/navigation/ — BRouter routing segments (.rd5).\n" +
                         "• /sdcard/mushroom/poi/ — Points of Interest (.poi) and poi_config.json.\n" +
                         "• /sdcard/mushroom/addresses/ — address database (addr.db).\n" +
-                        "• /sdcard/mushroom/markers/ — saved waypoints and mushroom.db.\n" +
+                        "• /sdcard/mushroom/markers/ — saved waypoints (markers.json).\n" +
                         "• /sdcard/mushroom/tracks/ — recorded and imported GPX tracks.\n" +
                         "• /sdcard/mushroom/mushrooms/ — encyclopedia mushrooms.db and AI model.\n" +
                         "• /sdcard/mushroom/settings/ — app configuration files.\n" +
