@@ -374,7 +374,7 @@ object AddressDownloadManager {
                     }
 
                     val logCallback: (String) -> Unit = { detail ->
-                        onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, "$statusMsg • $detail")
+                        AppLogger.log(TAG, "fetchAddressData", true, "$statusMsg • $detail")
                     }
 
                     val assocStreets = fetchAssociatedStreets(areaClause, logCallback, isCancelled)

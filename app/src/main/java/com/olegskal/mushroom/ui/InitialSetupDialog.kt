@@ -436,19 +436,12 @@ object InitialSetupDialog {
                                 executeDownloadPipeline(activity, selectedCountry, itemsToProcess, onFinished)
                             } catch (e: Throwable) {
                                 AppLogger.log(TAG, "executeDownloadPipeline", false, "Crash in download pipeline: ${e.message}\n${e.stackTraceToString()}")
-                                activity.runOnUiThread {
-                                    if (!activity.isFinishing && !activity.isDestroyed) {
-                                        val errText = if (isUk) "Помилка завантаження: ${e.message}" else "Download error: ${e.message}"
-                                        Toast.makeText(activity, errText, Toast.LENGTH_LONG).show()
-                                    }
-                                }
                             }
                         }
                     }
                 }
             } catch (e: Throwable) {
                 AppLogger.log(TAG, "btnDownload.onClick", false, "Error in btnDownload: ${e.message}\n${e.stackTraceToString()}")
-                Toast.makeText(activity, "Помилка: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -690,12 +683,6 @@ object InitialSetupDialog {
                         executeDownloadPipeline(activity, country, items, onFinished)
                     } catch (e: Throwable) {
                         AppLogger.log(TAG, "startCountryDownload", false, "Crash in pipeline: ${e.message}\n${e.stackTraceToString()}")
-                        activity.runOnUiThread {
-                            if (!activity.isFinishing && !activity.isDestroyed) {
-                                val errText = if (isUk) "Помилка завантаження: ${e.message}" else "Download error: ${e.message}"
-                                Toast.makeText(activity, errText, Toast.LENGTH_LONG).show()
-                            }
-                        }
                     }
                 }
             }
@@ -941,6 +928,9 @@ object InitialSetupDialog {
                 }
             }
 
+            val failedItems = mutableListOf<UpdateItem>()
+            var hasUnpackError = false
+
             // Послідовне завантаження компонентів
             for (item in itemsToProcess) {
                 if (cancelFlag.get()) break
@@ -973,26 +963,31 @@ object InitialSetupDialog {
 
                 mapActivity?.updateBottomDownloadProgress(true, rangeStart, 1000, getItemStatus(0.0))
 
-                val success = item.downloadAction(
-                    { bRead ->
-                        itemDownloadedBytes += bRead
-                        val ratio = (itemDownloadedBytes.toDouble() / itemExpectedBytes.toDouble()).coerceIn(0.0, 1.0)
-                        val pVal = rangeStart + (ratio * rangeSpan).toInt()
-                        val status = if (item.id.startsWith("addr_")) null else getItemStatus(ratio)
-                        mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
-                    },
-                    { actualSize ->
-                        if (actualSize > 0L) {
-                            itemExpectedBytes = actualSize
-                            item.expectedBytes = actualSize
+                val success = try {
+                    item.downloadAction(
+                        { bRead ->
+                            itemDownloadedBytes += bRead
                             val ratio = (itemDownloadedBytes.toDouble() / itemExpectedBytes.toDouble()).coerceIn(0.0, 1.0)
                             val pVal = rangeStart + (ratio * rangeSpan).toInt()
                             val status = if (item.id.startsWith("addr_")) null else getItemStatus(ratio)
                             mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
-                        }
-                    },
-                    { cancelFlag.get() }
-                )
+                        },
+                        { actualSize ->
+                            if (actualSize > 0L) {
+                                itemExpectedBytes = actualSize
+                                item.expectedBytes = actualSize
+                                val ratio = (itemDownloadedBytes.toDouble() / itemExpectedBytes.toDouble()).coerceIn(0.0, 1.0)
+                                val pVal = rangeStart + (ratio * rangeSpan).toInt()
+                                val status = if (item.id.startsWith("addr_")) null else getItemStatus(ratio)
+                                mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
+                            }
+                        },
+                        { cancelFlag.get() }
+                    )
+                } catch (e: Throwable) {
+                    AppLogger.log(TAG, "executeDownloadPipeline", false, "Error downloading ${item.id}: ${e.message}")
+                    false
+                }
 
                 // Миттєве підхоплення рушіями та проміжний Toast
                 if (success && !cancelFlag.get()) {
@@ -1020,6 +1015,8 @@ object InitialSetupDialog {
                             }
                         }
                     }
+                } else if (!cancelFlag.get()) {
+                    failedItems.add(item)
                 }
             }
 
@@ -1027,35 +1024,64 @@ object InitialSetupDialog {
             val allDbExist = allDbParts.all { it.exists() && it.length() > 0 }
             if (allDbExist && !MushroomDatabaseManager.isDatabaseUpToDate(activity) && !cancelFlag.get()) {
                 val (dbStart, dbEnd) = unpackDbRange ?: (850 to 925)
-                MushroomDatabaseManager.unpackDownloadedParts(activity, allDbParts) { unpacked, total ->
-                    val ratio = (unpacked.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
-                    val pVal = dbStart + (ratio * (dbEnd - dbStart)).toInt()
-                    val pct = (ratio * 100).toInt()
-                    val status = "${if (isUk) "Розпакування енциклопедії..." else "Unpacking encyclopedia..."} $pct%"
-                    mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
+                val ok = try {
+                    MushroomDatabaseManager.unpackDownloadedParts(activity, allDbParts) { unpacked, total ->
+                        val ratio = (unpacked.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
+                        val pVal = dbStart + (ratio * (dbEnd - dbStart)).toInt()
+                        val pct = (ratio * 100).toInt()
+                        val status = "${if (isUk) "Розпакування енциклопедії..." else "Unpacking encyclopedia..."} $pct%"
+                        mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
+                    }
+                } catch (e: Throwable) {
+                    AppLogger.log(TAG, "executeDownloadPipeline", false, "DB unpack error: ${e.message}")
+                    false
                 }
-                activity.runOnUiThread {
-                    MushroomDatabaseManager.closeDatabase()
-                    MushroomDatabaseManager.getDatabase(activity)
-                    Toast.makeText(activity, if (isUk) "✓ Енциклопедію грибів встановлено" else "✓ Mushroom encyclopedia installed", Toast.LENGTH_SHORT).show()
+                if (ok) {
+                    activity.runOnUiThread {
+                        MushroomDatabaseManager.closeDatabase()
+                        MushroomDatabaseManager.getDatabase(activity)
+                        Toast.makeText(activity, if (isUk) "✓ Енциклопедію грибів встановлено" else "✓ Mushroom encyclopedia installed", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    hasUnpackError = true
                 }
+            } else if (!cancelFlag.get() && itemsToProcess.any { it.id.startsWith("db_") } && !MushroomDatabaseManager.isDatabaseUpToDate(activity)) {
+                hasUnpackError = true
             }
 
             // Розпакування визначника
             val allModelExist = allModelParts.all { it.exists() && it.length() > 0 }
             if (allModelExist && !MushroomClassifier.isModelDownloaded(activity) && !cancelFlag.get()) {
                 val (mStart, mEnd) = unpackModelRange ?: (925 to 1000)
-                MushroomClassifier.unpackDownloadedParts(activity, allModelParts) { unpacked, total ->
-                    val ratio = (unpacked.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
-                    val pVal = mStart + (ratio * (mEnd - mStart)).toInt()
-                    val pct = (ratio * 100).toInt()
-                    val status = "${if (isUk) "Розпакування визначника..." else "Unpacking classifier..."} $pct%"
-                    mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
+                val ok = try {
+                    MushroomClassifier.unpackDownloadedParts(activity, allModelParts) { unpacked, total ->
+                        val ratio = (unpacked.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
+                        val pVal = mStart + (ratio * (mEnd - mStart)).toInt()
+                        val pct = (ratio * 100).toInt()
+                        val status = "${if (isUk) "Розпакування визначника..." else "Unpacking classifier..."} $pct%"
+                        mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
+                    }
+                } catch (e: Throwable) {
+                    AppLogger.log(TAG, "executeDownloadPipeline", false, "Classifier unpack error: ${e.message}")
+                    false
                 }
-                activity.runOnUiThread {
-                    Toast.makeText(activity, if (isUk) "✓ Визначник грибів встановлено" else "✓ Mushroom classifier installed", Toast.LENGTH_SHORT).show()
+                if (ok) {
+                    activity.runOnUiThread {
+                        Toast.makeText(activity, if (isUk) "✓ Визначник грибів встановлено" else "✓ Mushroom classifier installed", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    hasUnpackError = true
                 }
+            } else if (!cancelFlag.get() && itemsToProcess.any { it.id.startsWith("model_") } && !MushroomClassifier.isModelDownloaded(activity)) {
+                hasUnpackError = true
             }
+
+            val addressIncomplete = itemsToProcess.any { it.id.startsWith("addr_") } &&
+                    !AddressDownloadManager.hasAddressesForCountry(activity, selectedCountry.code)
+            val mapIncomplete = itemsToProcess.any { it.id.startsWith("map_") && it.id != "map_world" } &&
+                    !File(MushroomStorageManager.mapsDir, selectedCountry.mapFileName).exists()
+
+            val isAnyIncomplete = failedItems.isNotEmpty() || hasUnpackError || addressIncomplete || mapIncomplete
 
             activity.runOnUiThread {
                 if (!activity.isFinishing && !activity.isDestroyed) {
@@ -1063,17 +1089,32 @@ object InitialSetupDialog {
                     PoiManager.refreshPoiFiles()
                     mapActivity?.updateMapDownloadBanner()
                     onFinished()
-                    val toastMsg = if (isUk) "✓ Завантаження компонентів завершено" else "✓ Components download finished"
-                    Toast.makeText(activity, toastMsg, Toast.LENGTH_SHORT).show()
+                    if (!cancelFlag.get()) {
+                        if (isAnyIncomplete) {
+                            val msg = if (isUk) {
+                                "Частина компонентів не завантажилася. Вони будуть дозавантажені при наступному запуску додатку."
+                            } else {
+                                "Some components could not be downloaded. They will be downloaded on the next app restart."
+                            }
+                            Toast.makeText(activity, msg, Toast.LENGTH_LONG).show()
+                        } else {
+                            val toastMsg = if (isUk) "✓ Завантаження компонентів завершено" else "✓ Components download finished"
+                            Toast.makeText(activity, toastMsg, Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             }
 
         } catch (e: Throwable) {
             AppLogger.log(TAG, "executeDownloadPipeline", false, "Error during pipeline execution: ${e.message}\n${e.stackTraceToString()}")
             activity.runOnUiThread {
-                if (!activity.isFinishing && !activity.isDestroyed) {
-                    val errText = if (isUk) "Помилка завантаження: ${e.message}" else "Download error: ${e.message}"
-                    Toast.makeText(activity, errText, Toast.LENGTH_LONG).show()
+                if (!activity.isFinishing && !activity.isDestroyed && !cancelFlag.get()) {
+                    val msg = if (isUk) {
+                        "Частина компонентів не завантажилася. Вони будуть дозавантажені при наступному запуску додатку."
+                    } else {
+                        "Some components could not be downloaded. They will be downloaded on the next app restart."
+                    }
+                    Toast.makeText(activity, msg, Toast.LENGTH_LONG).show()
                 }
             }
         } finally {
