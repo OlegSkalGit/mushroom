@@ -2082,6 +2082,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     override fun onDestroy() {
         super.onDestroy()
         com.olegskal.mushroom.mushrooms.MushroomClassifierTab.isWarningDismissed = false
+        try { com.olegskal.mushroom.address.AddressDb.closeDatabase() } catch (_: Throwable) {}
+        try { com.olegskal.mushroom.mushrooms.MushroomDatabaseManager.closeDatabase() } catch (_: Throwable) {}
+        try { com.olegskal.mushroom.map.PoiManager.close() } catch (_: Throwable) {}
     }
 
     override fun onSensorChanged(event: SensorEvent?) {

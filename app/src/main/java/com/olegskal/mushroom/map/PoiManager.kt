@@ -231,6 +231,14 @@ object PoiManager {
         }
     }
 
+    fun close() {
+        val oldManagers = openManagers
+        openManagers = emptyList()
+        for (m in oldManagers) {
+            try { m.close() } catch (_: Throwable) {}
+        }
+    }
+
     /**
      * Точне вилучення назви POI з тегів бази даних без викривлень.
      * Якщо власна назва відсутня, повертає точний тип об'єкта (наприклад "АЗС", "Аптека", "Джерело"),

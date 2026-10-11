@@ -52,7 +52,8 @@ object AddressDownloadManager {
         if (expected <= 1) {
             return getCountryHouseCount(context, code) > 100L
         }
-        return loaded >= (expected - 2) || (loaded >= 1 && getCountryHouseCount(context, code) > 50_000L)
+        val minRequired = (expected - 1).coerceAtLeast(1)
+        return loaded >= minRequired
     }
 
     fun getCountryHouseCount(context: Context, countryCode: String): Long {

@@ -149,6 +149,20 @@ class AddressIngestor(
         val key = Pair(parentId, clean.lowercase())
         placesCache[key]?.let { return it }
 
+        try {
+            val cursor = db.rawQuery(
+                "SELECT id FROM admin_places WHERE parent_id = ? AND level = ? AND name = ? LIMIT 1;",
+                arrayOf(parentId.toString(), level.toString(), clean)
+            )
+            cursor.use {
+                if (it.moveToFirst()) {
+                    val existingId = it.getLong(0)
+                    placesCache[key] = existingId
+                    return existingId
+                }
+            }
+        } catch (_: Exception) {}
+
         val stmt = stmtInsertPlace ?: return parentId
         stmt.bindLong(1, osmId ?: 0L)
         if (parentId > 0) stmt.bindLong(2, parentId) else stmt.bindNull(2)

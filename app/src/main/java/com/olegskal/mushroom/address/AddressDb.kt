@@ -73,6 +73,22 @@ object AddressDb {
         if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses")) {
             initSchema(db)
         }
+        if (hasTable(db, "search_fts_content")) {
+            try {
+                db.execSQL("DROP TABLE IF EXISTS search_fts;")
+                createFtsTableWithFallback(db)
+                db.execSQL("""
+                    INSERT INTO search_fts (rowid, region_name, city_name, street_name)
+                    SELECT s.id, COALESCE(reg.name, ''), city.name, sn.name
+                    FROM streets s
+                    JOIN street_names sn ON s.name_id = sn.id
+                    JOIN admin_places city ON s.place_id = city.id
+                    LEFT JOIN admin_places reg ON s.region_id = reg.id;
+                """.trimIndent())
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "ensureTablesExist", false, "FTS contentless migration error: ${e.message}")
+            }
+        }
     }
 
     fun initSchema(db: SQLiteDatabase) {
@@ -106,7 +122,6 @@ object AddressDb {
 
         try {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_parent ON admin_places(parent_id);")
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_lvl_code ON admin_places(level, code);")
         } catch (_: Exception) {}
 
         try {
@@ -140,7 +155,6 @@ object AddressDb {
 
         try {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_place_id ON streets(place_id);")
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_region_id ON streets(region_id);")
         } catch (_: Exception) {}
 
         try {
@@ -171,7 +185,6 @@ object AddressDb {
             }
         }
 
-        // Create FTS5 contentless table with fallback to standard FTS5/FTS4
         createFtsTableWithFallback(db)
     }
 
@@ -179,6 +192,7 @@ object AddressDb {
         val statements = listOf(
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(region_name, city_name, street_name, content='', detail=column, columnsize=0);",
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(region_name, city_name, street_name, content='');",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, content='');",
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name);"
         )
         for (sql in statements) {
