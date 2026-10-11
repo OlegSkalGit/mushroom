@@ -23,13 +23,11 @@ class OverpassAddressClient(
             "https://lambert.openstreetmap.de/api/interpreter",
             "https://overpass-api.de/api/interpreter",
             "https://z.overpass-api.de/api/interpreter",
-            "https://lz4.overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter"
+            "https://lz4.overpass-api.de/api/interpreter"
         )
     }
 
     private val pool = Executors.newFixedThreadPool(DEFAULT_MIRRORS.size)
-    private val failedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     data class MirrorRank(
         val mirror: String,
@@ -38,10 +36,6 @@ class OverpassAddressClient(
     )
 
     private fun checkMirrorStatus(mirror: String): MirrorRank {
-        val now = System.currentTimeMillis()
-        if ((failedUntil[mirror] ?: 0L) > now) {
-            return MirrorRank(mirror, 9999, 0)
-        }
         val statusUrl = mirror.replace("/interpreter", "/status")
         return try {
             val conn = (URL(statusUrl).openConnection() as HttpURLConnection).apply {
@@ -84,7 +78,6 @@ class OverpassAddressClient(
 
         val alive = results.filter { it.effectiveWaitSec < 9999 }.sortedBy { it.effectiveWaitSec }
         if (alive.isNotEmpty()) return alive
-        failedUntil.clear()
         return mirrors.map { MirrorRank(it, 0, 1) }
     }
 
@@ -127,7 +120,7 @@ class OverpassAddressClient(
             val (bestMirror, minWait, avail) = ranked.first()
             if (avail == 0 && minWait > 0) {
                 val sleepSec = minOf(minWait + 2, 60)
-                logFn("  [⏳] Всі сервери зайняті. Очікуємо ${sleepSec}с на $bestMirror...")
+                AppLogger.log(TAG, "query", true, "Всі сервери зайняті. Очікуємо ${sleepSec}с на $bestMirror...")
                 if (interruptibleSleep(sleepSec * 1000L, isCancelled)) return null
             }
 
@@ -157,8 +150,7 @@ class OverpassAddressClient(
                     val stream: InputStream? = if (responseCode in 200..299) conn.inputStream else conn.errorStream
 
                     if (stream == null) {
-                        failedUntil[mirror] = System.currentTimeMillis() + 60_000L
-                        logFn("  [-] $mirror: HTTP $responseCode — з'єднання скинуто/без тіла. Наступне дзеркало...")
+                        AppLogger.log(TAG, "query", false, "$mirror: HTTP $responseCode — з'єднання скинуто/без тіла. Наступне дзеркало...")
                         interruptibleSleep(1000L, isCancelled)
                         continue
                     }
@@ -173,46 +165,48 @@ class OverpassAddressClient(
                     } else rawBytes
 
                     val text = String(decompressed, Charsets.UTF_8)
-                    if (text.isBlank()) {
-                        failedUntil[mirror] = System.currentTimeMillis() + 60_000L
-                        logFn("  [-] $mirror: HTTP $responseCode — порожня відповідь. Спробуємо інше...")
-                        interruptibleSleep(1000L, isCancelled)
-                        continue
-                    }
-
                     val textLow = text.lowercase()
-                    if (textLow.contains("waiting for slot") || textLow.contains("slot available")) {
-                        failedUntil[mirror] = System.currentTimeMillis() + 20_000L
-                        logFn("  [⏳] $mirror: Слот зайнято. Перевіряємо інше дзеркало...")
+
+                    if (text.isBlank()) {
+                        AppLogger.log(TAG, "query", false, "$mirror: HTTP $responseCode — порожня відповідь. Спробуємо інше...")
                         interruptibleSleep(1000L, isCancelled)
                         continue
                     }
 
-                    if (textLow.contains("<html") || textLow.contains("runtime error") || responseCode >= 400) {
-                        if (textLow.contains("out of memory")) {
-                            val (escalated, memStr) = escalateQueryMemory(activeQuery)
-                            if (escalated != null) {
-                                logFn("  [⚠️] $mirror: Out of memory. Ескалація ліміту RAM до $memStr [maxsize]...")
-                                activeQuery = escalated
-                                interruptibleSleep(2000L, isCancelled)
-                                return query(activeQuery, maxOf(timeoutSec, 300), logFn, isCancelled, maxCycles)
-                            }
+                    if (textLow.contains("out of memory")) {
+                        val (escalated, memStr) = escalateQueryMemory(activeQuery)
+                        if (escalated != null) {
+                            AppLogger.log(TAG, "query", true, "$mirror: Out of memory. Ескалація ліміту RAM до $memStr [maxsize]...")
+                            activeQuery = escalated
+                            interruptibleSleep(2000L, isCancelled)
+                            return query(activeQuery, maxOf(timeoutSec, 300), logFn, isCancelled, maxCycles)
                         }
+                    }
 
-                        failedUntil[mirror] = System.currentTimeMillis() + 60_000L
-                        val reason = if (responseCode == 504) "504 Gateway Timeout" else if (responseCode == 429) "429 Rate Limit" else "HTTP $responseCode"
-                        logFn("  [⏳] $mirror: $reason. Пробуємо наступне дзеркало...")
-                        interruptibleSleep(1000L, isCancelled)
+                    if (responseCode == 429 || textLow.contains("waiting for slot") || textLow.contains("slot available") || textLow.contains("rate_limited")) {
+                        AppLogger.log(TAG, "query", true, "$mirror: HTTP $responseCode — слот зайнято. Пересканування статусів...")
+                        break
+                    }
+
+                    if (responseCode == 504) {
+                        AppLogger.log(TAG, "query", false, "$mirror: HTTP 504 Gateway Timeout. Пауза 8с та пересканування...")
+                        interruptibleSleep(8000L, isCancelled)
+                        break
+                    }
+
+                    if (responseCode !in 200..299 || textLow.contains("<html") || textLow.contains("runtime error")) {
+                        AppLogger.log(TAG, "query", false, "$mirror: HTTP $responseCode помилка. Наступне дзеркало...")
+                        val sleepMs = if (responseCode == 500) 500L else 1500L
+                        interruptibleSleep(sleepMs, isCancelled)
                         continue
                     }
 
-                    logFn("  [+] $mirror: HTTP $responseCode OK — отримано ${text.lines().size} рядків (слотів: $freeSlots)")
+                    AppLogger.log(TAG, "query", true, "$mirror: HTTP $responseCode OK — отримано ${text.lines().size} рядків (слотів: $freeSlots)")
                     return text
 
                 } catch (e: Exception) {
-                    failedUntil[mirror] = System.currentTimeMillis() + 60_000L
                     AppLogger.log(TAG, "query", false, "Connection error to $mirror: ${e.message}")
-                    interruptibleSleep(1000L, isCancelled)
+                    interruptibleSleep(1500L, isCancelled)
                     continue
                 } finally {
                     conn?.disconnect()

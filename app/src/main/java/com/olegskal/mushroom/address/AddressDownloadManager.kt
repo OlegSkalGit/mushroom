@@ -46,12 +46,16 @@ object AddressDownloadManager {
 
     fun hasAddressesForCountry(context: Context, countryCode: String): Boolean {
         if (AddressDb.openDatabase(context, writable = false) == null) return false
-        val expected = getCountryRegionCount(countryCode)
-        val loaded = getLoadedRegionCount(context, countryCode)
-        if (expected <= 1) {
-            return getCountryHouseCount(context, countryCode) > 100L
+        val code = countryCode.uppercase()
+        val expected = getCountryRegionCount(code)
+        val loaded = getLoadedRegionCount(context, code)
+        if (code == "UA") {
+            return loaded >= 24 || getCountryHouseCount(context, code) > 50_000L
         }
-        return loaded >= expected
+        if (expected <= 1) {
+            return getCountryHouseCount(context, code) > 100L
+        }
+        return loaded >= (expected - 2)
     }
 
     fun getCountryHouseCount(context: Context, countryCode: String): Long {
@@ -61,7 +65,7 @@ object AddressDownloadManager {
                 SELECT count(*) FROM houses h
                 JOIN streets s ON h.street_id = s.id
                 JOIN admin_places ap ON s.country_id = ap.id
-                WHERE ap.level = 2 AND ap.code = ?;
+                WHERE ap.level = 2 AND (ap.code = ? OR ap.code IS NULL OR ap.code = '');
             """.trimIndent(), arrayOf(countryCode.uppercase()))
             cursor.use {
                 if (it.moveToFirst()) it.getLong(0) else 0L
@@ -158,11 +162,22 @@ object AddressDownloadManager {
             return cached
         }
 
-        // 1. Перевірка збережених регіонів у SQLite (миттєво 0 мс при перезапуску додатку)
+        // 1. Для України — миттєвий фіксований перелік 27 регіонів (0 мс, жодного зайвого мережевого запиту)
+        if (code == "UA") {
+            val uaList = UKRAINE_REGIONS.map { RegionTarget(it.first, it.second) }
+            cachedRegionCounts["UA"] = uaList.size
+            cachedRegions["UA"] = uaList
+            if (db != null && countryId != null) {
+                saveRegionsToDb(db, countryId, uaList)
+            }
+            logFn("[+] Структура 27 регіонів України готова")
+            return uaList
+        }
+
+        // 2. Перевірка збережених регіонів у SQLite (миттєво 0 мс при перезапуску додатку)
         if (db != null && countryId != null) {
             val dbRegions = loadCachedRegionsFromDb(db, countryId)
-            val minExpected = if (code == "UA") 25 else 2
-            if (dbRegions.size >= minExpected) {
+            if (dbRegions.size >= 2) {
                 cachedRegionCounts[code] = dbRegions.size
                 cachedRegions[code] = dbRegions
                 logFn("[+] Завантажено ${dbRegions.size} регіонів зі збереженої бази даних")
@@ -175,36 +190,25 @@ object AddressDownloadManager {
         for (pass in 1..maxPasses) {
             if (isCancelled()) return emptyList()
 
-            logFn("Опитування 6 дзеркал Overpass для ${country.nameUk} (прохід $pass/$maxPasses)...")
+            logFn("Швидкий запит списку регіонів (admin_level=4) для ${country.nameUk} (прохід $pass/$maxPasses)...")
 
-            // Стратегія 1: Швидкий запит за ISO3166-2 (миттєвий для більшості країн)
+            // Стратегія 1: Швидкий запит за ISO3166-2 (за алгоритмом скрипта)
             val q1 = """
-                [out:csv(::id, "name:uk", "name", "name:en"; false; ";")][timeout:45];
+                [out:csv(::id, "name:uk", "name", "name:en"; false; ";")][timeout:30];
                 relation["admin_level"="4"]["ISO3166-2"~"^$code"];
                 out tags;
             """.trimIndent()
-            var raw = client.query(q1, timeoutSec = 50, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
+            var raw = client.query(q1, timeoutSec = 35, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
 
-            // Стратегія 2: Запит через межі країни area (admin_level=4)
+            // Стратегія 2: Резервний запит через межі країни (за алгоритмом скрипта)
             if (raw.isNullOrBlank() && !isCancelled()) {
                 val q2 = """
-                    [out:csv(::id, "name:uk", "name", "name:en"; false; ";")][timeout:60];
+                    [out:csv(::id, "name:uk", "name", "name:en"; false; ";")][timeout:45];
                     area["ISO3166-1"="$code"][admin_level=2]->.c;
                     rel(area.c)["admin_level"="4"];
                     out tags;
                 """.trimIndent()
-                raw = client.query(q2, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
-            }
-
-            // Стратегія 3: Альтернативні рівні admin_level 3, 5, 6
-            if (raw.isNullOrBlank() && !isCancelled()) {
-                val q3 = """
-                    [out:csv(::id, "name:uk", "name", "name:en"; false; ";")][timeout:60];
-                    area["ISO3166-1"="$code"][admin_level=2]->.c;
-                    rel(area.c)["admin_level"~"3|5|6"];
-                    out tags;
-                """.trimIndent()
-                raw = client.query(q3, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
+                raw = client.query(q2, timeoutSec = 50, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
             }
 
             if (!raw.isNullOrBlank()) {
@@ -241,53 +245,12 @@ object AddressDownloadManager {
             }
         }
 
-        // Резервний перелік для України (якщо всі Overpass запити зазнали збою через ліміти/мережу)
-        if (code == "UA" && regions.size < 25) {
-            logFn("[i] Резерв: завантажено структуру 27 регіонів України")
-            val uaList = UKRAINE_REGIONS.map { RegionTarget(it.first, it.second) }
-            cachedRegionCounts["UA"] = uaList.size
-            cachedRegions["UA"] = uaList
-            if (db != null && countryId != null) {
-                saveRegionsToDb(db, countryId, uaList)
-            }
-            return uaList
-        }
-
-        val dLat = country.maxLat - country.minLat
-        val dLon = country.maxLon - country.minLon
-
-        // Для компактних країн / мікродержав (розмір <= 1.5 град) використовуємо один сектор
-        if (dLat <= 1.5 && dLon <= 1.5) {
-            val single = listOf(RegionTarget(0L, country.nameUk, country.minLat, country.minLon, country.maxLat, country.maxLon))
-            cachedRegionCounts[code] = 1
-            cachedRegions[code] = single
-            logFn("[i] Компактна країна, створено єдиний географічний сектор")
-            return single
-        }
-
-        // Універсальний геометричний поділ на сітку секторів для будь-якої іншої країни
-        val sectors = mutableListOf<RegionTarget>()
-        val latStep = 1.5
-        val lonStep = 2.0
-        var sLat = country.minLat
-        var secIdx = 1
-        while (sLat < country.maxLat) {
-            val nLat = minOf(sLat + latStep, country.maxLat)
-            var wLon = country.minLon
-            while (wLon < country.maxLon) {
-                val eLon = minOf(wLon + lonStep, country.maxLon)
-                val secName = "Сектор $secIdx (${String.format(java.util.Locale.US, "%.1f..%.1f, %.1f..%.1f", sLat, nLat, wLon, eLon)})"
-                sectors.add(RegionTarget(-secIdx.toLong(), secName, sLat, wLon, nLat, eLon))
-                secIdx++
-                wLon = eLon
-            }
-            sLat = nLat
-        }
-
-        cachedRegionCounts[code] = sectors.size
-        cachedRegions[code] = sectors
-        logFn("[i] Сформовано універсальну сітку: ${sectors.size} географічних секторів для ${country.nameUk}")
-        return sectors
+        // Резервний варіант за алгоритмом скрипта: вся країна в один прохід
+        val fallback = listOf(RegionTarget(0L, country.nameUk))
+        cachedRegionCounts[code] = 1
+        cachedRegions[code] = fallback
+        logFn("[i] Окремі регіони admin_level=4 не знайдені. Завантаження країни ${country.nameUk} цілком...")
+        return fallback
     }
 
     fun getCountryRegionCount(countryCode: String): Int {
@@ -548,12 +511,11 @@ object AddressDownloadManager {
         val ingestor = AddressIngestor(db, country.code, country.nameUk)
 
         try {
-            onProgress(0.02, "${country.nameUk}: Опитування 6 дзеркал Overpass та пошук регіонів...")
+            onProgress(0.02, "${country.nameUk}: Пошук регіонів...")
 
             val regions = fetchOverpassRegions(
                 country = country,
                 logFn = { detail ->
-                    onProgress(0.04, "${country.nameUk}: $detail")
                     AppLogger.log(TAG, "fetchRegions", true, detail)
                 },
                 isCancelled = isCancelled,
@@ -623,16 +585,16 @@ object AddressDownloadManager {
                     val statusMsg = "${country.nameUk} ($totalRegions регіонів) • Регіон $idx/$totalRegions: ${region.name}"
 
                     if (pass == 1 && isRegionAlreadyLoaded(region)) {
-                        val skipMsg = "$statusMsg [готово]"
-                        onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, skipMsg)
+                        onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, statusMsg)
                         AppLogger.log(TAG, "ingest", true, "Регіон $idx/$totalRegions (${region.name}) вже завантажено в базі, миттєво пропускаємо")
                         continue
                     }
 
+                    val curRatio = (idx.toDouble() / totalRegions.toDouble()) * 0.85
+                    onProgress(curRatio, statusMsg)
+
                     val logCallback: (String) -> Unit = { detail ->
                         AppLogger.log(TAG, "fetchAddressData", true, "$statusMsg • $detail")
-                        val curRatio = (idx.toDouble() / totalRegions.toDouble()) * 0.85
-                        onProgress(curRatio, "$statusMsg • $detail")
                     }
 
                     val assocStreets = fetchAssociatedStreets(region, country.code, logCallback, isCancelled)
