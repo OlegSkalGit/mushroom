@@ -231,14 +231,16 @@ object RegionDownloadDialog {
             }
         }
 
-        android.app.AlertDialog.Builder(activity)
-            .setTitle(title)
-            .setMessage(msg)
-            .setPositiveButton(actionBtn) { _, _ ->
-                onDownloadStarted()
-                InitialSetupDialog.startCountryDownload(activity, country)
-            }
-            .setNegativeButton(if (isUk) "Скасувати" else "Cancel", null)
-            .show()
+        if (!activity.isFinishing && !activity.isDestroyed) {
+            android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(title)
+                .setMessage(msg)
+                .setPositiveButton(actionBtn) { _, _ ->
+                    onDownloadStarted()
+                    InitialSetupDialog.startCountryDownload(activity, country)
+                }
+                .setNegativeButton(if (isUk) "Скасувати" else "Cancel", null)
+                .show()
+        }
     }
 }

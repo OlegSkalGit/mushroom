@@ -410,23 +410,45 @@ object InitialSetupDialog {
         }
 
         btnDownload.setOnClickListener {
-            if (currentItems.isEmpty()) return@setOnClickListener
+            try {
+                if (currentItems.isEmpty()) return@setOnClickListener
 
-            val itemsToProcess = ArrayList(currentItems)
-            dialog.dismiss() // Стартовий екран закривається негайно
+                val itemsToProcess = ArrayList(currentItems)
+                val totalExpectedBytes = itemsToProcess.sumOf { it.expectedBytes }.coerceAtLeast(1L)
 
-            val totalExpectedBytes = itemsToProcess.sumOf { it.expectedBytes }.coerceAtLeast(1L)
-            checkDiskSpace(activity, totalExpectedBytes + 150_000_000L) {
-                checkNetworkAndConfirm(activity, totalExpectedBytes) {
-                    isDownloadRunning.set(true)
-                    val mapActivity = activity as? MushroomMapActivity
-                    mapActivity?.updateMapDownloadBanner()
-                    mapActivity?.updateBottomDownloadProgress(true, 0, 1000)
+                checkDiskSpace(activity, totalExpectedBytes + 150_000_000L) {
+                    checkNetworkAndConfirm(activity, totalExpectedBytes) {
+                        try {
+                            if (dialog.isShowing) {
+                                dialog.dismiss() // Закриваємо тільки після підтвердження завантаження
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.log(TAG, "btnDownload", false, "Error dismissing dialog: ${e.message}")
+                        }
 
-                    bgExecutor.execute {
-                        executeDownloadPipeline(activity, selectedCountry, itemsToProcess, onFinished)
+                        isDownloadRunning.set(true)
+                        val mapActivity = activity as? MushroomMapActivity
+                        mapActivity?.updateMapDownloadBanner()
+                        mapActivity?.updateBottomDownloadProgress(true, 0, 1000)
+
+                        bgExecutor.execute {
+                            try {
+                                executeDownloadPipeline(activity, selectedCountry, itemsToProcess, onFinished)
+                            } catch (e: Throwable) {
+                                AppLogger.log(TAG, "executeDownloadPipeline", false, "Crash in download pipeline: ${e.message}\n${e.stackTraceToString()}")
+                                activity.runOnUiThread {
+                                    if (!activity.isFinishing && !activity.isDestroyed) {
+                                        val errText = if (isUk) "Помилка завантаження: ${e.message}" else "Download error: ${e.message}"
+                                        Toast.makeText(activity, errText, Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+            } catch (e: Throwable) {
+                AppLogger.log(TAG, "btnDownload.onClick", false, "Error in btnDownload: ${e.message}\n${e.stackTraceToString()}")
+                Toast.makeText(activity, "Помилка: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -636,7 +658,7 @@ object InitialSetupDialog {
         country: MapCountry,
         onFinished: () -> Unit = {}
     ) {
-        if (activity.isFinishing || isDownloadRunning.get()) return
+        if (activity.isFinishing || activity.isDestroyed || isDownloadRunning.get()) return
 
         val items = scanItemsForCountry(activity, country)
         val isUk = AppPrefs.isUk(activity)
@@ -658,7 +680,17 @@ object InitialSetupDialog {
                 mapActivity?.updateBottomDownloadProgress(true, 0, 1000)
 
                 bgExecutor.execute {
-                    executeDownloadPipeline(activity, country, items, onFinished)
+                    try {
+                        executeDownloadPipeline(activity, country, items, onFinished)
+                    } catch (e: Throwable) {
+                        AppLogger.log(TAG, "startCountryDownload", false, "Crash in pipeline: ${e.message}\n${e.stackTraceToString()}")
+                        activity.runOnUiThread {
+                            if (!activity.isFinishing && !activity.isDestroyed) {
+                                val errText = if (isUk) "Помилка завантаження: ${e.message}" else "Download error: ${e.message}"
+                                Toast.makeText(activity, errText, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -666,7 +698,14 @@ object InitialSetupDialog {
 
     fun checkDiskSpace(activity: Activity, requiredBytes: Long, onProceed: () -> Unit) {
         try {
-            val stat = StatFs(MushroomStorageManager.mapsDir.absolutePath)
+            val checkPath = if (MushroomStorageManager.mapsDir.exists()) {
+                MushroomStorageManager.mapsDir.absolutePath
+            } else if (MushroomStorageManager.baseDir.exists()) {
+                MushroomStorageManager.baseDir.absolutePath
+            } else {
+                activity.filesDir.absolutePath
+            }
+            val stat = StatFs(checkPath)
             val availableBytes = stat.availableBlocksLong * stat.blockSizeLong
             if (availableBytes < requiredBytes) {
                 val isUk = AppPrefs.isUk(activity)
@@ -679,11 +718,13 @@ object InitialSetupDialog {
                     "At least ~$reqMb MB of free storage is required to download and unpack components.\nAvailable: ~$availMb MB.\nPlease free up storage space before downloading."
                 }
                 activity.runOnUiThread {
-                    android.app.AlertDialog.Builder(activity)
-                        .setTitle(title)
-                        .setMessage(msg)
-                        .setPositiveButton("OK", null)
-                        .show()
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                            .setTitle(title)
+                            .setMessage(msg)
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
                 }
                 return
             }
@@ -706,14 +747,16 @@ object InitialSetupDialog {
                 "You are using a mobile or metered network connection.\nDownload size: ~$totalMb MB.\nContinue download or wait for Wi-Fi?"
             }
             activity.runOnUiThread {
-                android.app.AlertDialog.Builder(activity)
-                    .setTitle(title)
-                    .setMessage(msg)
-                    .setPositiveButton(if (isUk) "Продовжити" else "Continue") { _, _ ->
-                        onProceed()
-                    }
-                    .setNegativeButton(if (isUk) "Скасувати" else "Cancel", null)
-                    .show()
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle(title)
+                        .setMessage(msg)
+                        .setPositiveButton(if (isUk) "Продовжити" else "Continue") { _, _ ->
+                            onProceed()
+                        }
+                        .setNegativeButton(if (isUk) "Скасувати" else "Cancel", null)
+                        .show()
+                }
             }
         } else {
             onProceed()
@@ -726,16 +769,21 @@ object InitialSetupDialog {
         itemsToProcess: List<UpdateItem>,
         onFinished: () -> Unit
     ) {
-        val pm = activity.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mushroom:ComponentDownloadWakeLock")?.apply {
-            acquire(60 * 60 * 1000L)
-        }
-
+        var wakeLock: PowerManager.WakeLock? = null
         val mapActivity = activity as? MushroomMapActivity
         val isUk = AppPrefs.isUk(activity)
         val cancelFlag = AtomicBoolean(false)
 
         try {
+            try {
+                val pm = activity.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mushroom:ComponentDownloadWakeLock")?.apply {
+                    try { acquire(60 * 60 * 1000L) } catch (_: Exception) {}
+                }
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "executeDownloadPipeline", false, "WakeLock init warning: ${e.message}")
+            }
+
             val hasAppOnly = itemsToProcess.any { it.block == BlockType.APP }
             if (hasAppOnly) {
                 val apkItem = itemsToProcess.first()
@@ -812,24 +860,27 @@ object InitialSetupDialog {
                 for (i in preItems.indices) {
                     val itm = preItems[i]
                     val span = if (i == preItems.lastIndex) {
-                        preUnits - cur
+                        (preUnits - cur).coerceAtLeast(1)
                     } else {
                         ((itm.expectedBytes.toDouble() / preExpected.toDouble()) * preUnits).toInt().coerceAtLeast(1)
                     }
-                    val nxt = (cur + span).coerceAtMost(preUnits)
+                    val nxt = (cur + span).coerceAtMost(preUnits).coerceAtLeast(cur)
                     itemRanges[itm.id] = cur to nxt
                     cur = nxt
                 }
 
                 // addrItem займає РІВНО 500 одиниць (50% шкали!): [preUnits .. preUnits + 500]
                 val addrStart = preUnits
-                val addrEnd = preUnits + 500
+                val addrEnd = (preUnits + 500).coerceAtMost(1000)
                 itemRanges[addrItem.id] = addrStart to addrEnd
 
                 // postItems + розпакування займають [addrEnd .. 1000]
-                val remainingUnits = 1000 - addrEnd
-                val unpackUnits = if (hasUnpack) (if (postItems.isEmpty()) remainingUnits else (remainingUnits * 0.35).toInt().coerceAtLeast(40)) else 0
-                val postDownloadUnits = remainingUnits - unpackUnits
+                val remainingUnits = (1000 - addrEnd).coerceAtLeast(0)
+                val unpackUnits = if (hasUnpack) {
+                    if (postItems.isEmpty()) remainingUnits
+                    else (remainingUnits * 0.35).toInt().coerceIn(10, remainingUnits.coerceAtLeast(10))
+                } else 0
+                val postDownloadUnits = (remainingUnits - unpackUnits).coerceAtLeast(0)
 
                 cur = addrEnd
                 if (postItems.isNotEmpty()) {
@@ -837,11 +888,11 @@ object InitialSetupDialog {
                     for (i in postItems.indices) {
                         val itm = postItems[i]
                         val span = if (i == postItems.lastIndex) {
-                            (addrEnd + postDownloadUnits) - cur
+                            ((addrEnd + postDownloadUnits) - cur).coerceAtLeast(1)
                         } else {
                             ((itm.expectedBytes.toDouble() / postSum.toDouble()) * postDownloadUnits).toInt().coerceAtLeast(1)
                         }
-                        val nxt = (cur + span).coerceAtMost(addrEnd + postDownloadUnits)
+                        val nxt = (cur + span).coerceAtMost(addrEnd + postDownloadUnits).coerceAtLeast(cur)
                         itemRanges[itm.id] = cur to nxt
                         cur = nxt
                     }
@@ -849,8 +900,9 @@ object InitialSetupDialog {
 
                 if (willUnpackDb && willUnpackModel) {
                     val halfUnpack = unpackUnits / 2
-                    unpackDbRange = cur to (cur + halfUnpack)
-                    unpackModelRange = (cur + halfUnpack) to 1000
+                    val mid = (cur + halfUnpack).coerceAtMost(1000).coerceAtLeast(cur)
+                    unpackDbRange = cur to mid
+                    unpackModelRange = mid to 1000
                 } else if (willUnpackDb) {
                     unpackDbRange = cur to 1000
                 } else if (willUnpackModel) {
@@ -1000,22 +1052,34 @@ object InitialSetupDialog {
             }
 
             activity.runOnUiThread {
-                OsmTileEngine.reloadMaps()
-                PoiManager.refreshPoiFiles()
-                mapActivity?.updateMapDownloadBanner()
-                onFinished()
-                val toastMsg = if (isUk) "✓ Завантаження компонентів завершено" else "✓ Components download finished"
-                Toast.makeText(activity, toastMsg, Toast.LENGTH_SHORT).show()
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    OsmTileEngine.reloadMaps()
+                    PoiManager.refreshPoiFiles()
+                    mapActivity?.updateMapDownloadBanner()
+                    onFinished()
+                    val toastMsg = if (isUk) "✓ Завантаження компонентів завершено" else "✓ Components download finished"
+                    Toast.makeText(activity, toastMsg, Toast.LENGTH_SHORT).show()
+                }
             }
 
+        } catch (e: Throwable) {
+            AppLogger.log(TAG, "executeDownloadPipeline", false, "Error during pipeline execution: ${e.message}\n${e.stackTraceToString()}")
+            activity.runOnUiThread {
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    val errText = if (isUk) "Помилка завантаження: ${e.message}" else "Download error: ${e.message}"
+                    Toast.makeText(activity, errText, Toast.LENGTH_LONG).show()
+                }
+            }
         } finally {
             isDownloadRunning.set(false)
             if (wakeLock?.isHeld == true) {
                 try { wakeLock.release() } catch (_: Exception) {}
             }
             activity.runOnUiThread {
-                mapActivity?.updateBottomDownloadProgress(false)
-                mapActivity?.updateMapDownloadBanner()
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    mapActivity?.updateBottomDownloadProgress(false)
+                    mapActivity?.updateMapDownloadBanner()
+                }
             }
         }
     }
@@ -1029,13 +1093,14 @@ object InitialSetupDialog {
         isCancelled: () -> Boolean,
         allowHttpErrors: Boolean = false
     ): Boolean {
-        destFile.parentFile?.mkdirs()
+        val parentDir = destFile.parentFile ?: File(destFile.absolutePath).parentFile ?: File(".")
+        try { parentDir.mkdirs() } catch (_: Exception) {}
         if (destFile.exists() && expectedSize > 0L && destFile.length() == expectedSize) {
             onSizeDiscovered(expectedSize)
             return true
         }
 
-        val partFile = File(destFile.parentFile, "${destFile.name}.part")
+        val partFile = File(parentDir, "${destFile.name}.part")
         var attempts = 0
 
         while (attempts < 3) {

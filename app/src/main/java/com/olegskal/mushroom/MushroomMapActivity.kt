@@ -913,43 +913,45 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     }
 
     fun updateMapDownloadBanner() {
-        if (!::btnDownloadMapBanner.isInitialized) return
-        if (InitialSetupDialog.isDownloading() || MapDownloadManager.isCurrentlyDownloading()) {
-            btnDownloadMapBanner.visibility = View.GONE
-            return
-        }
-        val country = MapDownloadManager.findCountryForLocation(mapView.mapCenterLat, mapView.mapCenterLon)
-        if (country == null) {
-            btnDownloadMapBanner.visibility = View.GONE
-            return
-        }
-        val status = MapDownloadManager.getCountryStatus(country)
-        val isUk = AppPrefs.isUk(this)
-        val countryName = if (isUk) country.nameUk else country.name
-        when (status) {
-            CountryStatus.READY -> {
+        runOnUiThread {
+            if (!::btnDownloadMapBanner.isInitialized) return@runOnUiThread
+            if (InitialSetupDialog.isDownloading() || MapDownloadManager.isCurrentlyDownloading()) {
                 btnDownloadMapBanner.visibility = View.GONE
-                MapDownloadManager.checkCountryUpdatesAsync(country) { hasUpdate ->
-                    if (hasUpdate) {
-                        runOnUiThread {
-                            if (::btnDownloadMapBanner.isInitialized) {
-                                btnDownloadMapBanner.visibility = View.VISIBLE
-                                btnDownloadMapBanner.text = if (isUk) "🔄 Оновити карту ($countryName)" else "🔄 Update map ($countryName)"
-                                btnDownloadMapBanner.setBackgroundColor(Color.parseColor("#D97706"))
+                return@runOnUiThread
+            }
+            val country = MapDownloadManager.findCountryForLocation(mapView.mapCenterLat, mapView.mapCenterLon)
+            if (country == null) {
+                btnDownloadMapBanner.visibility = View.GONE
+                return@runOnUiThread
+            }
+            val status = MapDownloadManager.getCountryStatus(country)
+            val isUk = AppPrefs.isUk(this)
+            val countryName = if (isUk) country.nameUk else country.name
+            when (status) {
+                CountryStatus.READY -> {
+                    btnDownloadMapBanner.visibility = View.GONE
+                    MapDownloadManager.checkCountryUpdatesAsync(country) { hasUpdate ->
+                        if (hasUpdate) {
+                            runOnUiThread {
+                                if (::btnDownloadMapBanner.isInitialized) {
+                                    btnDownloadMapBanner.visibility = View.VISIBLE
+                                    btnDownloadMapBanner.text = if (isUk) "🔄 Оновити карту ($countryName)" else "🔄 Update map ($countryName)"
+                                    btnDownloadMapBanner.setBackgroundColor(Color.parseColor("#D97706"))
+                                }
                             }
                         }
                     }
                 }
-            }
-            CountryStatus.NEEDS_UPDATE -> {
-                btnDownloadMapBanner.visibility = View.VISIBLE
-                btnDownloadMapBanner.text = if (isUk) "🔄 Оновити карту ($countryName)" else "🔄 Update map ($countryName)"
-                btnDownloadMapBanner.setBackgroundColor(Color.parseColor("#D97706"))
-            }
-            CountryStatus.NOT_DOWNLOADED, CountryStatus.INCOMPLETE -> {
-                btnDownloadMapBanner.visibility = View.VISIBLE
-                btnDownloadMapBanner.text = if (isUk) "⬇️ Завантажити карту ($countryName)" else "⬇️ Download map ($countryName)"
-                btnDownloadMapBanner.setBackgroundColor(Color.parseColor("#059669"))
+                CountryStatus.NEEDS_UPDATE -> {
+                    btnDownloadMapBanner.visibility = View.VISIBLE
+                    btnDownloadMapBanner.text = if (isUk) "🔄 Оновити карту ($countryName)" else "🔄 Update map ($countryName)"
+                    btnDownloadMapBanner.setBackgroundColor(Color.parseColor("#D97706"))
+                }
+                CountryStatus.NOT_DOWNLOADED, CountryStatus.INCOMPLETE -> {
+                    btnDownloadMapBanner.visibility = View.VISIBLE
+                    btnDownloadMapBanner.text = if (isUk) "⬇️ Завантажити карту ($countryName)" else "⬇️ Download map ($countryName)"
+                    btnDownloadMapBanner.setBackgroundColor(Color.parseColor("#059669"))
+                }
             }
         }
     }
