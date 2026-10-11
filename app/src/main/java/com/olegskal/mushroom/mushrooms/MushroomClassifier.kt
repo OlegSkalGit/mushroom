@@ -384,18 +384,21 @@ class MushroomClassifier(private val context: Context) {
         MycoKnowledge.init(context)
     }
 
-    private fun loadClasses() {
-        if (classes.isNotEmpty()) return
+    fun loadClasses(force: Boolean = false) {
+        if (classes.isNotEmpty() && !force) return
         try {
-            context.assets.open("classes.json").bufferedReader(Charsets.UTF_8).use { reader ->
-                val jsonStr = reader.readText()
-                val arr = JSONArray(jsonStr)
-                val list = ArrayList<String>(arr.length())
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    list.add(obj.optString("species", "Невідомий вид"))
+            val file = getRequiredFile(context, "classes.json")
+            if (file.exists() && file.length() > 0) {
+                file.bufferedReader(Charsets.UTF_8).use { reader ->
+                    val jsonStr = reader.readText()
+                    val arr = JSONArray(jsonStr)
+                    val list = ArrayList<String>(arr.length())
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(obj.optString("species", "Невідомий вид"))
+                    }
+                    classes = list
                 }
-                classes = list
             }
         } catch (e: Exception) {
             e.printStackTrace()

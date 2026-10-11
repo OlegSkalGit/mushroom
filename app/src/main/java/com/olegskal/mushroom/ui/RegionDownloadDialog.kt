@@ -16,8 +16,10 @@ import java.util.Locale
 object RegionDownloadDialog {
 
     fun show(activity: Activity, onDownloadStarted: () -> Unit = {}) {
-        if (MapDownloadManager.isCurrentlyDownloading()) {
-            showActiveDownloadProgress(activity)
+        if (InitialSetupDialog.isDownloading() || MapDownloadManager.isCurrentlyDownloading()) {
+            val isUk = AppPrefs.isUk(activity)
+            val msg = if (isUk) "Завантаження компонентів уже виконується..." else "Component download is already running..."
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
             return
         }
         showCountrySelection(activity, onDownloadStarted)
@@ -163,8 +165,10 @@ object RegionDownloadDialog {
         country: MapCountry,
         onDownloadStarted: () -> Unit = {}
     ) {
-        if (MapDownloadManager.isCurrentlyDownloading()) {
-            showActiveDownloadProgress(activity)
+        if (InitialSetupDialog.isDownloading() || MapDownloadManager.isCurrentlyDownloading()) {
+            val isUk = AppPrefs.isUk(activity)
+            val msg = if (isUk) "Завантаження компонентів уже виконується..." else "Component download is already running..."
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
             return
         }
         val isUk = AppPrefs.isUk(activity)
@@ -172,13 +176,14 @@ object RegionDownloadDialog {
         val isUpdate = (status == CountryStatus.NEEDS_UPDATE)
         val segments = country.getRd5Segments()
         val needsWorldMap = !MapDownloadManager.isWorldMapReady()
-        val totalFiles = 2 + segments.size + (if (needsWorldMap) 1 else 0)
+        val regCount = InitialSetupDialog.getCountryRegionCount(country)
+        val regSuffix = if (isUk) "$regCount регіонів" else "$regCount regions"
 
         val displayName = if (isUk) country.nameUk else country.name
         val title = if (isUpdate) {
-            if (isUk) "Оновити карту: $displayName?" else "Update Map: ${country.name}?"
+            if (isUk) "Оновити компоненти: $displayName?" else "Update components: ${country.name}?"
         } else {
-            if (isUk) "Завантажити карту: $displayName?" else "Download Map: ${country.name}?"
+            if (isUk) "Завантажити компоненти: $displayName?" else "Download components: ${country.name}?"
         }
         val worldItem = if (needsWorldMap) {
             if (isUk) "• Оглядова карта світу (world.map)\n" else "• World overview map (world.map)\n"
@@ -190,25 +195,39 @@ object RegionDownloadDialog {
         }
         val msg = if (isUpdate) {
             if (isUk) {
-                "Будуть завантажені лише змінені та відсутні файли карти ($displayName).\n\nПочати оновлення?"
+                "Будуть завантажені відсутні та оновлені компоненти для $displayName ($regSuffix):\n" +
+                worldItem +
+                "• Карта країни (.map)\n" +
+                "• Точки інтересу (.poi)\n" +
+                "• Навігаційні сегменти BRouter (${segments.size} файлів .rd5)\n" +
+                "• База адрес (addr.db, усі $regCount регіонів)\n\n" +
+                "Почати оновлення?"
             } else {
-                "Only changed and missing map files for $displayName will be downloaded.\n\nStart update?"
+                "Missing and updated components will be downloaded for $displayName ($regSuffix):\n" +
+                worldItem +
+                "• Country map (.map)\n" +
+                "• Points of Interest (.poi)\n" +
+                "• BRouter navigation segments (${segments.size} files .rd5)\n" +
+                "• Address database (addr.db, all $regCount regions)\n\n" +
+                "Start update?"
             }
         } else {
             if (isUk) {
-                "Буде завантажено:\n" +
+                "Буде завантажено для $displayName ($regSuffix):\n" +
                 worldItem +
                 "• Векторна карта (.map)\n" +
                 "• Точки інтересу (.poi)\n" +
-                "• Навігаційні сегменти BRouter (${segments.size} файлів .rd5)\n\n" +
-                "Усього файлів: $totalFiles. Почати завантаження?"
+                "• Навігаційні сегменти BRouter (${segments.size} файлів .rd5)\n" +
+                "• База адрес (addr.db, усі $regCount регіонів)\n\n" +
+                "Почати завантаження?"
             } else {
-                "Will download:\n" +
+                "Will download for $displayName ($regSuffix):\n" +
                 worldItem +
                 "• Vector map (.map)\n" +
                 "• Points of Interest (.poi)\n" +
-                "• BRouter navigation segments (${segments.size} files .rd5)\n\n" +
-                "Total files: $totalFiles. Start download?"
+                "• BRouter navigation segments (${segments.size} files .rd5)\n" +
+                "• Address database (addr.db, all $regCount regions)\n\n" +
+                "Start download?"
             }
         }
 
@@ -217,103 +236,9 @@ object RegionDownloadDialog {
             .setMessage(msg)
             .setPositiveButton(actionBtn) { _, _ ->
                 onDownloadStarted()
-                MapDownloadManager.downloadCountry(
-                    country = country,
-                    onFinished = { success, errorMsg ->
-                        activity.runOnUiThread {
-                            val resultMsg = if (success) {
-                                if (isUpdate) {
-                                    if (isUk) "Карту для $displayName успішно оновлено!" else "Map for ${country.name} updated successfully!"
-                                } else {
-                                    if (isUk) "Карту для $displayName успішно завантажено!" else "Map for ${country.name} downloaded successfully!"
-                                }
-                            } else {
-                                if (isUk) "Помилка завантаження: $errorMsg" else "Download error: $errorMsg"
-                            }
-                            Toast.makeText(activity, resultMsg, Toast.LENGTH_LONG).show()
-                        }
-                    }
-                )
-                showActiveDownloadProgress(activity)
+                InitialSetupDialog.startCountryDownload(activity, country)
             }
             .setNegativeButton(if (isUk) "Скасувати" else "Cancel", null)
             .show()
-    }
-
-    private fun showActiveDownloadProgress(activity: Activity) {
-        val isUk = AppPrefs.isUk(activity)
-        val progressDialog = Dialog(activity).apply {
-            setCancelable(false)
-        }
-
-        val container = UiUtils.createDarkDialogContainer(activity)
-
-        val titleTv = TextView(activity).apply {
-            text = if (isUk) "Завантаження карти та навігації..." else "Downloading map and navigation..."
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 12)
-        }
-
-        val statusTv = TextView(activity).apply {
-            text = if (isUk) "Підготовка до завантаження..." else "Preparing download..."
-            setTextColor(Color.LTGRAY)
-            textSize = 13f
-            setPadding(0, 0, 0, 8)
-        }
-
-        val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = false
-            max = 100
-            progress = 0
-        }
-
-        val percentTv = TextView(activity).apply {
-            text = "0%"
-            setTextColor(Color.parseColor("#4CAF50"))
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 8, 0, 16)
-        }
-
-        val btnCancel = UiUtils.createStyledButton(activity, if (isUk) "Зупинити" else "Stop") {
-            MapDownloadManager.cancelDownload()
-            progressDialog.dismiss()
-            val msg = if (isUk) "Завантаження зупинено" else "Download stopped"
-            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
-        }
-
-        container.addView(titleTv)
-        container.addView(statusTv)
-        container.addView(progressBar)
-        container.addView(percentTv)
-        container.addView(btnCancel)
-
-        progressDialog.setContentView(container)
-        progressDialog.show()
-
-        MapDownloadManager.onProgressUpdate = { p ->
-            activity.runOnUiThread {
-                if (progressDialog.isShowing) {
-                    progressBar.progress = p.percent
-                    val mbDownloaded = p.bytesDownloaded / (1024.0 * 1024.0)
-                    val mbTotal = p.totalBytes / (1024.0 * 1024.0)
-                    percentTv.text = String.format(Locale.US, "%d%% (%.1f / %.1f MB)", p.percent, mbDownloaded, mbTotal)
-                    statusTv.text = "[${p.fileIndex}/${p.totalFiles}] ${p.countryName}: ${p.currentFileName}"
-                }
-            }
-        }
-
-        val originalFinished = MapDownloadManager.onDownloadFinished
-        MapDownloadManager.onDownloadFinished = { success, msg ->
-            originalFinished?.invoke(success, msg)
-            activity.runOnUiThread {
-                if (progressDialog.isShowing) {
-                    progressDialog.dismiss()
-                }
-            }
-        }
     }
 }

@@ -44,6 +44,12 @@ object MushroomStorageManager {
     val tracksDir: File
         get() = File(baseDir, "tracks").apply { if (!exists()) mkdirs() }
 
+    val addressesDir: File
+        get() = File(baseDir, "addresses").apply { if (!exists()) mkdirs() }
+
+    val addressDbFile: File
+        get() = File(addressesDir, "addr.db")
+
     val settingsDir: File
         get() = File(baseDir, "settings").apply { if (!exists()) mkdirs() }
 
@@ -67,6 +73,7 @@ object MushroomStorageManager {
             poiDir
             markersDir
             tracksDir
+            addressesDir
             settingsDir
             ensureNoMedia(baseDir)
             AppLogger.log(TAG, "initStorage", true, "Storage structure initialized at: ${baseDir.absolutePath}")

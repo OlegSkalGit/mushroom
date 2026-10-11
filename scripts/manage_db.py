@@ -40,8 +40,13 @@ if sys.platform == "win32":
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(SCRIPT_DIR) if os.path.basename(SCRIPT_DIR) == "scripts" else SCRIPT_DIR
-DB_PATH = os.path.join(REPO_ROOT, "downloads", "mushrooms.db")
-CLASSES_JSON_PATH = os.path.join(REPO_ROOT, "app", "src", "main", "assets", "classes.json")
+_candidates = [
+    os.path.join(REPO_ROOT, "model", "classes.json"),
+    os.path.join(REPO_ROOT, "downloads", "classes.json"),
+    os.path.join(REPO_ROOT, "classes.json"),
+    os.path.join(REPO_ROOT, "app", "src", "main", "assets", "classes.json"),
+]
+CLASSES_JSON_PATH = next((p for p in _candidates if os.path.exists(p)), _candidates[0])
 CONFIG_KT_PATH = os.path.join(REPO_ROOT, "app", "src", "main", "java", "com", "olegskal", "mushroom", "mushrooms", "MushroomDataConfig.kt")
 VOLUME_SIZE_BYTES = 70000000
 NEW_ENRICHMENT_EPOCH = 1791100000  # Мітка часу впровадження нового детального парсера (04.10.2026)

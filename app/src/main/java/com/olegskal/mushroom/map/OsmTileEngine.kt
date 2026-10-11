@@ -18,7 +18,8 @@ import org.mapsforge.map.datastore.MapReadResult
 import org.mapsforge.map.datastore.PointOfInterest
 import org.mapsforge.map.layer.renderer.PolylineContainer
 import org.mapsforge.map.rendertheme.RenderContext
-import org.mapsforge.map.rendertheme.internal.MapsforgeThemes
+import org.mapsforge.map.rendertheme.XmlRenderTheme
+import org.mapsforge.map.android.rendertheme.AssetsRenderTheme
 import org.mapsforge.core.graphics.Display
 import org.mapsforge.core.graphics.Position
 import org.mapsforge.core.model.Rectangle
@@ -235,110 +236,9 @@ object OsmTileEngine {
             ) {
                 if (poi != null) {
                     val isPoi = poi.tags?.any {
-                        it.key in listOf("amenity", "shop", "tourism", "leisure", "healthcare", "craft", "office", "historic", "emergency")
+                        it.key in listOf("amenity", "shop", "tourism", "leisure", "healthcare", "craft", "office", "historic", "emergency", "sport", "public_transport")
                     } ?: false
                     if (isPoi) return
-                }
-
-                val placeType = poi?.tags?.firstOrNull { it.key == "place" }?.value
-                if (placeType == null || caption.isNullOrEmpty()) {
-                    super.renderPointOfInterestCaption(renderContext, display, priority, caption, horizontalOffset, verticalOffset, fill, stroke, position, maxTextWidth, poi)
-                    return
-                }
-
-                val zoom = renderContext?.rendererJob?.tile?.zoomLevel?.toInt() ?: currentZoom
-                val targetSize = when (placeType) {
-                    "country" -> when {
-                        zoom <= 5 -> 16f
-                        zoom <= 8 -> 17.5f
-                        else -> 19f
-                    }
-                    "state", "region" -> when {
-                        zoom <= 7 -> 14.5f
-                        zoom <= 9 -> 15.5f
-                        else -> 16.5f
-                    }
-                    "city" -> when {
-                        zoom <= 8 -> 14.5f
-                        zoom <= 10 -> 16f
-                        else -> 17.5f
-                    }
-                    "town" -> when {
-                        zoom <= 10 -> 13.5f
-                        zoom <= 12 -> 14.5f
-                        else -> 15.5f
-                    }
-                    "village" -> when {
-                        zoom <= 12 -> 12.5f
-                        else -> 13.5f
-                    }
-                    "hamlet" -> 12f
-                    "suburb", "quarter", "neighbourhood" -> 12f
-                    else -> 12f
-                }
-
-                val targetMaxWidth = when (placeType) {
-                    "country" -> 180
-                    "state", "region" -> 160
-                    "city" -> 150
-                    "town" -> 135
-                    "village" -> 120
-                    else -> 110
-                }
-
-                val targetStrokeWidth = when (placeType) {
-                    "country" -> 2.2f
-                    "state", "region", "city" -> 1.8f
-                    "town" -> 1.6f
-                    else -> 1.4f
-                }
-
-                val targetFill = if (fill != null) {
-                    AndroidGraphicFactory.INSTANCE.createPaint(fill).apply {
-                        setTextSize(targetSize)
-                    }
-                } else null
-
-                val targetStroke = if (stroke != null) {
-                    AndroidGraphicFactory.INSTANCE.createPaint(stroke).apply {
-                        setTextSize(targetSize)
-                        setStrokeWidth(targetStrokeWidth)
-                    }
-                } else null
-
-                var hOffset = horizontalOffset
-                var vOffset = verticalOffset
-                val tile = renderContext?.rendererJob?.tile
-                if (tile != null && poi.position != null) {
-                    val px = MercatorProjection.getPixelRelativeToTile(poi.position, tile)
-                    val rawWidth = (targetFill ?: fill)?.getTextWidth(caption) ?: (caption.length * 8)
-                    val effectiveWidth = if (caption.contains(' ') || caption.contains('-')) {
-                        min(rawWidth, targetMaxWidth)
-                    } else {
-                        rawWidth
-                    }
-
-                    val halfW = (effectiveWidth / 2f) + 4f
-                    val minX = halfW
-                    val maxX = TILE_SIZE.toFloat() - halfW
-                    if (maxX > minX) {
-                        if (px.x < minX) {
-                            hOffset += (minX - px.x).toFloat()
-                        } else if (px.x > maxX) {
-                            hOffset -= (px.x - maxX).toFloat()
-                        }
-                    }
-
-                    val halfH = targetSize + 4f
-                    val minY = halfH
-                    val maxY = TILE_SIZE.toFloat() - halfH
-                    if (maxY > minY) {
-                        if (px.y < minY) {
-                            vOffset += (minY - px.y).toFloat()
-                        } else if (px.y > maxY) {
-                            vOffset -= (px.y - maxY).toFloat()
-                        }
-                    }
                 }
 
                 super.renderPointOfInterestCaption(
@@ -346,12 +246,12 @@ object OsmTileEngine {
                     display,
                     priority,
                     caption,
-                    hOffset,
-                    vOffset,
-                    targetFill ?: fill,
-                    targetStroke ?: stroke,
+                    horizontalOffset,
+                    verticalOffset,
+                    fill,
+                    stroke,
                     position,
-                    targetMaxWidth,
+                    maxTextWidth,
                     poi
                 )
             }
@@ -372,7 +272,7 @@ object OsmTileEngine {
                 if (way != null) {
                     val tags = way.tags
                     val isPoi = tags?.any {
-                        it.key in listOf("amenity", "shop", "tourism", "leisure", "healthcare", "craft", "office", "historic", "emergency")
+                        it.key in listOf("amenity", "shop", "tourism", "leisure", "healthcare", "craft", "office", "historic", "emergency", "sport", "public_transport")
                     } ?: false
                     if (isPoi) return
                 }
@@ -425,9 +325,11 @@ object OsmTileEngine {
                     }
                 }
 
+                val ctx = appContext ?: return
                 val dModel = DisplayModel()
                 dModel.setFixedTileSize(TILE_SIZE)
-                val rThemeFuture = RenderThemeFuture(AndroidGraphicFactory.INSTANCE, MapsforgeThemes.DEFAULT, dModel)
+                val xmlTheme: XmlRenderTheme = AssetsRenderTheme(ctx.assets, "elevate/", "Elevate.xml")
+                val rThemeFuture = RenderThemeFuture(AndroidGraphicFactory.INSTANCE, xmlTheme, dModel)
                 rThemeFuture.run()
 
                 val tCache = InMemoryTileCache(256)

@@ -52,12 +52,24 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "assets/symbols/**",
+                "assets/patterns/**",
+                "assets/mapsforge/**",
+                "symbols/**",
+                "patterns/**",
+                "mapsforge/**"
+            )
+        }
+    }
 }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("org.mapsforge:mapsforge-map-android:0.25.0")
-    implementation("org.mapsforge:mapsforge-themes:0.25.0")
     implementation("org.mapsforge:mapsforge-poi-android:0.25.0")
     implementation("com.github.abrensch.brouter:brouter-core:v1.7.9")
     implementation("com.github.abrensch.brouter:brouter-mapaccess:v1.7.9")

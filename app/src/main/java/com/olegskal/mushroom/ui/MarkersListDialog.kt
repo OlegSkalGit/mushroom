@@ -115,10 +115,22 @@ object MarkersListDialog {
             }
         }
         val pasteParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, 0, 0, 12)
+            setMargins(0, 0, 0, 8)
         }
         btnPasteClip.layoutParams = pasteParams
         container.addView(btnPasteClip)
+
+        val btnAddAddress = UiUtils.createStyledButton(activity, if (lang == "uk") "🔍 Додати адресу" else "🔍 Add Address") {
+            AddAddressDialog.show(activity, dbHelper) {
+                dialog.dismiss()
+                onVisibilityChanged()
+            }
+        }
+        val addressParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 0, 0, 12)
+        }
+        btnAddAddress.layoutParams = addressParams
+        container.addView(btnAddAddress)
 
         val scrollView = ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)

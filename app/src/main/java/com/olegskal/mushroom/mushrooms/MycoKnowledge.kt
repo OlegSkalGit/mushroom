@@ -232,8 +232,11 @@ object MycoKnowledge {
     private fun loadClassesInternal(context: Context) {
         synchronized(this) {
             try {
-                context.assets.open("classes.json").bufferedReader(Charsets.UTF_8).use { reader ->
-                    classesMap = parseClassesJson(reader.readText())
+                val file = MushroomClassifier.getRequiredFile(context, "classes.json")
+                if (file.exists() && file.length() > 0) {
+                    file.bufferedReader(Charsets.UTF_8).use { reader ->
+                        classesMap = parseClassesJson(reader.readText())
+                    }
                 }
             } catch (ignored: Exception) {}
         }
