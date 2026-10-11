@@ -1,7 +1,6 @@
 package com.olegskal.mushroom.ui
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Typeface
@@ -16,6 +15,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import com.olegskal.mushroom.address.AddressDb
 import com.olegskal.mushroom.address.AddressSearchManager
 import com.olegskal.mushroom.address.AddressSearchResult
@@ -188,11 +188,11 @@ object AddAddressDialog {
                             }
                         } catch (e: Exception) {
                             activity.runOnUiThread {
-                                AlertDialog.Builder(activity)
-                                    .setTitle(if (isUk) "Помилка пошуку" else "Search Error")
-                                    .setMessage(e.message ?: "Unknown search error")
-                                    .setPositiveButton("OK", null)
-                                    .show()
+                                val errText = if (isUk) "Помилка пошуку: ${e.message}" else "Search error: ${e.message}"
+                                Toast.makeText(activity, errText, Toast.LENGTH_LONG).show()
+                                listContainer.removeAllViews()
+                                statusTv.text = errText
+                                listContainer.addView(statusTv)
                             }
                         }
                     }.start()
@@ -205,15 +205,12 @@ object AddAddressDialog {
         val dbFile = AddressDb.getDatabaseFile(activity)
         if (!dbFile.exists() || dbFile.length() < 1024L) {
             val alertMsg = if (isUk) {
-                "Офлайн-база адрес (addr.db) ще не завантажена.\nЗавантажте базу адрес у вікні оновлень/карт."
+                "Офлайн-база адрес (addr.db) ще не завантажена. Завантажте базу адрес у вікні оновлень/карт."
             } else {
-                "Offline address database (addr.db) is not downloaded yet.\nPlease download it from the updates/maps screen."
+                "Offline address database (addr.db) is not downloaded yet. Please download it from the updates/maps screen."
             }
-            AlertDialog.Builder(activity)
-                .setTitle(if (isUk) "База адрес відсутня" else "Address Database Missing")
-                .setMessage(alertMsg)
-                .setPositiveButton("OK", null)
-                .show()
+            Toast.makeText(activity, alertMsg, Toast.LENGTH_LONG).show()
+            statusTv.text = alertMsg
         }
 
         dialog.setContentView(container)
