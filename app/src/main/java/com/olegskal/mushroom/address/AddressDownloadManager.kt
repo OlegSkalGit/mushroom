@@ -47,15 +47,12 @@ object AddressDownloadManager {
     fun hasAddressesForCountry(context: Context, countryCode: String): Boolean {
         if (AddressDb.openDatabase(context, writable = false) == null) return false
         val code = countryCode.uppercase()
-        val expected = getCountryRegionCount(code)
+        val expected = getCountryRegionCount(context, code)
         val loaded = getLoadedRegionCount(context, code)
-        if (code == "UA") {
-            return loaded >= 24 || getCountryHouseCount(context, code) > 50_000L
-        }
         if (expected <= 1) {
             return getCountryHouseCount(context, code) > 100L
         }
-        return loaded >= (expected - 2)
+        return loaded >= (expected - 2) || (loaded >= 1 && getCountryHouseCount(context, code) > 50_000L)
     }
 
     fun getCountryHouseCount(context: Context, countryCode: String): Long {
@@ -162,19 +159,7 @@ object AddressDownloadManager {
             return cached
         }
 
-        // 1. Для України — миттєвий фіксований перелік 27 регіонів (0 мс, жодного зайвого мережевого запиту)
-        if (code == "UA") {
-            val uaList = UKRAINE_REGIONS.map { RegionTarget(it.first, it.second) }
-            cachedRegionCounts["UA"] = uaList.size
-            cachedRegions["UA"] = uaList
-            if (db != null && countryId != null) {
-                saveRegionsToDb(db, countryId, uaList)
-            }
-            logFn("[+] Структура 27 регіонів України готова")
-            return uaList
-        }
-
-        // 2. Перевірка збережених регіонів у SQLite (миттєво 0 мс при перезапуску додатку)
+        // 1. Перевірка збережених регіонів у SQLite (якщо вже завантажувалися раніше)
         if (db != null && countryId != null) {
             val dbRegions = loadCachedRegionsFromDb(db, countryId)
             if (dbRegions.size >= 2) {
@@ -259,6 +244,31 @@ object AddressDownloadManager {
         return getEstimatedRegionCount(countryCode)
     }
 
+    fun getCountryRegionCount(context: Context, countryCode: String): Int {
+        val code = countryCode.uppercase()
+        val cached = cachedRegionCounts[code]
+        if (cached != null && cached > 0) return cached
+        val db = AddressDb.openDatabase(context, writable = false)
+        if (db != null) {
+            try {
+                val cur = db.rawQuery(
+                    "SELECT count(*) FROM admin_places WHERE level = 4 AND parent_id = (SELECT id FROM admin_places WHERE level = 2 AND (code = ? OR code IS NULL) LIMIT 1);",
+                    arrayOf(code)
+                )
+                cur.use {
+                    if (it.moveToFirst()) {
+                        val count = it.getInt(0)
+                        if (count > 0) {
+                            cachedRegionCounts[code] = count
+                            return count
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return getEstimatedRegionCount(code)
+    }
+
     fun getEstimatedRegionCount(countryCode: String): Int {
         return when (countryCode.uppercase()) {
             "UA" -> 27
@@ -287,36 +297,6 @@ object AddressDownloadManager {
             else -> 10
         }
     }
-
-    private val UKRAINE_REGIONS = listOf(
-        Pair(72639L, "Автономна Республіка Крим"),
-        Pair(90726L, "Вінницька область"),
-        Pair(71064L, "Волинська область"),
-        Pair(101746L, "Дніпропетровська область"),
-        Pair(71973L, "Донецька область"),
-        Pair(71245L, "Житомирська область"),
-        Pair(72489L, "Закарпатська область"),
-        Pair(71980L, "Запорізька область"),
-        Pair(72488L, "Івано-Франківська область"),
-        Pair(421866L, "Київ"),
-        Pair(71248L, "Київська область"),
-        Pair(101859L, "Кіровоградська область"),
-        Pair(71971L, "Луганська область"),
-        Pair(72380L, "Львівська область"),
-        Pair(72635L, "Миколаївська область"),
-        Pair(72634L, "Одеська область"),
-        Pair(91294L, "Полтавська область"),
-        Pair(71236L, "Рівненська область"),
-        Pair(1574364L, "Севастополь"),
-        Pair(71250L, "Сумська область"),
-        Pair(72525L, "Тернопільська область"),
-        Pair(71254L, "Харківська область"),
-        Pair(71022L, "Херсонська область"),
-        Pair(90742L, "Хмельницька область"),
-        Pair(91278L, "Черкаська область"),
-        Pair(72526L, "Чернівецька область"),
-        Pair(71249L, "Чернігівська область")
-    )
 
     private fun fetchAssociatedStreets(
         region: RegionTarget,
