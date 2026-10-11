@@ -35,14 +35,29 @@ object BRouterEngine {
 
     private const val TAG = "BRouterEngine"
 
+    fun getProfilesDir(context: Context? = null): File {
+        val ctx = context ?: OsmTileEngine.appContext
+        val baseDir = ctx?.let { it.noBackupFilesDir ?: it.filesDir } ?: File(System.getProperty("java.io.tmpdir") ?: ".")
+        return File(baseDir, "brouter_profiles").apply { if (!exists()) mkdirs() }
+    }
+
     val profilesDir: File
-        get() = File(MushroomStorageManager.navigationDir, "profiles").apply { if (!exists()) mkdirs() }
+        get() = getProfilesDir()
 
     fun ensureProfilesExtracted(context: Context) {
         try {
+            // Видаляємо стару папку з зовнішнього сховища /sdcard/mushroom/navigation/profiles, якщо вона залишилась
+            val oldExternalProfilesDir = File(MushroomStorageManager.navigationDir, "profiles")
+            if (oldExternalProfilesDir.exists()) {
+                try {
+                    oldExternalProfilesDir.deleteRecursively()
+                } catch (_: Exception) {}
+            }
+
+            val targetDir = getProfilesDir(context)
             val assetNames = context.assets.list("brouter") ?: emptyArray()
             for (name in assetNames) {
-                val dest = File(profilesDir, name)
+                val dest = File(targetDir, name)
                 val assetBytes = context.assets.open("brouter/$name").use { it.readBytes() }
                 if (!dest.exists() || dest.length() != assetBytes.size.toLong()) {
                     dest.writeBytes(assetBytes)
