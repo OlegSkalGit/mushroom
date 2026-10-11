@@ -127,6 +127,7 @@ object AddressSearchManager {
                         val hNum = it.getString(4) ?: ""
                         val latRaw = it.getInt(5)
                         val lonRaw = it.getInt(6)
+                        val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
                         results.add(
                             AddressSearchResult(
                                 countryCode = cCode,
@@ -134,8 +135,8 @@ object AddressSearchManager {
                                 cityName = cName,
                                 streetName = sName,
                                 houseNumber = hNum,
-                                lat = latRaw / 1_000_000.0,
-                                lon = lonRaw / 1_000_000.0
+                                lat = latRaw / div,
+                                lon = lonRaw / div
                             )
                         )
                     }
@@ -164,6 +165,7 @@ object AddressSearchManager {
                         val hNum = it.getString(4) ?: ""
                         val latRaw = it.getInt(5)
                         val lonRaw = it.getInt(6)
+                        val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
                         results.add(
                             AddressSearchResult(
                                 countryCode = cCode,
@@ -171,8 +173,8 @@ object AddressSearchManager {
                                 cityName = cName,
                                 streetName = sName,
                                 houseNumber = hNum,
-                                lat = latRaw / 1_000_000.0,
-                                lon = lonRaw / 1_000_000.0
+                                lat = latRaw / div,
+                                lon = lonRaw / div
                             )
                         )
                     }

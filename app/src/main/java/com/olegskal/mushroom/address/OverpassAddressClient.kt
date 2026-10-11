@@ -19,15 +19,17 @@ class OverpassAddressClient(
         private const val TAG = "OverpassClient"
         const val USER_AGENT = "Mushroom-Address-Tool/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
         val DEFAULT_MIRRORS = listOf(
-            "https://gall.openstreetmap.de/api/interpreter",
-            "https://lambert.openstreetmap.de/api/interpreter",
-            "https://overpass-api.de/api/interpreter",
             "https://z.overpass-api.de/api/interpreter",
-            "https://lz4.overpass-api.de/api/interpreter"
+            "https://lz4.overpass-api.de/api/interpreter",
+            "https://overpass-api.de/api/interpreter",
+            "https://lambert.openstreetmap.de/api/interpreter",
+            "https://gall.openstreetmap.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter"
         )
     }
 
     private val pool = Executors.newFixedThreadPool(DEFAULT_MIRRORS.size)
+    private val failedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     data class MirrorRank(
         val mirror: String,
@@ -36,11 +38,15 @@ class OverpassAddressClient(
     )
 
     private fun checkMirrorStatus(mirror: String): MirrorRank {
+        val now = System.currentTimeMillis()
+        if ((failedUntil[mirror] ?: 0L) > now) {
+            return MirrorRank(mirror, 9999, 0)
+        }
         val statusUrl = mirror.replace("/interpreter", "/status")
         return try {
             val conn = (URL(statusUrl).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 3500
-                readTimeout = 3500
+                connectTimeout = 3000
+                readTimeout = 3000
                 setRequestProperty("User-Agent", USER_AGENT)
             }
             val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -68,7 +74,7 @@ class OverpassAddressClient(
     fun findBestMirrors(): List<MirrorRank> {
         val tasks = mirrors.map { m -> Callable { checkMirrorStatus(m) } }
         val results = try {
-            val futures = pool.invokeAll(tasks, 4000, TimeUnit.MILLISECONDS)
+            val futures = pool.invokeAll(tasks, 3500, TimeUnit.MILLISECONDS)
             futures.mapNotNull {
                 try { it.get() } catch (_: Exception) { null }
             }
@@ -78,6 +84,7 @@ class OverpassAddressClient(
 
         val alive = results.filter { it.effectiveWaitSec < 9999 }.sortedBy { it.effectiveWaitSec }
         if (alive.isNotEmpty()) return alive
+        failedUntil.clear()
         return mirrors.map { MirrorRank(it, 0, 1) }
     }
 
@@ -147,7 +154,14 @@ class OverpassAddressClient(
 
                     val responseCode = conn.responseCode
                     val isGzip = conn.contentEncoding?.contains("gzip", ignoreCase = true) == true
-                    val stream: InputStream = if (responseCode in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                    val stream: InputStream? = if (responseCode in 200..299) conn.inputStream else conn.errorStream
+
+                    if (stream == null) {
+                        failedUntil[mirror] = System.currentTimeMillis() + 60_000L
+                        logFn("  [-] $mirror: HTTP $responseCode — з'єднання скинуто/без тіла. Наступне дзеркало...")
+                        interruptibleSleep(1000L, isCancelled)
+                        continue
+                    }
 
                     val rawBytes = readStreamToBytes(stream)
                     val decompressed = if (isGzip || (rawBytes.size >= 2 && rawBytes[0] == 0x1f.toByte() && rawBytes[1] == 0x8b.toByte())) {
@@ -160,6 +174,7 @@ class OverpassAddressClient(
 
                     val text = String(decompressed, Charsets.UTF_8)
                     if (text.isBlank()) {
+                        failedUntil[mirror] = System.currentTimeMillis() + 60_000L
                         logFn("  [-] $mirror: HTTP $responseCode — порожня відповідь. Спробуємо інше...")
                         interruptibleSleep(1000L, isCancelled)
                         continue
@@ -167,8 +182,10 @@ class OverpassAddressClient(
 
                     val textLow = text.lowercase()
                     if (textLow.contains("waiting for slot") || textLow.contains("slot available")) {
-                        logFn("  [⏳] $mirror: Слот зайнято, пересканування...")
-                        break
+                        failedUntil[mirror] = System.currentTimeMillis() + 20_000L
+                        logFn("  [⏳] $mirror: Слот зайнято. Перевіряємо інше дзеркало...")
+                        interruptibleSleep(1000L, isCancelled)
+                        continue
                     }
 
                     if (textLow.contains("<html") || textLow.contains("runtime error") || responseCode >= 400) {
@@ -182,14 +199,9 @@ class OverpassAddressClient(
                             }
                         }
 
-                        if (textLow.contains("too busy") || responseCode == 429 || responseCode == 504) {
-                            val waitTime = if (responseCode == 504 || textLow.contains("too busy")) 8000L else 3000L
-                            logFn("  [⏳] $mirror: HTTP $responseCode ядро зайняте/rate limit. Пауза ${waitTime/1000}с...")
-                            interruptibleSleep(waitTime, isCancelled)
-                            break
-                        }
-
-                        logFn("  [-] $mirror: Помилка Overpass (HTTP $responseCode). Спробуємо інше...")
+                        failedUntil[mirror] = System.currentTimeMillis() + 60_000L
+                        val reason = if (responseCode == 504) "504 Gateway Timeout" else if (responseCode == 429) "429 Rate Limit" else "HTTP $responseCode"
+                        logFn("  [⏳] $mirror: $reason. Пробуємо наступне дзеркало...")
                         interruptibleSleep(1000L, isCancelled)
                         continue
                     }
@@ -198,8 +210,10 @@ class OverpassAddressClient(
                     return text
 
                 } catch (e: Exception) {
+                    failedUntil[mirror] = System.currentTimeMillis() + 60_000L
                     AppLogger.log(TAG, "query", false, "Connection error to $mirror: ${e.message}")
-                    interruptibleSleep(1500L, isCancelled)
+                    interruptibleSleep(1000L, isCancelled)
+                    continue
                 } finally {
                     conn?.disconnect()
                 }

@@ -195,6 +195,9 @@ object AddressDb {
             db.execSQL("INSERT INTO search_fts(search_fts) VALUES('optimize');")
         } catch (_: Exception) {}
         try {
+            db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE);", null).use { it.moveToFirst() }
+        } catch (_: Exception) {}
+        try {
             db.execSQL("VACUUM;")
         } catch (_: Exception) {}
     }

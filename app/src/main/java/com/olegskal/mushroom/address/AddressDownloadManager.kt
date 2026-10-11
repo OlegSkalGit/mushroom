@@ -174,14 +174,18 @@ object AddressDownloadManager {
         Pair(71262L, "Чернігівська область")
     )
 
-    private fun fetchAssociatedStreets(areaClause: String, isCancelled: () -> Boolean): Map<Pair<String, Long>, String> {
+    private fun fetchAssociatedStreets(
+        areaClause: String,
+        logFn: (String) -> Unit,
+        isCancelled: () -> Boolean
+    ): Map<Pair<String, Long>, String> {
         val q = """
-            [out:json][timeout:180];
+            [out:json][timeout:60];
             $areaClause
             relation["type"="associatedStreet"](area.a);
             out body;
         """.trimIndent()
-        val raw = client.query(q, timeoutSec = 190, isCancelled = isCancelled) ?: return emptyMap()
+        val raw = client.query(q, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 2) ?: return emptyMap()
         val assocMap = mutableMapOf<Pair<String, Long>, String>()
         try {
             val json = JSONObject(raw)
@@ -216,6 +220,7 @@ object AddressDownloadManager {
     private fun fetchRegionSettlements(
         areaClause: String,
         fallbackRegion: String,
+        logFn: (String) -> Unit,
         isCancelled: () -> Boolean
     ): SpatialSettlementIndex {
         val q = """
@@ -228,7 +233,7 @@ object AddressDownloadManager {
             );
             out center;
         """.trimIndent()
-        val rawCsv = client.query(q, timeoutSec = 65, isCancelled = isCancelled)
+        val rawCsv = client.query(q, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
         val settlements = mutableListOf<SettlementItem>()
         val nodeStems = mutableMapOf<String, String>()
 
@@ -359,8 +364,12 @@ object AddressDownloadManager {
                         "area[\"ISO3166-1\"=\"${country.code}\"][admin_level=2]->.a;"
                     }
 
-                    val assocStreets = fetchAssociatedStreets(areaClause, isCancelled)
-                    val settlementIndex = fetchRegionSettlements(areaClause, regName, isCancelled)
+                    val logCallback: (String) -> Unit = { detail ->
+                        onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, "$statusMsg • $detail")
+                    }
+
+                    val assocStreets = fetchAssociatedStreets(areaClause, logCallback, isCancelled)
+                    val settlementIndex = fetchRegionSettlements(areaClause, regName, logCallback, isCancelled)
 
                     val q = """
                         [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality"; false; ";")][timeout:300];
@@ -373,7 +382,7 @@ object AddressDownloadManager {
                         out center;
                     """.trimIndent()
 
-                    val tsvData = client.query(q, timeoutSec = 310, isCancelled = isCancelled, maxCycles = 3)
+                    val tsvData = client.query(q, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 3)
                     if (tsvData.isNullOrBlank()) {
                         failed.add(Pair(idx, rPair))
                         continue
@@ -452,14 +461,20 @@ object AddressDownloadManager {
             }
 
             // Extract from POI file
-            val poiFile = File(MushroomStorageManager.poiDir, country.poiFileName)
-            if (poiFile.exists() && !isCancelled()) {
-                onProgress(0.88, "${country.nameUk}: Експорт POI адрес")
-                extractAddressesFromPoiFile(poiFile, country, ingestor)
+            val candidatePoiFiles = listOf(
+                File(MushroomStorageManager.poiDir, country.poiFileName),
+                File(File(context.filesDir, "poi"), country.poiFileName)
+            )
+            for (pFil in candidatePoiFiles) {
+                if (pFil.exists() && pFil.length() > 1024L && !isCancelled()) {
+                    onProgress(0.88, "${country.nameUk}: Експорт POI адрес (${pFil.name})")
+                    extractAddressesFromPoiFile(pFil, country, ingestor)
+                    break
+                }
             }
             onProgress(0.95, "${country.nameUk}: Оптимізація індексу FTS")
 
-            // Final FTS optimize and VACUUM
+            // Final FTS optimize, WAL checkpoint and VACUUM
             AddressDb.optimizeAndVacuum(db)
             onProgress(1.0, "${country.nameUk}: Готово")
             return true

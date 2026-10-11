@@ -216,14 +216,14 @@ class AddressIngestor(
         if (num.isBlank()) return
 
         val latI = if (kotlin.math.abs(lat) > 1000.0) {
-            lat.roundToInt()
+            (lat / 10.0).roundToInt()
         } else {
-            (lat * 1_000_000.0).roundToInt()
+            (lat * 100_000.0).roundToInt()
         }
         val lonI = if (kotlin.math.abs(lon) > 1000.0) {
-            lon.roundToInt()
+            (lon / 10.0).roundToInt()
         } else {
-            (lon * 1_000_000.0).roundToInt()
+            (lon * 100_000.0).roundToInt()
         }
 
         housesBatch.add(HouseRecord(streetId, num, latI, lonI))
@@ -242,7 +242,7 @@ class AddressIngestor(
                 stmt.bindString(2, h.number)
                 stmt.bindLong(3, h.lat.toLong())
                 stmt.bindLong(4, h.lon.toLong())
-                stmt.execute()
+                stmt.executeInsert()
             }
             db.setTransactionSuccessful()
         } catch (e: Exception) {
