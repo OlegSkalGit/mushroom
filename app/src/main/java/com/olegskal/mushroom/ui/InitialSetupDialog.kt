@@ -577,12 +577,18 @@ object InitialSetupDialog {
         // 6. БАЗА АДРЕС (ВИДІЛЯЄТЬСЯ 50% ШКАЛИ ПРИ ЗАВАНТАЖЕННІ)
         val addressReady = AddressDownloadManager.hasAddressesForCountry(context, country.code)
         if (!addressReady) {
+            val loadedRegs = AddressDownloadManager.getLoadedRegionCount(context, country.code)
+            val totalRegs = AddressDownloadManager.getCountryRegionCount(country.code)
+            val regDisplay = if (loadedRegs in 1 until totalRegs) {
+                if (isUk) "завантажено $loadedRegs з $totalRegs регіонів" else "$loadedRegs of $totalRegs regions"
+            } else regSuffix
+
             list.add(
                 UpdateItem(
                     "addr_${country.code}",
                     BlockType.ADDRESSES,
                     "База адрес", "Address database",
-                    "${if (isUk) country.nameUk else country.name} ($regSuffix, addr.db)",
+                    "${if (isUk) country.nameUk else country.name} ($regDisplay, addr.db)",
                     35_000_000L
                 ) { onBytes, _, isCancel ->
                     var lastReported = 0L

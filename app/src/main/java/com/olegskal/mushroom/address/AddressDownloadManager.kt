@@ -13,22 +13,31 @@ object AddressDownloadManager {
     private const val TAG = "AddressDownloadManager"
     private val client = OverpassAddressClient()
 
-    fun hasAddressesForCountry(context: Context, countryCode: String): Boolean {
-        val db = AddressDb.openDatabase(context, writable = false) ?: return false
+    fun getLoadedRegionCount(context: Context, countryCode: String): Int {
+        val db = AddressDb.openDatabase(context, writable = false) ?: return 0
         return try {
             val cursor = db.rawQuery("""
-                SELECT count(*) FROM houses h
+                SELECT count(DISTINCT s.region_id) FROM houses h
                 JOIN streets s ON h.street_id = s.id
                 JOIN admin_places ap ON s.country_id = ap.id
-                WHERE ap.level = 2 AND ap.code = ?
-                LIMIT 1;
+                WHERE ap.level = 2 AND ap.code = ? AND s.region_id IS NOT NULL;
             """.trimIndent(), arrayOf(countryCode.uppercase()))
             cursor.use {
-                if (it.moveToFirst()) it.getLong(0) > 100L else false
+                if (it.moveToFirst()) it.getInt(0) else 0
             }
         } catch (_: Exception) {
-            false
+            0
         }
+    }
+
+    fun hasAddressesForCountry(context: Context, countryCode: String): Boolean {
+        if (AddressDb.openDatabase(context, writable = false) == null) return false
+        val expected = getCountryRegionCount(countryCode)
+        val loaded = getLoadedRegionCount(context, countryCode)
+        if (expected <= 1) {
+            return getCountryHouseCount(context, countryCode) > 100L
+        }
+        return loaded >= expected
     }
 
     fun getCountryHouseCount(context: Context, countryCode: String): Long {
