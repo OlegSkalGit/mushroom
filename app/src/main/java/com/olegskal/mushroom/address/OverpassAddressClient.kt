@@ -67,7 +67,12 @@ class OverpassAddressClient(
             val effWait = if (avail > 0) 0 else (if (waitSec > 0) waitSec else 60)
             MirrorRank(mirror, effWait, avail)
         } catch (_: Exception) {
-            MirrorRank(mirror, 9999, 0)
+            val now2 = System.currentTimeMillis()
+            if ((failedUntil[mirror] ?: 0L) > now2) {
+                MirrorRank(mirror, 9999, 0)
+            } else {
+                MirrorRank(mirror, 15, 1)
+            }
         }
     }
 
@@ -222,7 +227,7 @@ class OverpassAddressClient(
         return null
     }
 
-    private fun interruptibleSleep(ms: Long, isCancelled: () -> Boolean): Boolean {
+    fun interruptibleSleep(ms: Long, isCancelled: () -> Boolean): Boolean {
         val step = 400L
         var waited = 0L
         while (waited < ms) {
