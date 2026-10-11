@@ -494,9 +494,9 @@ object InitialSetupDialog {
                     BlockType.MAPS,
                     "Оглядова карта", "Overview map",
                     MapDownloadManager.WORLD_MAP_FILE_NAME,
-                    3_211_280L
+                    3_276_950L
                 ) { onBytes, onSizeDiscovered, isCancel ->
-                    downloadFileWithResume("https://download.mapsforge.org/maps/v5/world/world.map", worldFile, 3_211_280L, onBytes, onSizeDiscovered, isCancel)
+                    downloadFileWithResume("https://download.mapsforge.org/maps/v5/world/world.map", worldFile, 3_276_950L, onBytes, onSizeDiscovered, isCancel)
                 }
             )
         }
@@ -985,29 +985,27 @@ object InitialSetupDialog {
                     false
                 }
 
-                // Миттєве підхоплення рушіями та проміжний Toast
+                // Миттєве підключення компоненти одразу після її завантаження
                 if (success && !cancelFlag.get()) {
                     activity.runOnUiThread {
-                        val cName = if (isUk) selectedCountry.nameUk else selectedCountry.name
                         when {
                             item.id == "map_world" -> {
-                                OsmTileEngine.reloadMaps()
-                                Toast.makeText(activity, if (isUk) "✓ Оглядову карту світу завантажено" else "✓ World map downloaded", Toast.LENGTH_SHORT).show()
+                                MapDownloadManager.markWorldMapUpToDate()
+                                mapActivity?.reloadMapsAndPois() ?: OsmTileEngine.reloadMaps()
                             }
                             item.id.startsWith("map_") -> {
-                                OsmTileEngine.reloadMaps()
-                                Toast.makeText(activity, if (isUk) "✓ Карту ($cName) завантажено" else "✓ Map ($cName) downloaded", Toast.LENGTH_SHORT).show()
+                                MapDownloadManager.markCountryMapUpToDate(selectedCountry)
+                                mapActivity?.reloadMapsAndPois() ?: OsmTileEngine.reloadMaps()
                             }
                             item.id.startsWith("poi_") -> {
-                                PoiManager.refreshPoiFiles()
-                                Toast.makeText(activity, if (isUk) "✓ Точки POI ($cName) завантажено" else "✓ POI points ($cName) downloaded", Toast.LENGTH_SHORT).show()
+                                MapDownloadManager.markCountryPoiUpToDate(selectedCountry)
+                                mapActivity?.reloadMapsAndPois() ?: PoiManager.refreshPoiFiles()
                             }
                             item.id.startsWith("rd5_") -> {
-                                Toast.makeText(activity, if (isUk) "✓ Файл маршрутизації (${item.title}) завантажено" else "✓ Routing file (${item.title}) downloaded", Toast.LENGTH_SHORT).show()
+                                // Сегмент BRouter (.rd5) готовий у navigationDir
                             }
                             item.id.startsWith("addr_") -> {
                                 AddressDb.openDatabase(activity, writable = false)
-                                Toast.makeText(activity, if (isUk) "✓ Базу адрес ($cName) завантажено" else "✓ Address database ($cName) downloaded", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -1144,7 +1142,21 @@ object InitialSetupDialog {
         }
 
         val partFile = File(parentDir, "${destFile.name}.part")
+
+        // Якщо .part файл вже повністю завантажений з попереднього запуску
+        if (partFile.exists() && expectedSize > 0L && partFile.length() == expectedSize) {
+            if (destFile.exists()) destFile.delete()
+            if (!partFile.renameTo(destFile)) {
+                partFile.copyTo(destFile, overwrite = true)
+                partFile.delete()
+            }
+            MapDownloadManager.recordDownloadedFile(destFile.name, System.currentTimeMillis(), destFile.length())
+            onSizeDiscovered(destFile.length())
+            return true
+        }
+
         var attempts = 0
+        var totalBytesFromServer = -1L
 
         while (attempts < 3) {
             attempts++
@@ -1181,6 +1193,21 @@ object InitialSetupDialog {
 
                 val code = conn.responseCode
                 if (code == 416) {
+                    val cr = conn.getHeaderField("Content-Range")
+                    val totalFromCr = cr?.substringAfterLast('/')?.trim()?.toLongOrNull()
+                    if ((totalFromCr != null && totalFromCr > 0L && partFile.length() == totalFromCr) ||
+                        (expectedSize > 0L && partFile.length() == expectedSize)) {
+                        if (destFile.exists()) destFile.delete()
+                        if (!partFile.renameTo(destFile)) {
+                            partFile.copyTo(destFile, overwrite = true)
+                            partFile.delete()
+                        }
+                        val lastMod = conn.lastModified.takeIf { it > 0L } ?: System.currentTimeMillis()
+                        try { destFile.setLastModified(lastMod) } catch (_: Exception) {}
+                        MapDownloadManager.recordDownloadedFile(destFile.name, lastMod, destFile.length())
+                        onSizeDiscovered(destFile.length())
+                        return true
+                    }
                     partFile.delete()
                     conn.disconnect()
                     continue
@@ -1202,14 +1229,21 @@ object InitialSetupDialog {
                 }
 
                 val serverLen = conn.contentLengthLong
-                val totalSize = if (expectedSize > 0L) {
-                    expectedSize
-                } else if (serverLen > 0L) {
-                    if (isResume) serverLen + existingLen else serverLen
-                } else -1L
+                totalBytesFromServer = if (isResume) {
+                    val rangeHeader = conn.getHeaderField("Content-Range")
+                    val totalFromRange = rangeHeader?.substringAfterLast('/')?.trim()?.toLongOrNull()
+                    if (totalFromRange != null && totalFromRange > 0L) {
+                        totalFromRange
+                    } else if (serverLen > 0L) {
+                        serverLen + existingLen
+                    } else -1L
+                } else {
+                    serverLen
+                }
 
-                if (totalSize > 0L) {
-                    onSizeDiscovered(totalSize)
+                val finalExpectedSize = if (totalBytesFromServer > 0L) totalBytesFromServer else expectedSize
+                if (finalExpectedSize > 0L) {
+                    onSizeDiscovered(finalExpectedSize)
                 }
 
                 val append = isResume && existingLen > 0L
@@ -1230,7 +1264,15 @@ object InitialSetupDialog {
                     }
                 }
 
-                if (expectedSize <= 0L || partFile.length() == expectedSize) {
+                val isComplete = if (totalBytesFromServer > 0L) {
+                    partFile.length() == totalBytesFromServer
+                } else if (expectedSize > 0L) {
+                    partFile.length() == expectedSize
+                } else {
+                    partFile.length() > 0L
+                }
+
+                if (isComplete) {
                     if (destFile.exists()) destFile.delete()
                     val ok = partFile.renameTo(destFile)
                     if (!ok) {
@@ -1255,7 +1297,8 @@ object InitialSetupDialog {
             }
         }
 
-        return destFile.exists() && (expectedSize <= 0L || destFile.length() == expectedSize)
+        return destFile.exists() && destFile.length() > 0L &&
+                (totalBytesFromServer <= 0L || destFile.length() == totalBytesFromServer)
     }
 
     private fun showCountryPicker(activity: Activity, current: MapCountry, onPicked: (MapCountry) -> Unit) {

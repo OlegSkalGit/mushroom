@@ -920,6 +920,18 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
     }
 
+    fun reloadMapsAndPois() {
+        runOnUiThread {
+            com.olegskal.mushroom.map.OsmTileEngine.reloadMaps()
+            com.olegskal.mushroom.map.PoiManager.refreshPoiFiles()
+            if (::mapView.isInitialized) {
+                mapView.reloadPois()
+                mapView.postInvalidate()
+            }
+            updateMapDownloadBanner()
+        }
+    }
+
     fun updateMapDownloadBanner() {
         runOnUiThread {
             if (!::btnDownloadMapBanner.isInitialized) return@runOnUiThread
