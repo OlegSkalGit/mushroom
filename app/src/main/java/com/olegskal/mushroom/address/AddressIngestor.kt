@@ -37,6 +37,7 @@ class AddressIngestor(
     private var stmtInsertHouse: SQLiteStatement? = null
 
     init {
+        AddressDb.ensureTablesExist(db)
         initCountry()
         warmupCache()
         initStatements()

@@ -324,6 +324,7 @@ object AddressDownloadManager {
         isCancelled: () -> Boolean = { false }
     ): Boolean {
         val db = AddressDb.openDatabase(context, writable = true) ?: return false
+        AddressDb.ensureTablesExist(db)
         val ingestor = AddressIngestor(db, country.code, country.nameUk)
 
         try {

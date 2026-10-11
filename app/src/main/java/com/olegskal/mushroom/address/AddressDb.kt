@@ -26,8 +26,15 @@ object AddressDb {
             if (!writable && (!file.exists() || file.length() < 1024L)) {
                 return null
             }
-            if (openDb?.isOpen == true && (!writable || !openDb!!.isReadOnly)) {
-                return openDb
+            if (openDb?.isOpen == true) {
+                if (!writable || !openDb!!.isReadOnly) {
+                    if (writable) {
+                        ensureTablesExist(openDb!!)
+                    }
+                    return openDb
+                }
+                try { openDb?.close() } catch (_: Exception) {}
+                openDb = null
             }
             return try {
                 file.parentFile?.mkdirs()
@@ -39,6 +46,7 @@ object AddressDb {
                 val db = SQLiteDatabase.openDatabase(file.absolutePath, null, flags)
                 if (writable) {
                     initSchema(db)
+                    ensureTablesExist(db)
                 }
                 openDb = db
                 db
@@ -49,12 +57,38 @@ object AddressDb {
         }
     }
 
+    fun hasTable(db: SQLiteDatabase, tableName: String): Boolean {
+        return try {
+            val cursor = db.rawQuery(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1;",
+                arrayOf(tableName)
+            )
+            cursor.use { it.moveToFirst() }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun ensureTablesExist(db: SQLiteDatabase) {
+        if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses")) {
+            initSchema(db)
+        }
+    }
+
     fun initSchema(db: SQLiteDatabase) {
         try {
-            db.execSQL("PRAGMA journal_mode = WAL;")
-            db.execSQL("PRAGMA synchronous = NORMAL;")
-            db.execSQL("PRAGMA foreign_keys = ON;")
+            db.enableWriteAheadLogging()
+        } catch (_: Exception) {}
 
+        try {
+            db.execSQL("PRAGMA synchronous = NORMAL;")
+        } catch (_: Exception) {}
+
+        try {
+            db.execSQL("PRAGMA foreign_keys = ON;")
+        } catch (_: Exception) {}
+
+        try {
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS admin_places (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,15 +100,27 @@ object AddressDb {
                     FOREIGN KEY (parent_id) REFERENCES admin_places(id)
                 );
             """.trimIndent())
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_parent ON admin_places(parent_id);")
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "initSchema", false, "Error creating admin_places: ${e.message}")
+        }
 
+        try {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_parent ON admin_places(parent_id);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_lvl_code ON admin_places(level, code);")
+        } catch (_: Exception) {}
+
+        try {
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS street_names (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE
                 );
             """.trimIndent())
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "initSchema", false, "Error creating street_names: ${e.message}")
+        }
 
+        try {
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS streets (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,8 +134,16 @@ object AddressDb {
                     FOREIGN KEY (name_id) REFERENCES street_names(id)
                 );
             """.trimIndent())
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_place_id ON streets(place_id);")
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "initSchema", false, "Error creating streets: ${e.message}")
+        }
 
+        try {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_place_id ON streets(place_id);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_region_id ON streets(region_id);")
+        } catch (_: Exception) {}
+
+        try {
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS houses (
                     street_id INTEGER NOT NULL,
@@ -100,13 +154,25 @@ object AddressDb {
                     FOREIGN KEY (street_id) REFERENCES streets(id)
                 ) WITHOUT ROWID;
             """.trimIndent())
-
-            // Create FTS5 contentless table with fallback to standard FTS5/FTS4
-            createFtsTableWithFallback(db)
-
-        } catch (e: Exception) {
-            AppLogger.log(TAG, "initSchema", false, "Schema init error: ${e.message}")
+        } catch (_: Exception) {
+            try {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS houses (
+                        street_id INTEGER NOT NULL,
+                        number TEXT NOT NULL,
+                        lat INTEGER NOT NULL,
+                        lon INTEGER NOT NULL,
+                        PRIMARY KEY (street_id, number),
+                        FOREIGN KEY (street_id) REFERENCES streets(id)
+                    );
+                """.trimIndent())
+            } catch (e2: Exception) {
+                AppLogger.log(TAG, "initSchema", false, "Error creating houses: ${e2.message}")
+            }
         }
+
+        // Create FTS5 contentless table with fallback to standard FTS5/FTS4
+        createFtsTableWithFallback(db)
     }
 
     private fun createFtsTableWithFallback(db: SQLiteDatabase) {
