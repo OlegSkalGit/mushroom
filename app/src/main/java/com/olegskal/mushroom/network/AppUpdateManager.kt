@@ -310,6 +310,25 @@ object AppUpdateManager {
         }
     }
 
+    fun getApkDownloadDir(): File {
+        val pubDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (!pubDir.exists()) {
+            try { pubDir.mkdirs() } catch (_: Exception) {}
+        }
+        val direct = File("/storage/emulated/0/Download")
+        if (pubDir.exists() && pubDir.canWrite()) return pubDir
+        if (!direct.exists()) {
+            try { direct.mkdirs() } catch (_: Exception) {}
+        }
+        if (direct.exists() && direct.canWrite()) return direct
+        return pubDir
+    }
+
+    fun getApkFile(verName: String): File {
+        val name = if (verName.endsWith(".apk", ignoreCase = true)) verName else "$verName.apk"
+        return File(getApkDownloadDir(), name)
+    }
+
     fun startDownload(
         context: Context,
         downloadUrl: String,
@@ -322,8 +341,7 @@ object AppUpdateManager {
             AppLogger.log("AppUpdateManager", "startDownload", true, successMsg)
             onResult?.let { mainHandler.post { it(successMsg) } }
         } else {
-            val publicDownloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val destFile = File(publicDownloadDir, fileName)
+            val destFile = getApkFile(fileName)
             val success = downloadFileWithRedirects(downloadUrl, destFile)
             if (success) {
                 val successMsg = "New version downloaded: $fileName"
@@ -425,9 +443,8 @@ object AppUpdateManager {
             val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
                 ?: return false
 
-            val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (!publicDir.exists()) publicDir.mkdirs()
-            val existingFile = File(publicDir, fileName)
+            getApkDownloadDir().mkdirs()
+            val existingFile = getApkFile(fileName)
             if (existingFile.exists()) {
                 existingFile.delete()
             }
@@ -451,7 +468,7 @@ object AppUpdateManager {
                             context.unregisterReceiver(this)
                         } catch (_: Exception) {}
 
-                        val downloadedFile = File(publicDir, fileName)
+                        val downloadedFile = getApkFile(fileName)
                         if (downloadedFile.exists() && downloadedFile.length() > 0) {
                             AppLogger.log("AppUpdateManager", "onDownloadComplete", true, "Download complete via DownloadManager: ${downloadedFile.absolutePath}")
                             installApk(context, downloadedFile)

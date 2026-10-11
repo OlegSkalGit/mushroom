@@ -912,6 +912,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
     }
 
+    fun centerOnLocation(lat: Double, lon: Double) {
+        runOnUiThread {
+            if (::mapView.isInitialized) {
+                mapView.animateCenterTo(lat, lon, durationMs = 320L, saveOnEnd = true, useDecelerate = true)
+            }
+        }
+    }
+
     fun updateMapDownloadBanner() {
         runOnUiThread {
             if (!::btnDownloadMapBanner.isInitialized) return@runOnUiThread

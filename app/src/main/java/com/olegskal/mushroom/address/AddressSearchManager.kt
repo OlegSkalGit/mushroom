@@ -107,6 +107,7 @@ object AddressSearchManager {
                     JOIN houses h ON h.street_id = s.id
                     WHERE search_fts MATCH ?
                       AND (h.number IN ($inPlaceholders) OR h.number LIKE ? OR h.number LIKE ?)
+                    ORDER BY CAST(h.number AS INTEGER), h.number
                     LIMIT ?;
                 """.trimIndent()
 
@@ -152,6 +153,7 @@ object AddressSearchManager {
                     LEFT JOIN admin_places country ON country.id = s.country_id
                     JOIN houses h ON h.street_id = s.id
                     WHERE search_fts MATCH ?
+                    ORDER BY CAST(h.number AS INTEGER), h.number
                     LIMIT ?;
                 """.trimIndent()
 

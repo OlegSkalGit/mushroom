@@ -4,18 +4,18 @@ import android.app.Activity
 import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Typeface
-import android.os.Handler
-import android.os.Looper
-import android.text.Editable
-import android.text.TextWatcher
+import android.text.InputType
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.olegskal.mushroom.MushroomMapActivity
 import com.olegskal.mushroom.address.AddressDb
 import com.olegskal.mushroom.address.AddressSearchManager
 import com.olegskal.mushroom.address.AddressSearchResult
@@ -65,19 +65,7 @@ object AddAddressDialog {
         headerRow.addView(btnClose)
         container.addView(headerRow)
 
-        // Input Field
-        val searchInput = EditText(activity).apply {
-            hint = if (isUk) "Введіть адресу (місто, вулиця, будинок)..." else "Enter address (city, street, house)..."
-            setHintTextColor(Color.GRAY)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#263226"))
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            textSize = 14f
-            val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            p.setMargins(0, 0, 0, dp(10))
-            layoutParams = p
-        }
-        container.addView(searchInput)
+        var searchInput: EditText? = null
 
         // Scrollable list of suggestions (max 30 items)
         val scrollView = ScrollView(activity).apply {
@@ -87,20 +75,16 @@ object AddAddressDialog {
             orientation = LinearLayout.VERTICAL
         }
         scrollView.addView(listContainer)
-        container.addView(scrollView)
 
         // Status / empty label
         val statusTv = TextView(activity).apply {
-            text = if (isUk) "Почніть вводити назву вулиці або міста" else "Start typing street or city name"
+            text = if (isUk) "Введіть назву вулиці або міста та натисніть «Пошук»" else "Enter street or city name and press 'Search'"
             setTextColor(Color.GRAY)
             textSize = 13f
             gravity = Gravity.CENTER
             setPadding(0, dp(24), 0, dp(24))
         }
         listContainer.addView(statusTv)
-
-        val handler = Handler(Looper.getMainLooper())
-        var searchRunnable: Runnable? = null
 
         fun renderResults(results: List<AddressSearchResult>) {
             listContainer.removeAllViews()
@@ -118,7 +102,8 @@ object AddAddressDialog {
 
             for (addr in results.take(30)) {
                 val itemRow = LinearLayout(activity).apply {
-                    orientation = LinearLayout.VERTICAL
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
                     setBackgroundColor(Color.parseColor("#1B261E"))
                     val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                         setMargins(0, 0, 0, dp(6))
@@ -132,20 +117,13 @@ object AddAddressDialog {
                 val titleLine = TextView(activity).apply {
                     text = addr.getFullTitle()
                     setTextColor(Color.WHITE)
-                    textSize = 14f
-                    setTypeface(null, Typeface.BOLD)
-                }
-
-                val subLine = TextView(activity).apply {
-                    val coordsStr = String.format(java.util.Locale.US, "%.5f, %.5f", addr.lat, addr.lon)
-                    text = "${addr.getShortDisplay()} • $coordsStr"
-                    setTextColor(Color.parseColor("#9CA3AF"))
-                    textSize = 12f
-                    setPadding(0, dp(2), 0, 0)
+                    textSize = 13.5f
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 }
 
                 itemRow.addView(titleLine)
-                itemRow.addView(subLine)
 
                 itemRow.setOnClickListener {
                     dialog.dismiss()
@@ -156,7 +134,9 @@ object AddAddressDialog {
                         lon = addr.lon,
                         initialName = addr.getFullTitle(),
                         initialType = if (isUk) "📍 Адреса" else "📍 Address"
-                    ) {
+                    ) { marker ->
+                        val mapActivity = activity as? MushroomMapActivity
+                        mapActivity?.centerOnLocation(marker.lat, marker.lon)
                         onMarkerAdded()
                     }
                 }
@@ -165,41 +145,78 @@ object AddAddressDialog {
             }
         }
 
-        searchInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                val query = s?.toString()?.trim() ?: ""
-                searchRunnable?.let { handler.removeCallbacks(it) }
-
-                if (query.isBlank()) {
-                    listContainer.removeAllViews()
-                    statusTv.text = if (isUk) "Почніть вводити назву вулиці або міста" else "Start typing street or city name"
-                    listContainer.addView(statusTv)
-                    return
-                }
-
-                searchRunnable = Runnable {
-                    Thread {
-                        try {
-                            val results = AddressSearchManager.search(activity, query, limit = 30)
-                            activity.runOnUiThread {
-                                renderResults(results)
-                            }
-                        } catch (e: Exception) {
-                            activity.runOnUiThread {
-                                val errText = if (isUk) "Помилка пошуку: ${e.message}" else "Search error: ${e.message}"
-                                Toast.makeText(activity, errText, Toast.LENGTH_LONG).show()
-                                listContainer.removeAllViews()
-                                statusTv.text = errText
-                                listContainer.addView(statusTv)
-                            }
-                        }
-                    }.start()
-                }
-                handler.postDelayed(searchRunnable!!, 200L)
+        fun executeSearch() {
+            val query = searchInput?.text?.toString()?.trim() ?: ""
+            if (query.isBlank()) {
+                listContainer.removeAllViews()
+                statusTv.text = if (isUk) "Введіть назву вулиці або міста" else "Enter street or city name"
+                listContainer.addView(statusTv)
+                return
             }
-        })
+
+            listContainer.removeAllViews()
+            statusTv.text = if (isUk) "Пошук..." else "Searching..."
+            listContainer.addView(statusTv)
+
+            Thread {
+                try {
+                    val results = AddressSearchManager.search(activity, query, limit = 30)
+                    activity.runOnUiThread {
+                        renderResults(results)
+                    }
+                } catch (e: Exception) {
+                    activity.runOnUiThread {
+                        val errText = if (isUk) "Помилка пошуку: ${e.message}" else "Search error: ${e.message}"
+                        listContainer.removeAllViews()
+                        statusTv.text = errText
+                        listContainer.addView(statusTv)
+                    }
+                }
+            }.start()
+        }
+
+        // Input Field + Search Button row
+        val searchRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            p.setMargins(0, 0, 0, dp(10))
+            layoutParams = p
+        }
+
+        searchInput = EditText(activity).apply {
+            hint = if (isUk) "Введіть адресу (місто, вулиця, будинок)..." else "Enter address (city, street, house)..."
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#263226"))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            textSize = 14f
+            maxLines = 1
+            inputType = InputType.TYPE_CLASS_TEXT
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+            val p = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(0, 0, dp(8), 0)
+            }
+            layoutParams = p
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                    executeSearch()
+                    true
+                } else false
+            }
+        }
+
+        val btnSearch = UiUtils.createStyledButton(activity, if (isUk) "Пошук" else "Search") {
+            executeSearch()
+        }.apply {
+            textSize = 13f
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+
+        searchRow.addView(searchInput)
+        searchRow.addView(btnSearch)
+        container.addView(searchRow)
+        container.addView(scrollView)
 
         // Check if database exists
         val dbFile = AddressDb.getDatabaseFile(activity)

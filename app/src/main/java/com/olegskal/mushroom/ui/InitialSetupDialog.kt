@@ -282,8 +282,7 @@ object InitialSetupDialog {
         var currentItems = mutableListOf<UpdateItem>()
         val cachedAtStart = AppUpdateManager.getCachedAppUpdate(activity)
         var appUpdateData: AppUpdateData? = if (cachedAtStart != null && cachedAtStart.hasUpdate) {
-            val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
-            val apkFile = File(dlDir, "${cachedAtStart.latestVerName}.apk")
+            val apkFile = AppUpdateManager.getApkFile(cachedAtStart.latestVerName)
             AppUpdateData(true, cachedAtStart.latestVerName, cachedAtStart.downloadUrl, apkFile, cachedAtStart.assetSize)
         } else null
 
@@ -382,8 +381,7 @@ object InitialSetupDialog {
         // Фонова перевірка оновлень з GitHub
         AppUpdateManager.checkUpdateStatusAsync(activity) { hasUpdate, latestName, _, downloadUrl, assetSize ->
             if (hasUpdate) {
-                val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
-                val apkFile = File(dlDir, "$latestName.apk")
+                val apkFile = AppUpdateManager.getApkFile(latestName)
                 appUpdateData = AppUpdateData(true, latestName, downloadUrl, apkFile, if (assetSize > 0L) assetSize else 25_000_000L)
                 activity.runOnUiThread {
                     if (!isDownloadRunning.get()) {
@@ -467,8 +465,7 @@ object InitialSetupDialog {
         val upd = appUpdateData ?: run {
             val cached = AppUpdateManager.getCachedAppUpdate(context)
             if (cached != null && cached.hasUpdate) {
-                val dlDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
-                val apkFile = File(dlDir, "${cached.latestVerName}.apk")
+                val apkFile = AppUpdateManager.getApkFile(cached.latestVerName)
                 AppUpdateData(true, cached.latestVerName, cached.downloadUrl, apkFile, cached.assetSize)
             } else null
         }
@@ -797,9 +794,8 @@ object InitialSetupDialog {
                     { cancelFlag.get() }
                 )
 
-                val dlDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir
                 val cached = AppUpdateManager.getCachedAppUpdate(activity)
-                val apkFile = if (cached != null) File(dlDir, "${cached.latestVerName}.apk") else null
+                val apkFile = if (cached != null) AppUpdateManager.getApkFile(cached.latestVerName) else null
 
                 if (okApk && apkFile != null && apkFile.exists()) {
                     activity.runOnUiThread {
