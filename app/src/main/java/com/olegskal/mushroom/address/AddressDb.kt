@@ -27,18 +27,23 @@ object AddressDb {
                 return null
             }
             if (openDb?.isOpen == true) {
-                if (!writable || !openDb!!.isReadOnly) {
+                if (file.canWrite() && isFtsUpgradeNeeded(openDb!!)) {
+                    try { openDb?.close() } catch (_: Exception) {}
+                    openDb = null
+                } else if (!writable || !openDb!!.isReadOnly) {
                     if (writable) {
                         ensureTablesExist(openDb!!)
                     }
                     return openDb
+                } else {
+                    try { openDb?.close() } catch (_: Exception) {}
+                    openDb = null
                 }
-                try { openDb?.close() } catch (_: Exception) {}
-                openDb = null
             }
             return try {
                 file.parentFile?.mkdirs()
-                val flags = if (writable) {
+                val canWrite = file.exists() && file.canWrite()
+                val flags = if (writable || canWrite) {
                     SQLiteDatabase.CREATE_IF_NECESSARY or SQLiteDatabase.OPEN_READWRITE
                 } else {
                     SQLiteDatabase.OPEN_READONLY
@@ -47,6 +52,8 @@ object AddressDb {
                 if (writable) {
                     initSchema(db)
                     ensureTablesExist(db)
+                } else if (canWrite && isFtsUpgradeNeeded(db)) {
+                    rebuildFtsIndex(db)
                 }
                 openDb = db
                 db
@@ -69,25 +76,58 @@ object AddressDb {
         }
     }
 
+    fun isFtsUpgradeNeeded(db: SQLiteDatabase): Boolean {
+        return try {
+            val cursor = db.rawQuery(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='search_fts' LIMIT 1;",
+                null
+            )
+            cursor.use {
+                if (it.moveToFirst()) {
+                    val sql = it.getString(0) ?: ""
+                    !sql.contains("unicode61", ignoreCase = true)
+                } else {
+                    hasTable(db, "streets")
+                }
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun rebuildFtsIndex(db: SQLiteDatabase) {
+        try {
+            db.beginTransaction()
+            try {
+                db.execSQL("DROP TABLE IF EXISTS search_fts;")
+                db.execSQL("DROP TABLE IF EXISTS search_fts_content;")
+                createFtsTableWithFallback(db)
+                if (hasTable(db, "streets") && hasTable(db, "street_names") && hasTable(db, "admin_places")) {
+                    db.execSQL("""
+                        INSERT INTO search_fts (rowid, region_name, city_name, street_name)
+                        SELECT s.id, LOWER(COALESCE(reg.name, '')), LOWER(city.name), LOWER(sn.name)
+                        FROM streets s
+                        JOIN street_names sn ON s.name_id = sn.id
+                        JOIN admin_places city ON s.place_id = city.id
+                        LEFT JOIN admin_places reg ON s.region_id = reg.id;
+                    """.trimIndent())
+                }
+                db.setTransactionSuccessful()
+                AppLogger.log(TAG, "rebuildFtsIndex", true, "FTS index successfully rebuilt with unicode61")
+            } finally {
+                db.endTransaction()
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "rebuildFtsIndex", false, "Error rebuilding FTS index: ${e.message}")
+        }
+    }
+
     fun ensureTablesExist(db: SQLiteDatabase) {
         if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses")) {
             initSchema(db)
         }
-        if (hasTable(db, "search_fts_content")) {
-            try {
-                db.execSQL("DROP TABLE IF EXISTS search_fts;")
-                createFtsTableWithFallback(db)
-                db.execSQL("""
-                    INSERT INTO search_fts (rowid, region_name, city_name, street_name)
-                    SELECT s.id, LOWER(COALESCE(reg.name, '')), LOWER(city.name), LOWER(sn.name)
-                    FROM streets s
-                    JOIN street_names sn ON s.name_id = sn.id
-                    JOIN admin_places city ON s.place_id = city.id
-                    LEFT JOIN admin_places reg ON s.region_id = reg.id;
-                """.trimIndent())
-            } catch (e: Exception) {
-                AppLogger.log(TAG, "ensureTablesExist", false, "FTS contentless migration error: ${e.message}")
-            }
+        if (hasTable(db, "search_fts_content") || isFtsUpgradeNeeded(db)) {
+            rebuildFtsIndex(db)
         }
     }
 
