@@ -6497,10 +6497,10 @@
 
 	
 	<rule e="any" k="highway|peak_dist|hike_node" v="~">
-		<rule e="node" k="addr:housenumber" v="*" zoom-min="18">
+		<rule e="node" k="addr:housenumber" v="*" zoom-min="17">
 			<caption k="addr:housenumber" font-style="bold" font-size="10" fill="#666666" stroke="#E5FFFFFF" stroke-width="2" />
 		</rule>
-		<rule e="way" k="addr:housenumber" v="*" zoom-min="18">
+		<rule e="way" k="addr:housenumber" v="*" zoom-min="17">
 			<caption k="addr:housenumber" font-style="bold" font-size="10" fill="#666666" stroke="#E5FFFFFF" stroke-width="2" />
 		</rule>
 	</rule>
