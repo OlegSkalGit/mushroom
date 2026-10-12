@@ -1152,6 +1152,16 @@ object InitialSetupDialog {
 
         while (attempts < 3) {
             attempts++
+            if (attempts > 1) {
+                var waited = 0L
+                val pauseMs = 2500L
+                val step = 200L
+                while (waited < pauseMs) {
+                    if (isCancelled()) return false
+                    try { Thread.sleep(step) } catch (_: Exception) { return false }
+                    waited += step
+                }
+            }
             if (isCancelled()) return false
             var conn: HttpURLConnection? = null
             try {
