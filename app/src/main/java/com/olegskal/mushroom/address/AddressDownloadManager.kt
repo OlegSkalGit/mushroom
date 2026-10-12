@@ -564,6 +564,11 @@ object AddressDownloadManager {
             var pending = regions.mapIndexed { idx, reg -> Pair(idx + 1, reg) }
             val maxPasses = 5
 
+            // Пауза 3.5 сек, щоб сервер звільнив слот після запиту регіонів перед стартом завантаження
+            if (!isCancelled()) {
+                client.interruptibleSleep(3500L, isCancelled)
+            }
+
             // Префлайт-перевірка: миттєво за 1 швидкий SQL-запит зчитуємо всі регіони, що вже мають будинки в базі
             val loadedOsmIds = mutableSetOf<Long>()
             val loadedNames = mutableSetOf<String>()
@@ -629,7 +634,11 @@ object AddressDownloadManager {
                     }
 
                     val assocStreets = fetchAssociatedStreets(region, country.code, logCallback, isCancelled)
+                    if (isCancelled()) break
+                    client.interruptibleSleep(1500L, isCancelled)
                     val settlementIndex = fetchRegionSettlements(region, country.code, region.name, logCallback, isCancelled)
+                    if (isCancelled()) break
+                    client.interruptibleSleep(1500L, isCancelled)
 
                     val q = if (region.isBbox) {
                         val bboxStr = "(${region.minLat}, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
@@ -738,6 +747,9 @@ object AddressDownloadManager {
                         db.endTransaction()
                     }
                     onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, statusMsg)
+                    if (!isCancelled()) {
+                        client.interruptibleSleep(3000L, isCancelled)
+                    }
                 }
 
                 pending = failed

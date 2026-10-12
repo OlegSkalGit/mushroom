@@ -184,8 +184,9 @@ class OverpassAddressClient(
                     }
 
                     if (responseCode == 429 || textLow.contains("waiting for slot") || textLow.contains("slot available") || textLow.contains("rate_limited")) {
-                        AppLogger.log(TAG, "query", true, "$mirror: HTTP $responseCode — слот зайнято. Пересканування статусів...")
-                        break
+                        AppLogger.log(TAG, "query", true, "$mirror: HTTP $responseCode — слот зайнято. Пробуємо наступне дзеркало...")
+                        interruptibleSleep(1500L, isCancelled)
+                        continue
                     }
 
                     if (responseCode == 504) {
@@ -211,6 +212,10 @@ class OverpassAddressClient(
                 } finally {
                     conn?.disconnect()
                 }
+            }
+
+            if (cycle < maxCycles && !isCancelled()) {
+                interruptibleSleep(3000L, isCancelled)
             }
         }
         return null
