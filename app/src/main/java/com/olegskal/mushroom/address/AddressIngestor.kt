@@ -79,13 +79,15 @@ class AddressIngestor(
         if (cid != null) {
             countryId = cid!!
         } else {
-            db.execSQL(
-                "INSERT INTO admin_places (osm_id, parent_id, level, name, code) VALUES (0, NULL, 2, ?, ?);",
-                arrayOf(countryName, countryCode.uppercase())
+            val stmt = db.compileStatement(
+                "INSERT INTO admin_places (osm_id, parent_id, level, name, code) VALUES (0, NULL, 2, ?, ?);"
             )
-            val cCur = db.rawQuery("SELECT last_insert_rowid();", null)
-            cCur.use {
-                if (it.moveToFirst()) countryId = it.getLong(0)
+            try {
+                stmt.bindString(1, countryName)
+                stmt.bindString(2, countryCode.uppercase())
+                countryId = stmt.executeInsert()
+            } finally {
+                stmt.close()
             }
         }
     }
@@ -249,7 +251,8 @@ class AddressIngestor(
     fun flush() {
         if (housesBatch.isEmpty()) return
         val stmt = stmtInsertHouse ?: return
-        db.beginTransaction()
+        val ownTx = !db.inTransaction()
+        if (ownTx) db.beginTransaction()
         try {
             for (h in housesBatch) {
                 stmt.bindLong(1, h.streetId)
@@ -258,11 +261,11 @@ class AddressIngestor(
                 stmt.bindLong(4, h.lon.toLong())
                 stmt.executeInsert()
             }
-            db.setTransactionSuccessful()
+            if (ownTx) db.setTransactionSuccessful()
         } catch (e: Exception) {
             AppLogger.log(TAG, "flush", false, "Error flushing houses: ${e.message}")
         } finally {
-            db.endTransaction()
+            if (ownTx) db.endTransaction()
             housesBatch.clear()
         }
     }

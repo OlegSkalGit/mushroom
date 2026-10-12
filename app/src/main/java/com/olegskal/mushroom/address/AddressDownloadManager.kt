@@ -794,6 +794,13 @@ object AddressDownloadManager {
             return false
         } finally {
             ingestor.close()
+            try {
+                if (db.inTransaction()) {
+                    db.endTransaction()
+                }
+                db.rawQuery("PRAGMA wal_checkpoint(FULL);", null).use { it.moveToFirst() }
+            } catch (_: Exception) {}
+            AddressDb.closeDatabase()
         }
     }
 }
