@@ -76,21 +76,10 @@ object MushroomStorageManager {
             addressesDir
             settingsDir
             ensureNoMedia(baseDir)
-            cleanupLeftoverLogs()
             AppLogger.log(TAG, "initStorage", true, "Storage structure initialized at: ${baseDir.absolutePath}")
         } catch (e: Exception) {
             AppLogger.log(TAG, "initStorage", false, "Failed to initialize storage: ${e.message}")
         }
-    }
-
-    private fun cleanupLeftoverLogs() {
-        try {
-            val addr = addressesDir
-            File(addr, "log").takeIf { it.exists() }?.delete()
-            File(addr, "log.txt").takeIf { it.exists() }?.delete()
-            File(baseDir, "log").takeIf { it.exists() }?.delete()
-            File(baseDir, "log.txt").takeIf { it.exists() }?.delete()
-        } catch (_: Exception) {}
     }
 
     fun loadPoiCategories(): Set<String> {
