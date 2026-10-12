@@ -34,6 +34,11 @@ object LocationUtils {
         }
     }
 
+    fun getUserLocation(context: Context): Location? {
+        return com.olegskal.mushroom.service.MushroomTrackingService.currentServiceLocation
+            ?: getLastKnownLocationCascade(context)
+    }
+
     /**
      * Attempts to retrieve the best available last known location across GPS, Network, and Passive providers.
      */

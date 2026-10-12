@@ -71,6 +71,9 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         @Volatile
         var serviceStateListener: ((Boolean) -> Unit)? = null
 
+        val currentServiceLocation: Location?
+            get() = instance?.lastLocation ?: lastMetrics?.location
+
         fun ensureServiceAndNotification(context: Context) {
             try {
                 val s = instance
@@ -93,7 +96,8 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
     private lateinit var dbHelper: DatabaseHelper
 
     private var wakeLock: PowerManager.WakeLock? = null
-    private var lastLocation: Location? = null
+    var lastLocation: Location? = null
+        private set
     private var trajectoryFilter = TrajectoryFilter()
 
     // Compass

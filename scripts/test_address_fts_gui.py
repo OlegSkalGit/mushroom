@@ -1809,7 +1809,7 @@ class AddressApp(tk.Tk):
                 words = re.findall(r'[\w\dа-яА-ЯіІїЇєЄґҐ]+', t)
                 for w in words:
                     if len(w) > 0:
-                        text_tokens.append(f'"{w.lower()}"*')
+                        text_tokens.append(f'{w.lower()}*')
 
         fts_query = " ".join(text_tokens) if text_tokens else ""
 

@@ -1,7 +1,9 @@
 package com.olegskal.mushroom.address
 
 import android.content.Context
+import android.location.Location
 import com.olegskal.mushroom.util.AppLogger
+import com.olegskal.mushroom.util.LocationUtils
 import java.util.regex.Pattern
 
 data class AddressSearchResult(
@@ -35,10 +37,32 @@ object AddressSearchManager {
     private val houseNumberPattern = Pattern.compile("^\\d+[\\w\\dа-яА-ЯіІїЇєЄґҐ/-]*$")
     private val wordPattern = Pattern.compile("[\\w\\dа-яА-ЯіІїЇєЄґҐ]+")
 
-    fun search(context: Context, rawQuery: String, limit: Int = 30): List<AddressSearchResult> {
+    fun search(
+        context: Context,
+        rawQuery: String,
+        limit: Int = 30,
+        userLocation: Location? = null
+    ): List<AddressSearchResult> {
         val db = AddressDb.openDatabase(context, writable = false) ?: return emptyList()
         val query = rawQuery.trim()
         if (query.isBlank()) return emptyList()
+
+        val userLoc = userLocation ?: LocationUtils.getUserLocation(context)
+        val orderByClause = if (userLoc != null) {
+            val uLat = kotlin.math.round(userLoc.latitude * 1_000_000.0).toLong()
+            val uLon = kotlin.math.round(userLoc.longitude * 1_000_000.0).toLong()
+            """
+                ORDER BY
+                  (CASE WHEN h.lat IS NULL OR h.lat = 0 THEN 1 ELSE 0 END) ASC,
+                  ((h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) *
+                   (h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) +
+                   (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon) *
+                   (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon)) ASC,
+                  CAST(h.number AS INTEGER), h.number
+            """.trimIndent()
+        } else {
+            "ORDER BY CAST(h.number AS INTEGER), h.number"
+        }
 
         val cleanQ = query.replace("\"", " ")
             .replace("'", " ")
@@ -59,7 +83,7 @@ object AddressSearchManager {
                 while (matcher.find()) {
                     val w = matcher.group()
                     if (w.isNotBlank()) {
-                        textTokens.add("\"${w.lowercase()}\"*")
+                        textTokens.add("${w.lowercase()}*")
                     }
                 }
             }
@@ -107,7 +131,7 @@ object AddressSearchManager {
                     JOIN houses h ON h.street_id = s.id
                     WHERE search_fts MATCH ?
                       AND (h.number IN ($inPlaceholders) OR h.number LIKE ? OR h.number LIKE ?)
-                    ORDER BY CAST(h.number AS INTEGER), h.number
+                    $orderByClause
                     LIMIT ?;
                 """.trimIndent()
 
@@ -153,7 +177,7 @@ object AddressSearchManager {
                     LEFT JOIN admin_places country ON country.id = s.country_id
                     JOIN houses h ON h.street_id = s.id
                     WHERE search_fts MATCH ?
-                    ORDER BY CAST(h.number AS INTEGER), h.number
+                    $orderByClause
                     LIMIT ?;
                 """.trimIndent()
 
