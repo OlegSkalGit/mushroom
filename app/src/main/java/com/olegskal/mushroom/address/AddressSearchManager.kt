@@ -59,7 +59,7 @@ object AddressSearchManager {
                 while (matcher.find()) {
                     val w = matcher.group()
                     if (w.isNotBlank()) {
-                        textTokens.add("\"$w\"*")
+                        textTokens.add("\"${w.lowercase()}\"*")
                     }
                 }
             }

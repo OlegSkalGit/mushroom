@@ -6,7 +6,7 @@ import com.olegskal.mushroom.util.AppLogger
 import kotlin.math.roundToInt
 
 class AddressIngestor(
-    private val db: SQLiteDatabase,
+    val db: SQLiteDatabase,
     val countryCode: String,
     val countryName: String
 ) {
@@ -215,9 +215,9 @@ class AddressIngestor(
         stmtInsertFts?.let { fts ->
             try {
                 fts.bindLong(1, sid)
-                fts.bindString(2, regionName)
-                fts.bindString(3, cityName)
-                fts.bindString(4, clean)
+                fts.bindString(2, regionName.lowercase().trim())
+                fts.bindString(3, cityName.lowercase().trim())
+                fts.bindString(4, clean.lowercase().trim())
                 fts.executeInsert()
             } catch (_: Exception) {}
         }

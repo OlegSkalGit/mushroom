@@ -31,6 +31,11 @@ class SplashActivity : Activity() {
         private const val REQ_PERMS = 1001
     }
 
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        // Стартове вікно: блокуємо кнопку Назад
+    }
+
     override fun onResume() {
         super.onResume()
         if (awaitingSettings) {

@@ -176,6 +176,7 @@ object InitialSetupDialog {
         val dialog = Dialog(activity)
         val dialogTitle = if (isUk) "Оновлення додатку" else "App Updates"
         dialog.setTitle(dialogTitle)
+        dialog.setCancelable(false)
         dialog.setCanceledOnTouchOutside(false)
 
         val density = activity.resources.displayMetrics.density
@@ -576,7 +577,52 @@ object InitialSetupDialog {
             }
         }
 
-        // 6. БАЗА АДРЕС (ВИДІЛЯЄТЬСЯ 50% ШКАЛИ ПРИ ЗАВАНТАЖЕННІ)
+        // 6. ЕНЦИКЛОПЕДІЯ
+        val dbDir = MushroomDatabaseManager.getDatabaseDirectory(context)
+        val finalDb = File(dbDir, MushroomDataConfig.DB_FILE_NAME)
+        val isDbReady = finalDb.exists() && finalDb.length() == MushroomDataConfig.DB_FULL_SIZE
+        if (!isDbReady) {
+            for (part in MushroomDataConfig.DB_PARTS) {
+                val partFile = File(dbDir, part.fileName)
+                if (!partFile.exists() || partFile.length() != part.exactSize) {
+                    list.add(
+                        UpdateItem(
+                            "db_${part.fileName}",
+                            BlockType.MUSHROOMS,
+                            "Енциклопедія", "Encyclopedia",
+                            part.fileName,
+                            part.exactSize
+                        ) { onBytes, onSizeDiscovered, isCancel ->
+                            downloadFileWithResume("${MushroomDataConfig.DB_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, onSizeDiscovered, isCancel)
+                        }
+                    )
+                }
+            }
+        }
+
+        // 7. ФАЙЛИ ВИЗНАЧНИКА
+        val modelReady = MushroomClassifier.checkModelStatus(context) == MushroomClassifier.ModelStatus.READY
+        if (!modelReady) {
+            val modelDir = MushroomClassifier.getModelDirectory()
+            for (part in MushroomDataConfig.MODEL_PARTS) {
+                val partFile = File(modelDir, part.fileName)
+                if (!partFile.exists() || partFile.length() != part.exactSize) {
+                    list.add(
+                        UpdateItem(
+                            "model_${part.fileName}",
+                            BlockType.MUSHROOMS,
+                            "Файли визначника", "Classifier files",
+                            part.fileName,
+                            part.exactSize
+                        ) { onBytes, onSizeDiscovered, isCancel ->
+                            downloadFileWithResume("${MushroomDataConfig.MODEL_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, onSizeDiscovered, isCancel)
+                        }
+                    )
+                }
+            }
+        }
+
+        // 8. БАЗА АДРЕС (ПЕРЕНЕСЕНО В КІНЕЦЬ, 50% ШКАЛИ ПРИ ЗАВАНТАЖЕННІ)
         val addressReady = AddressDownloadManager.hasAddressesForCountry(context, country.code)
         if (!addressReady) {
             val loadedRegs = AddressDownloadManager.getLoadedRegionCount(context, country.code)
@@ -611,51 +657,6 @@ object InitialSetupDialog {
                     )
                 }
             )
-        }
-
-        // 7. ЕНЦИКЛОПЕДІЯ
-        val dbDir = MushroomDatabaseManager.getDatabaseDirectory(context)
-        val finalDb = File(dbDir, MushroomDataConfig.DB_FILE_NAME)
-        val isDbReady = finalDb.exists() && finalDb.length() == MushroomDataConfig.DB_FULL_SIZE
-        if (!isDbReady) {
-            for (part in MushroomDataConfig.DB_PARTS) {
-                val partFile = File(dbDir, part.fileName)
-                if (!partFile.exists() || partFile.length() != part.exactSize) {
-                    list.add(
-                        UpdateItem(
-                            "db_${part.fileName}",
-                            BlockType.MUSHROOMS,
-                            "Енциклопедія", "Encyclopedia",
-                            part.fileName,
-                            part.exactSize
-                        ) { onBytes, onSizeDiscovered, isCancel ->
-                            downloadFileWithResume("${MushroomDataConfig.DB_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, onSizeDiscovered, isCancel)
-                        }
-                    )
-                }
-            }
-        }
-
-        // 8. ФАЙЛИ ВИЗНАЧНИКА
-        val modelReady = MushroomClassifier.checkModelStatus(context) == MushroomClassifier.ModelStatus.READY
-        if (!modelReady) {
-            val modelDir = MushroomClassifier.getModelDirectory()
-            for (part in MushroomDataConfig.MODEL_PARTS) {
-                val partFile = File(modelDir, part.fileName)
-                if (!partFile.exists() || partFile.length() != part.exactSize) {
-                    list.add(
-                        UpdateItem(
-                            "model_${part.fileName}",
-                            BlockType.MUSHROOMS,
-                            "Файли визначника", "Classifier files",
-                            part.fileName,
-                            part.exactSize
-                        ) { onBytes, onSizeDiscovered, isCancel ->
-                            downloadFileWithResume("${MushroomDataConfig.MODEL_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, onSizeDiscovered, isCancel)
-                        }
-                    )
-                }
-            }
         }
 
         return list
@@ -830,8 +831,10 @@ object InitialSetupDialog {
 
             val hasUnpack = willUnpackDb || willUnpackModel
 
-            // Розрахунок діапазонів прогресу: 50% шкали (500 одиниць) СУВОРО для addr_${code}
+            // Відокремлюємо завантаження бази адрес: вона повинна виконуватися суворо в самому кінці
             val addrItem = itemsToProcess.find { it.id.startsWith("addr_") }
+            val downloadItems = itemsToProcess.filter { !it.id.startsWith("addr_") }
+
             val itemRanges = mutableMapOf<String, Pair<Int, Int>>()
             var unpackDbRange: Pair<Int, Int>? = null
             var unpackModelRange: Pair<Int, Int>? = null
@@ -840,27 +843,16 @@ object InitialSetupDialog {
             val regSuffix = if (isUk) "$regCount регіонів" else "$regCount regions"
 
             if (addrItem != null) {
-                val preItems = itemsToProcess.filter { it.block == BlockType.MAPS }
-                val postItems = itemsToProcess.filter { it.block == BlockType.MUSHROOMS }
+                val preExpected = downloadItems.sumOf { it.expectedBytes }.coerceAtLeast(1L)
+                val unpackUnits = if (hasUnpack) 100 else 0
+                val addrUnits = if (downloadItems.isEmpty()) (1000 - unpackUnits) else 500
+                val preUnits = (1000 - addrUnits - unpackUnits).coerceAtLeast(0)
 
-                val preExpected = preItems.sumOf { it.expectedBytes }.coerceAtLeast(1L)
-                val postExpected = postItems.sumOf { it.expectedBytes }
-                val unpackWeight = if (hasUnpack) 50_000_000L else 0L
-                val postTotalWeight = postExpected + unpackWeight
-
-                val preUnits = if (postTotalWeight <= 0L) {
-                    500
-                } else if (preItems.isEmpty()) {
-                    0
-                } else {
-                    ((preExpected.toDouble() / (preExpected + postTotalWeight).toDouble()) * 500).toInt().coerceIn(40, 460)
-                }
-
-                // preItems займають [0 .. preUnits]
+                // 1. Попередні завантаження (Карти, POI, маршрути, БД, модель) займають [0 .. preUnits]
                 var cur = 0
-                for (i in preItems.indices) {
-                    val itm = preItems[i]
-                    val span = if (i == preItems.lastIndex) {
+                for (i in downloadItems.indices) {
+                    val itm = downloadItems[i]
+                    val span = if (i == downloadItems.lastIndex) {
                         (preUnits - cur).coerceAtLeast(1)
                     } else {
                         ((itm.expectedBytes.toDouble() / preExpected.toDouble()) * preUnits).toInt().coerceAtLeast(1)
@@ -870,53 +862,30 @@ object InitialSetupDialog {
                     cur = nxt
                 }
 
-                // addrItem займає РІВНО 500 одиниць (50% шкали!): [preUnits .. preUnits + 500]
-                val addrStart = preUnits
-                val addrEnd = (preUnits + 500).coerceAtMost(1000)
-                itemRanges[addrItem.id] = addrStart to addrEnd
-
-                // postItems + розпакування займають [addrEnd .. 1000]
-                val remainingUnits = (1000 - addrEnd).coerceAtLeast(0)
-                val unpackUnits = if (hasUnpack) {
-                    if (postItems.isEmpty()) remainingUnits
-                    else (remainingUnits * 0.35).toInt().coerceIn(10, remainingUnits.coerceAtLeast(10))
-                } else 0
-                val postDownloadUnits = (remainingUnits - unpackUnits).coerceAtLeast(0)
-
-                cur = addrEnd
-                if (postItems.isNotEmpty()) {
-                    val postSum = postExpected.coerceAtLeast(1L)
-                    for (i in postItems.indices) {
-                        val itm = postItems[i]
-                        val span = if (i == postItems.lastIndex) {
-                            ((addrEnd + postDownloadUnits) - cur).coerceAtLeast(1)
-                        } else {
-                            ((itm.expectedBytes.toDouble() / postSum.toDouble()) * postDownloadUnits).toInt().coerceAtLeast(1)
-                        }
-                        val nxt = (cur + span).coerceAtMost(addrEnd + postDownloadUnits).coerceAtLeast(cur)
-                        itemRanges[itm.id] = cur to nxt
-                        cur = nxt
-                    }
-                }
-
+                // 2. Розпакування енциклопедії та визначника займає [preUnits .. preUnits + unpackUnits]
+                val unpackStart = preUnits
+                val unpackEnd = preUnits + unpackUnits
                 if (willUnpackDb && willUnpackModel) {
                     val halfUnpack = unpackUnits / 2
-                    val mid = (cur + halfUnpack).coerceAtMost(1000).coerceAtLeast(cur)
-                    unpackDbRange = cur to mid
-                    unpackModelRange = mid to 1000
+                    val mid = unpackStart + halfUnpack
+                    unpackDbRange = unpackStart to mid
+                    unpackModelRange = mid to unpackEnd
                 } else if (willUnpackDb) {
-                    unpackDbRange = cur to 1000
+                    unpackDbRange = unpackStart to unpackEnd
                 } else if (willUnpackModel) {
-                    unpackModelRange = cur to 1000
+                    unpackModelRange = unpackStart to unpackEnd
                 }
+
+                // 3. База адрес: суворо в кінці після завантажень та розпаковок [unpackEnd .. 1000]
+                itemRanges[addrItem.id] = unpackEnd to 1000
             } else {
-                // Без бази адрес: уся шкала 0..1000 розподіляється пропорційно
+                // Без бази адрес: завантаження [0 .. maxDownloadUnits], розпакування [maxDownloadUnits .. 1000]
                 val maxDownloadUnits = if (hasUnpack) 850 else 1000
-                val totalExpected = itemsToProcess.sumOf { it.expectedBytes }.coerceAtLeast(1L)
+                val totalExpected = downloadItems.sumOf { it.expectedBytes }.coerceAtLeast(1L)
                 var cur = 0
-                for (i in itemsToProcess.indices) {
-                    val itm = itemsToProcess[i]
-                    val span = if (i == itemsToProcess.lastIndex) {
+                for (i in downloadItems.indices) {
+                    val itm = downloadItems[i]
+                    val span = if (i == downloadItems.lastIndex) {
                         maxDownloadUnits - cur
                     } else {
                         ((itm.expectedBytes.toDouble() / totalExpected.toDouble()) * maxDownloadUnits).toInt().coerceAtLeast(1)
@@ -939,9 +908,8 @@ object InitialSetupDialog {
             val failedItems = mutableListOf<UpdateItem>()
             var hasUnpackError = false
 
-            // Послідовне завантаження компонентів
-            for (item in itemsToProcess) {
-                if (cancelFlag.get()) break
+            fun downloadSingleItem(item: UpdateItem): Boolean {
+                if (cancelFlag.get()) return false
 
                 val (rangeStart, rangeEnd) = itemRanges[item.id] ?: (0 to 1000)
                 val rangeSpan = (rangeEnd - rangeStart).coerceAtLeast(1)
@@ -1024,6 +992,13 @@ object InitialSetupDialog {
                 } else if (!cancelFlag.get()) {
                     failedItems.add(item)
                 }
+                return success
+            }
+
+            // 1. Послідовне завантаження компонентів (карти, POI, маршрутизація, частини енциклопедії та моделі)
+            for (item in downloadItems) {
+                if (cancelFlag.get()) break
+                downloadSingleItem(item)
             }
 
             // Розпакування енциклопедії
@@ -1080,6 +1055,11 @@ object InitialSetupDialog {
                 }
             } else if (!cancelFlag.get() && itemsToProcess.any { it.id.startsWith("model_") } && !MushroomClassifier.isModelDownloaded(activity)) {
                 hasUnpackError = true
+            }
+
+            // 4. Завантаження та імпорт бази адрес (СУВОРО ПІСЛЯ ВСІХ ЗАВАНТАЖЕНЬ ТА РОЗПАКОВОК)
+            if (addrItem != null && !cancelFlag.get()) {
+                downloadSingleItem(addrItem)
             }
 
             val addressIncomplete = itemsToProcess.any { it.id.startsWith("addr_") } &&

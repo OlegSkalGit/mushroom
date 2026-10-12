@@ -189,9 +189,9 @@ class OverpassAddressClient(
                     }
 
                     if (responseCode == 504) {
-                        AppLogger.log(TAG, "query", false, "$mirror: HTTP 504 Gateway Timeout. Пауза 8с та пересканування...")
-                        interruptibleSleep(8000L, isCancelled)
-                        break
+                        AppLogger.log(TAG, "query", false, "$mirror: HTTP 504 Gateway Timeout. Спробуємо інше дзеркало...")
+                        interruptibleSleep(1500L, isCancelled)
+                        continue
                     }
 
                     if (responseCode !in 200..299 || textLow.contains("<html") || textLow.contains("runtime error")) {

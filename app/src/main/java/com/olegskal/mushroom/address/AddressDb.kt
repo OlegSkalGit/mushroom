@@ -79,7 +79,7 @@ object AddressDb {
                 createFtsTableWithFallback(db)
                 db.execSQL("""
                     INSERT INTO search_fts (rowid, region_name, city_name, street_name)
-                    SELECT s.id, COALESCE(reg.name, ''), city.name, sn.name
+                    SELECT s.id, LOWER(COALESCE(reg.name, '')), LOWER(city.name), LOWER(sn.name)
                     FROM streets s
                     JOIN street_names sn ON s.name_id = sn.id
                     JOIN admin_places city ON s.place_id = city.id
@@ -190,8 +190,12 @@ object AddressDb {
 
     private fun createFtsTableWithFallback(db: SQLiteDatabase) {
         val statements = listOf(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(region_name, city_name, street_name, tokenize='unicode61', content='', detail=column, columnsize=0);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(region_name, city_name, street_name, tokenize='unicode61', content='');",
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(region_name, city_name, street_name, content='', detail=column, columnsize=0);",
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(region_name, city_name, street_name, content='');",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, tokenize=unicode61, content='');",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, tokenize=unicode61);",
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, content='');",
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name);"
         )

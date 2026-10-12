@@ -52,7 +52,9 @@ object AddressDownloadManager {
         if (expected <= 1) {
             return getCountryHouseCount(context, code) > 100L
         }
-        val minRequired = (expected - 1).coerceAtLeast(1)
+        val houseCount = getCountryHouseCount(context, code)
+        if (houseCount < 100L) return false
+        val minRequired = if (expected >= 20) (expected - 2).coerceAtLeast(1) else (expected - 1).coerceAtLeast(1)
         return loaded >= minRequired
     }
 
@@ -88,21 +90,39 @@ object AddressDownloadManager {
         }
     }
 
-    fun loadCachedRegionsFromDb(db: SQLiteDatabase, countryId: Long): List<RegionTarget> {
+    fun loadCachedRegionsFromDb(db: SQLiteDatabase, countryId: Long, countryCode: String? = null): List<RegionTarget> {
         return try {
+            val isUa = countryCode?.uppercase() == "UA"
+            if (isUa) {
+                try {
+                    db.execSQL("""
+                        DELETE FROM admin_places 
+                        WHERE parent_id = ? AND level = 4 
+                          AND (osm_id = 3795586 OR (name LIKE '%Крим%' AND osm_id != 72639 AND name != 'Автономна Республіка Крим'));
+                    """.trimIndent(), arrayOf(countryId.toString()))
+                } catch (_: Exception) {}
+            }
             val cursor = db.rawQuery("""
                 SELECT osm_id, name FROM admin_places 
                 WHERE parent_id = ? AND level = 4 
                 ORDER BY name ASC;
             """.trimIndent(), arrayOf(countryId.toString()))
             val list = mutableListOf<RegionTarget>()
+            val seenNames = mutableSetOf<String>()
             cursor.use {
                 while (it.moveToNext()) {
                     val osmId = it.getLong(0)
                     val name = it.getString(1) ?: ""
-                    if (name.isNotBlank()) {
-                        list.add(RegionTarget(osmId, name))
+                    if (name.isBlank()) continue
+                    val nameLow = name.lowercase().trim()
+                    if (isUa) {
+                        if (osmId == 3795586L) continue
+                        if (nameLow.contains("крим") && seenNames.any { it.contains("крим") }) continue
+                        if (nameLow.contains("севастополь") && seenNames.any { it.contains("севастополь") }) continue
                     }
+                    if (nameLow in seenNames) continue
+                    seenNames.add(nameLow)
+                    list.add(RegionTarget(osmId, name))
                 }
             }
             list
@@ -111,8 +131,9 @@ object AddressDownloadManager {
         }
     }
 
-    fun saveRegionsToDb(db: SQLiteDatabase, countryId: Long, regions: List<RegionTarget>) {
+    fun saveRegionsToDb(db: SQLiteDatabase, countryId: Long, regions: List<RegionTarget>, countryCode: String? = null) {
         try {
+            val isUa = countryCode?.uppercase() == "UA"
             val existingNames = mutableSetOf<String>()
             val cur = db.rawQuery(
                 "SELECT name FROM admin_places WHERE parent_id = ? AND level = 4;",
@@ -130,6 +151,11 @@ object AddressDownloadManager {
                 )
                 for (r in regions) {
                     val clean = r.name.lowercase().trim()
+                    if (isUa) {
+                        if (r.relId == 3795586L) continue
+                        if (clean.contains("крим") && existingNames.any { it.contains("крим") }) continue
+                        if (clean.contains("севастополь") && existingNames.any { it.contains("севастополь") }) continue
+                    }
                     if (clean in existingNames) continue
                     stmt.bindLong(1, if (r.relId > 0) r.relId else 0L)
                     stmt.bindLong(2, countryId)
@@ -162,7 +188,7 @@ object AddressDownloadManager {
 
         // 1. Перевірка збережених регіонів у SQLite (якщо вже завантажувалися раніше)
         if (db != null && countryId != null) {
-            val dbRegions = loadCachedRegionsFromDb(db, countryId)
+            val dbRegions = loadCachedRegionsFromDb(db, countryId, code)
             if (dbRegions.size >= 2) {
                 cachedRegionCounts[code] = dbRegions.size
                 cachedRegions[code] = dbRegions
@@ -210,6 +236,11 @@ object AddressDownloadManager {
                     val name = nameUk.ifBlank { nameLocal.ifBlank { nameEn } }.trim()
                     if (name.isBlank()) continue
                     val nameLow = name.lowercase()
+                    if (code == "UA") {
+                        if (relId == 3795586L) continue
+                        if (nameLow.contains("крим") && seenNames.any { it.contains("крим") }) continue
+                        if (nameLow.contains("севастополь") && seenNames.any { it.contains("севастополь") }) continue
+                    }
                     if (nameLow in seenNames) continue
                     seenNames.add(nameLow)
                     regions.add(RegionTarget(relId, name))
@@ -220,7 +251,7 @@ object AddressDownloadManager {
                 cachedRegionCounts[code] = regions.size
                 cachedRegions[code] = regions
                 if (db != null && countryId != null) {
-                    saveRegionsToDb(db, countryId, regions)
+                    saveRegionsToDb(db, countryId, regions, code)
                 }
                 logFn("[+] Знайдено ${regions.size} адміністративних регіонів для ${country.nameUk}")
                 return regions
@@ -260,8 +291,9 @@ object AddressDownloadManager {
                     if (it.moveToFirst()) {
                         val count = it.getInt(0)
                         if (count > 0) {
-                            cachedRegionCounts[code] = count
-                            return count
+                            val adjusted = if (code == "UA" && count > 27) 27 else count
+                            cachedRegionCounts[code] = adjusted
+                            return adjusted
                         }
                     }
                 }
@@ -371,7 +403,6 @@ object AddressDownloadManager {
                 (
                   node["place"~"city|town|village|hamlet|suburb|isolated_dwelling"]$bboxStr;
                   relation["place"~"city|town|village|municipality"]$bboxStr;
-                  relation["boundary"="administrative"]["admin_level"~"7|8|9|10"]$bboxStr;
                 );
                 out center;
             """.trimIndent()
@@ -387,7 +418,6 @@ object AddressDownloadManager {
                 (
                   node["place"~"city|town|village|hamlet|suburb|isolated_dwelling"](area.a);
                   relation["place"~"city|town|village|municipality"](area.a);
-                  relation["boundary"="administrative"]["admin_level"~"7|8|9|10"](area.a);
                 );
                 out center;
             """.trimIndent()
@@ -428,9 +458,10 @@ object AddressDownloadManager {
     private fun extractAddressesFromPoiFile(
         poiFile: File,
         country: MapCountry,
-        ingestor: AddressIngestor
+        ingestor: AddressIngestor,
+        isCancelled: () -> Boolean = { false }
     ): Int {
-        if (!poiFile.exists() || poiFile.length() < 1024L) return 0
+        if (!poiFile.exists() || poiFile.length() < 1024L || isCancelled()) return 0
         var count = 0
         try {
             val poiDb = SQLiteDatabase.openDatabase(poiFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
@@ -438,43 +469,62 @@ object AddressDownloadManager {
                 SELECT i.lat, i.lon, p.data 
                 FROM poi_data p 
                 JOIN poi_index i ON p.id = i.id 
-                WHERE p.data LIKE '%addr:%' OR p.data LIKE '%street%';
+                WHERE p.data LIKE '%addr:%';
             """.trimIndent(), null)
 
-            cursor.use {
-                while (it.moveToNext()) {
-                    val latRaw = it.getDouble(0)
-                    val lonRaw = it.getDouble(1)
-                    val data = it.getString(2) ?: ""
+            val appDb = ingestor.db
+            appDb.beginTransaction()
+            try {
+                cursor.use {
+                    var inTx = 0
+                    while (it.moveToNext()) {
+                        if (isCancelled()) break
+                        val latRaw = it.getDouble(0)
+                        val lonRaw = it.getDouble(1)
+                        val data = it.getString(2) ?: ""
 
-                    var street = ""
-                    var house = ""
-                    var city = ""
+                        var street = ""
+                        var house = ""
+                        var city = ""
 
-                    for (entry in data.split("\r")) {
-                        if (entry.contains("=")) {
-                            val kv = entry.split("=", limit = 2)
-                            val k = kv[0].trim().lowercase()
-                            val v = kv[1].trim()
-                            when (k) {
-                                "addr:street" -> street = v
-                                "addr:housenumber" -> house = v
-                                "addr:city", "addr:town", "addr:village", "addr:place" -> if (city.isBlank()) city = v
+                        for (entry in data.split("\r")) {
+                            if (entry.contains("=")) {
+                                val kv = entry.split("=", limit = 2)
+                                val k = kv[0].trim().lowercase()
+                                val v = kv[1].trim()
+                                when (k) {
+                                    "addr:street" -> street = v
+                                    "addr:housenumber" -> house = v
+                                    "addr:city", "addr:town", "addr:village", "addr:place" -> if (city.isBlank()) city = v
+                                }
+                            }
+                        }
+
+                        if (city.isBlank()) city = country.nameUk
+                        if (street.isNotBlank() || house.isNotBlank()) {
+                            val cityId = ingestor.getOrCreatePlace(ingestor.countryId, city, level = 8)
+                            val streetId = ingestor.getOrCreateStreet(cityId, street, country.nameUk, city)
+                            ingestor.addHouse(streetId, house, latRaw, lonRaw)
+                            count++
+                            inTx++
+                            if (inTx >= 2000) {
+                                ingestor.flush()
+                                appDb.setTransactionSuccessful()
+                                appDb.endTransaction()
+                                appDb.beginTransaction()
+                                inTx = 0
                             }
                         }
                     }
-
-                    if (city.isBlank()) city = country.nameUk
-                    if (street.isNotBlank() || house.isNotBlank()) {
-                        val cityId = ingestor.getOrCreatePlace(ingestor.countryId, city, level = 8)
-                        val streetId = ingestor.getOrCreateStreet(cityId, street, country.nameUk, city)
-                        ingestor.addHouse(streetId, house, latRaw, lonRaw)
-                        count++
-                    }
+                }
+                ingestor.flush()
+                appDb.setTransactionSuccessful()
+            } finally {
+                if (appDb.inTransaction()) {
+                    appDb.endTransaction()
                 }
             }
             poiDb.close()
-            ingestor.flush()
         } catch (e: Exception) {
             AppLogger.log(TAG, "extractAddressesFromPoiFile", false, "POI address extraction warning: ${e.message}")
         }
@@ -712,7 +762,7 @@ object AddressDownloadManager {
             for (pFil in candidatePoiFiles) {
                 if (pFil.exists() && pFil.length() > 1024L && !isCancelled()) {
                     onProgress(0.88, "${country.nameUk}: Експорт POI адрес (${pFil.name})")
-                    extractAddressesFromPoiFile(pFil, country, ingestor)
+                    extractAddressesFromPoiFile(pFil, country, ingestor, isCancelled)
                     break
                 }
             }

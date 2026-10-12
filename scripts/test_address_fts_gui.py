@@ -312,6 +312,7 @@ def init_db(db_path):
             region_name,
             city_name,
             street_name,
+            tokenize='unicode61',
             content='',
             detail=column,
             columnsize=0
@@ -429,7 +430,7 @@ class AddressIngestor:
         self.cur.execute("""
             INSERT INTO search_fts (rowid, region_name, city_name, street_name)
             VALUES (?, ?, ?, ?);
-        """, (sid, region_name or "", city_name or "", street_clean))
+        """, (sid, (region_name or "").lower(), (city_name or "").lower(), street_clean.lower()))
 
         return sid
 
@@ -1808,7 +1809,7 @@ class AddressApp(tk.Tk):
                 words = re.findall(r'[\w\dа-яА-ЯіІїЇєЄґҐ]+', t)
                 for w in words:
                     if len(w) > 0:
-                        text_tokens.append(f'"{w}"*')
+                        text_tokens.append(f'"{w.lower()}"*')
 
         fts_query = " ".join(text_tokens) if text_tokens else ""
 
@@ -1821,14 +1822,18 @@ class AddressApp(tk.Tk):
             if house_num and fts_query:
                 # Регістронезалежний та гнучкий пошук номерів будинків з числами та літерами (68, 68-Б, 68Б, 68 Б)
                 h_up = house_num.upper().strip()
+                h_low = house_num.lower().strip()
                 h_vars = set()
                 if h_up.isdigit():
                     h_vars.add(int(h_up))
                     h_vars.add(h_up)
                 else:
                     h_vars.add(h_up)
+                    h_vars.add(h_low)
                     h_vars.add(h_up.replace(" ", ""))
+                    h_vars.add(h_low.replace(" ", ""))
                     h_vars.add(h_up.replace("-", ""))
+                    h_vars.add(h_low.replace("-", ""))
                     m_num = re.match(r'^([\d/]+)[-\s]?([^\d\s/]+)$', house_num)
                     if m_num:
                         num_p, let_p = m_num.groups()
@@ -1852,11 +1857,11 @@ class AddressApp(tk.Tk):
                     LEFT JOIN admin_places country ON country.id = s.country_id
                     JOIN houses h ON h.street_id = s.id
                     WHERE search_fts MATCH ?
-                      AND (h.number IN ({in_placeholders}) OR h.number LIKE ?)
+                      AND (h.number IN ({in_placeholders}) OR h.number LIKE ? OR h.number LIKE ?)
                     ORDER BY CAST(h.number AS INTEGER), h.number
                     LIMIT 100
                 """
-                cur.execute(sql, [fts_query] + vars_list + [f"{h_up}%"])
+                cur.execute(sql, [fts_query] + vars_list + [f"{h_up}%", f"{h_low}%"])
             elif fts_query:
                 sql = """
                     SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon
