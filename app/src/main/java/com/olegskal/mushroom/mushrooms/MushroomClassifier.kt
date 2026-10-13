@@ -486,14 +486,23 @@ class MushroomClassifier(private val context: Context) {
                         return when {
                             urlStr.startsWith("https://local.mushroom/index.html") -> {
                                 val html = getRunnerHtml()
-                                WebResourceResponse("text/html", "UTF-8", ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
+                                val resp = WebResourceResponse("text/html", "UTF-8", ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
+                                resp.responseHeaders = mapOf(
+                                    "Cross-Origin-Opener-Policy" to "same-origin",
+                                    "Cross-Origin-Embedder-Policy" to "require-corp"
+                                )
+                                resp
                             }
-                            urlStr.startsWith("https://local.mushroom/ort.min.js") -> {
-                                val f = getRequiredFile(context, "ort.min.js")
+                            urlStr.startsWith("https://local.mushroom/ort.wasm.min.js") -> {
+                                val f = getRequiredFile(context, "ort.wasm.min.js")
                                 WebResourceResponse("application/javascript", "UTF-8", FileInputStream(f))
                             }
-                            urlStr.startsWith("https://local.mushroom/ort-wasm-simd.wasm") -> {
-                                val f = getRequiredFile(context, "ort-wasm-simd.wasm")
+                            urlStr.startsWith("https://local.mushroom/ort-wasm-simd-threaded.mjs") -> {
+                                val f = getRequiredFile(context, "ort-wasm-simd-threaded.mjs")
+                                WebResourceResponse("application/javascript", "UTF-8", FileInputStream(f))
+                            }
+                            urlStr.startsWith("https://local.mushroom/ort-wasm-simd-threaded.wasm") -> {
+                                val f = getRequiredFile(context, "ort-wasm-simd-threaded.wasm")
                                 WebResourceResponse("application/wasm", null, FileInputStream(f))
                             }
                             urlStr.startsWith("https://local.mushroom/beit_base_384_arm_int8.ort") -> {
@@ -528,7 +537,7 @@ class MushroomClassifier(private val context: Context) {
             <html>
             <head>
               <meta charset="utf-8">
-              <script src="https://local.mushroom/ort.min.js"></script>
+              <script src="https://local.mushroom/ort.wasm.min.js"></script>
             </head>
             <body>
               <script>
@@ -538,7 +547,7 @@ class MushroomClassifier(private val context: Context) {
                 async function initSession() {
                   try {
                     ort.env.wasm.wasmPaths = "https://local.mushroom/";
-                    ort.env.wasm.numThreads = 2;
+                    ort.env.wasm.numThreads = 1;
 
                     const [s1, s2] = await Promise.all([
                       ort.InferenceSession.create("https://local.mushroom/beit_base_384_arm_int8.ort", {
