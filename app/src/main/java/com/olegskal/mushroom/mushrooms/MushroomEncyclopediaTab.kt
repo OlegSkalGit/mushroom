@@ -19,6 +19,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import com.olegskal.mushroom.ui.InitialSetupDialog
 import com.olegskal.mushroom.ui.UiUtils
 import com.olegskal.mushroom.util.AppPrefs
 
@@ -474,7 +475,19 @@ class MushroomEncyclopediaTab(
             .show()
     }
 
-    private fun updateDbStatusBadge() {
+    fun updateDbStatusBadge() {
+        if (InitialSetupDialog.isDatabaseInQueue()) {
+            dbStatusRow.visibility = View.VISIBLE
+            tvDbStatus.text = if (currentLang == "uk") {
+                "⏳ База грибів завантажується у фоні / в черзі..."
+            } else {
+                "⏳ Mushroom database downloading in background / in queue..."
+            }
+            btnDownloadDb.visibility = View.GONE
+            return
+        }
+
+        btnDownloadDb.visibility = View.VISIBLE
         val status = MushroomDatabaseManager.checkDatabaseStatus(activity)
         when (status) {
             MushroomDatabaseManager.DataStatus.READY -> {
@@ -502,6 +515,13 @@ class MushroomEncyclopediaTab(
     }
 
     private fun promptAndDownloadDatabase(onReady: ((Boolean) -> Unit)? = null) {
+        if (InitialSetupDialog.isDatabaseInQueue()) {
+            val msg = if (currentLang == "uk") "База грибів уже завантажується у фоні" else "Database is already downloading in background"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+            updateDbStatusBadge()
+            return
+        }
+
         val status = MushroomDatabaseManager.checkDatabaseStatus(activity)
         val isUpdate = (status == MushroomDatabaseManager.DataStatus.NEEDS_UPDATE)
 
@@ -551,86 +571,39 @@ class MushroomEncyclopediaTab(
             }
             .setPositiveButton(positiveBtn) { d, _ ->
                 d.dismiss()
-                showDbDownloadProgressDialog(isUpdate, onReady)
-            }
-            .show()
-    }
-
-    private fun showDbDownloadProgressDialog(isUpdate: Boolean, onReady: ((Boolean) -> Unit)? = null) {
-        val progressDialogView = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(30, 24, 30, 24)
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-        }
-
-        val tvTitle = TextView(activity).apply {
-            text = if (isUpdate) {
-                if (currentLang == "uk") "Оновлення бази даних..." else "Updating database..."
-            } else {
-                if (currentLang == "uk") "Завантаження бази даних..." else "Downloading database..."
-            }
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 12)
-        }
-
-        val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = false
-            max = 100
-            progress = 0
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, 8)
-            }
-        }
-
-        val tvPercent = TextView(activity).apply {
-            text = "0%"
-            setTextColor(Color.parseColor("#10B981"))
-            textSize = 13f
-            gravity = Gravity.RIGHT
-        }
-
-        progressDialogView.addView(tvTitle)
-        progressDialogView.addView(progressBar)
-        progressDialogView.addView(tvPercent)
-
-        val dialog = AlertDialog.Builder(activity)
-            .setView(progressDialogView)
-            .setCancelable(false)
-            .create()
-
-        dialog.show()
-
-        MushroomDatabaseManager.downloadDatabase(
-            context = activity,
-            forceDownload = isUpdate,
-            onProgress = { percent, statusText ->
-                mainHandler.post {
-                    progressBar.progress = percent
-                    tvPercent.text = statusText
-                }
-            },
-            onComplete = { success, errorMsg ->
-                mainHandler.post {
-                    dialog.dismiss()
-                    if (success) {
+                val result = InitialSetupDialog.enqueueDatabase(activity, forceDownload = isUpdate) {
+                    activity.runOnUiThread {
                         updateDbStatusBadge()
-                        val successMsg = if (isUpdate) {
-                            if (currentLang == "uk") "Базу успішно оновлено!" else "Database updated successfully!"
-                        } else {
-                            if (currentLang == "uk") "Базу успішно завантажено!" else "Database downloaded successfully!"
-                        }
-                        Toast.makeText(activity, successMsg, Toast.LENGTH_SHORT).show()
-                        onReady?.invoke(true)
                         resetAndReload()
-                    } else {
-                        Toast.makeText(activity, "Download failed: $errorMsg", Toast.LENGTH_LONG).show()
-                        onReady?.invoke(false)
+                        onReady?.invoke(true)
+                    }
+                }
+                when (result) {
+                    InitialSetupDialog.EnqueueResult.ALREADY_INSTALLED -> {
+                        val tMsg = if (currentLang == "uk") "База грибів уже встановлена" else "Database already installed"
+                        Toast.makeText(activity, tMsg, Toast.LENGTH_SHORT).show()
+                        updateDbStatusBadge()
+                        resetAndReload()
+                        onReady?.invoke(true)
+                    }
+                    InitialSetupDialog.EnqueueResult.ALREADY_IN_QUEUE -> {
+                        val tMsg = if (currentLang == "uk") "База вже у черзі завантаження" else "Database already in queue"
+                        Toast.makeText(activity, tMsg, Toast.LENGTH_SHORT).show()
+                        updateDbStatusBadge()
+                    }
+                    InitialSetupDialog.EnqueueResult.STARTED -> {
+                        val tMsg = if (currentLang == "uk") "Завантаження бази грибів розпочато у фоні" else "Database download started in background"
+                        Toast.makeText(activity, tMsg, Toast.LENGTH_SHORT).show()
+                        updateDbStatusBadge()
+                    }
+                    InitialSetupDialog.EnqueueResult.ENQUEUED -> {
+                        val tMsg = if (currentLang == "uk") "Базу грибів додано до черги завантаження" else "Database added to download queue"
+                        Toast.makeText(activity, tMsg, Toast.LENGTH_SHORT).show()
+                        updateDbStatusBadge()
                     }
                 }
             }
-        )
+            .show()
     }
 
     private fun getViewModeLabels(): List<String> {
@@ -682,6 +655,13 @@ class MushroomEncyclopediaTab(
         }
     }
 
+    fun onResume() {
+        updateDbStatusBadge()
+        if (displayedTaxa.isEmpty() && MushroomDatabaseManager.isDatabaseAvailable(activity)) {
+            resetAndReload()
+        }
+    }
+
     fun setLanguage(lang: String) {
         currentLang = lang
         searchEditText.hint = if (currentLang == "uk") "Пошук (білий, печериця, boletus, amanita)..." else "Search (porcini, amanita, boletus)..."
@@ -727,10 +707,10 @@ class MushroomEncyclopediaTab(
             isLoading = false
             hasMore = false
             statusTextView.visibility = View.VISIBLE
-            statusTextView.text = if (currentLang == "uk") {
-                "База не завантажена. Натисніть 'Завантажити' вище."
+            statusTextView.text = if (InitialSetupDialog.isDatabaseInQueue()) {
+                if (currentLang == "uk") "⏳ База завантажується у фоні. Будь ласка, зачекайте..." else "⏳ Database downloading in background. Please wait..."
             } else {
-                "Database not downloaded. Click 'Download' above."
+                if (currentLang == "uk") "База не завантажена. Натисніть 'Завантажити' вище." else "Database not downloaded. Click 'Download' above."
             }
             return
         }

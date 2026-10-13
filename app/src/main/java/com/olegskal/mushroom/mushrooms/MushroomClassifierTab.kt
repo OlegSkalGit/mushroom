@@ -18,6 +18,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import com.olegskal.mushroom.ui.InitialSetupDialog
 import com.olegskal.mushroom.ui.PhotoZoomDialog
 import com.olegskal.mushroom.ui.UiUtils
 
@@ -280,6 +281,18 @@ class MushroomClassifierTab(
     }
 
     fun updateModelStatusBadge() {
+        if (InitialSetupDialog.isModelInQueue()) {
+            modelStatusRow.visibility = View.VISIBLE
+            tvModelStatus.text = if (currentLang == "uk") {
+                "⏳ Визначник завантажується у фоні / в черзі..."
+            } else {
+                "⏳ Classifier downloading in background / in queue..."
+            }
+            btnDownloadModel.visibility = View.GONE
+            return
+        }
+
+        btnDownloadModel.visibility = View.VISIBLE
         val status = MushroomClassifier.checkModelStatus(activity)
         when (status) {
             MushroomClassifier.ModelStatus.READY -> {
@@ -300,6 +313,10 @@ class MushroomClassifierTab(
                 btnDownloadModel.text = if (currentLang == "uk") "Завантажити" else "Download"
             }
         }
+    }
+
+    fun onResume() {
+        updateModelStatusBadge()
     }
 
     private fun updateWarningText() {
@@ -595,6 +612,12 @@ class MushroomClassifierTab(
             return
         }
 
+        if (InitialSetupDialog.isModelInQueue()) {
+            val msg = if (currentLang == "uk") "⏳ Модель ще завантажується у фоні. Будь ласка, зачекайте завершення." else "⏳ Model is still downloading in background. Please wait."
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val status = MushroomClassifier.checkModelStatus(activity)
         if (status == MushroomClassifier.ModelStatus.READY) {
             executeClassification()
@@ -610,7 +633,14 @@ class MushroomClassifierTab(
         }
     }
 
-    private fun promptAndDownloadModel(isUpdate: Boolean = false, onReady: (Boolean) -> Unit) {
+    private fun promptAndDownloadModel(isUpdate: Boolean = false, onReady: ((Boolean) -> Unit)? = null) {
+        if (InitialSetupDialog.isModelInQueue()) {
+            val msg = if (currentLang == "uk") "Модель розпізнавання вже у черзі завантаження" else "Model is already in download queue"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+            updateModelStatusBadge()
+            return
+        }
+
         val title = if (isUpdate) {
             if (currentLang == "uk") "Потрібно оновити модель нейромережі" else "Update Recognition Model"
         } else {
@@ -647,108 +677,55 @@ class MushroomClassifierTab(
             if (currentLang == "uk") "Скасувати" else "Cancel"
         }
 
-        val dialogBuilder = AlertDialog.Builder(activity)
+        AlertDialog.Builder(activity)
             .setTitle(title)
             .setMessage(msg)
             .setCancelable(isUpdate)
             .setNegativeButton(negativeBtn) { d, _ ->
                 d.dismiss()
-                onReady(false)
+                onReady?.invoke(false)
             }
             .setPositiveButton(positiveBtn) { d, _ ->
                 d.dismiss()
-                showDownloadProgressDialog(isUpdate, onReady)
-            }
-
-        dialogBuilder.show()
-    }
-
-    private fun showDownloadProgressDialog(isUpdate: Boolean, onReady: (Boolean) -> Unit) {
-        val progressDialogView = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(30, 24, 30, 24)
-            setBackgroundColor(Color.parseColor("#1B2A22"))
-        }
-
-        val tvTitle = TextView(activity).apply {
-            text = if (isUpdate) {
-                if (currentLang == "uk") "Оновлення нейромережі..." else "Updating model..."
-            } else {
-                if (currentLang == "uk") "Завантаження нейромережі..." else "Downloading model..."
-            }
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 12)
-        }
-
-        val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = false
-            max = 100
-            progress = 0
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, 8)
-            }
-        }
-
-        val tvPercent = TextView(activity).apply {
-            text = "0%"
-            setTextColor(Color.parseColor("#10B981"))
-            textSize = 13f
-            gravity = Gravity.RIGHT
-        }
-
-        val tvSubtitle = TextView(activity).apply {
-            text = ""
-            setTextColor(Color.parseColor("#9CA3AF"))
-            textSize = 11.5f
-            setPadding(0, 4, 0, 0)
-        }
-
-        progressDialogView.addView(tvTitle)
-        progressDialogView.addView(progressBar)
-        progressDialogView.addView(tvPercent)
-        progressDialogView.addView(tvSubtitle)
-
-        val dialog = AlertDialog.Builder(activity)
-            .setView(progressDialogView)
-            .setCancelable(false)
-            .create()
-
-        dialog.show()
-
-        MushroomClassifier.downloadModel(
-            context = activity,
-            forceDownload = isUpdate,
-            onProgress = { percent, statusText ->
-                mainHandler.post {
-                    progressBar.progress = percent
-                    tvPercent.text = "$percent%"
-                    tvSubtitle.text = statusText
-                }
-            },
-            onComplete = { success, errorMsg ->
-                mainHandler.post {
-                    dialog.dismiss()
-                    if (success) {
+                val result = InitialSetupDialog.enqueueModel(activity, forceDownload = isUpdate) {
+                    activity.runOnUiThread {
                         updateModelStatusBadge()
-                        val okMsg = if (isUpdate) {
-                            if (currentLang == "uk") "Модель успішно оновлено!" else "Model updated successfully!"
-                        } else {
-                            if (currentLang == "uk") "Модель успішно завантажена!" else "Model downloaded successfully!"
-                        }
-                        Toast.makeText(activity, okMsg, Toast.LENGTH_SHORT).show()
-                        onReady(true)
-                    } else {
-                        Toast.makeText(activity, "Download failed: $errorMsg", Toast.LENGTH_LONG).show()
-                        onReady(false)
+                        onReady?.invoke(true)
+                    }
+                }
+                when (result) {
+                    InitialSetupDialog.EnqueueResult.ALREADY_INSTALLED -> {
+                        val tMsg = if (currentLang == "uk") "Модель розпізнавання вже встановлена" else "Model already installed"
+                        Toast.makeText(activity, tMsg, Toast.LENGTH_SHORT).show()
+                        updateModelStatusBadge()
+                        onReady?.invoke(true)
+                    }
+                    InitialSetupDialog.EnqueueResult.ALREADY_IN_QUEUE -> {
+                        val tMsg = if (currentLang == "uk") "Модель вже у черзі завантаження" else "Model already in queue"
+                        Toast.makeText(activity, tMsg, Toast.LENGTH_SHORT).show()
+                        updateModelStatusBadge()
+                    }
+                    InitialSetupDialog.EnqueueResult.STARTED -> {
+                        val tMsg = if (currentLang == "uk") "Завантаження моделі розпочато у фоні" else "Model download started in background"
+                        Toast.makeText(activity, tMsg, Toast.LENGTH_SHORT).show()
+                        updateModelStatusBadge()
+                    }
+                    InitialSetupDialog.EnqueueResult.ENQUEUED -> {
+                        val tMsg = if (currentLang == "uk") "Модель додано до черги завантаження" else "Model added to download queue"
+                        Toast.makeText(activity, tMsg, Toast.LENGTH_SHORT).show()
+                        updateModelStatusBadge()
                     }
                 }
             }
-        )
+            .show()
     }
 
     private fun executeClassification() {
+        if (InitialSetupDialog.isModelInQueue()) {
+            val msg = if (currentLang == "uk") "⏳ Модель ще завантажується у фоні. Будь ласка, зачекайте завершення." else "⏳ Model is still downloading in background. Please wait."
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+            return
+        }
         val count = loadedPhotos.size
         tvStatus.visibility = View.VISIBLE
         tvStatus.text = if (currentLang == "uk") {

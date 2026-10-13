@@ -16,12 +16,6 @@ import java.util.Locale
 object RegionDownloadDialog {
 
     fun show(activity: Activity, onDownloadStarted: () -> Unit = {}) {
-        if (InitialSetupDialog.isDownloading() || MapDownloadManager.isCurrentlyDownloading()) {
-            val isUk = AppPrefs.isUk(activity)
-            val msg = if (isUk) "Завантаження компонентів уже виконується..." else "Component download is already running..."
-            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
-            return
-        }
         showCountrySelection(activity, onDownloadStarted)
     }
 
@@ -92,12 +86,14 @@ object RegionDownloadDialog {
             }
 
             for (country in list) {
+                val inQueue = InitialSetupDialog.isCountryInQueue(country.code)
                 val status = countryStatuses[country.code] ?: CountryStatus.NOT_DOWNLOADED
-                val statusText = when (status) {
-                    CountryStatus.READY -> if (isUk) "  [✓ Завантажено]" else "  [✓ Ready]"
-                    CountryStatus.INCOMPLETE -> if (isUk) "  [⏳ Не повністю]" else "  [⏳ Incomplete]"
-                    CountryStatus.NEEDS_UPDATE -> if (isUk) "  [⚠️ Оновлення]" else "  [⚠️ Update]"
-                    CountryStatus.NOT_DOWNLOADED -> ""
+                val statusText = when {
+                    inQueue -> if (isUk) "  [⏳ В черзі]" else "  [⏳ In queue]"
+                    status == CountryStatus.READY -> if (isUk) "  [✓ Завантажено]" else "  [✓ Ready]"
+                    status == CountryStatus.INCOMPLETE -> if (isUk) "  [⏳ Не повністю]" else "  [⏳ Incomplete]"
+                    status == CountryStatus.NEEDS_UPDATE -> if (isUk) "  [⚠️ Оновлення]" else "  [⚠️ Update]"
+                    else -> ""
                 }
 
                 val displayName = if (isUk) country.nameUk else country.name
@@ -165,21 +161,28 @@ object RegionDownloadDialog {
         country: MapCountry,
         onDownloadStarted: () -> Unit = {}
     ) {
-        if (InitialSetupDialog.isDownloading() || MapDownloadManager.isCurrentlyDownloading()) {
-            val isUk = AppPrefs.isUk(activity)
-            val msg = if (isUk) "Завантаження компонентів уже виконується..." else "Component download is already running..."
+        val isUk = AppPrefs.isUk(activity)
+        val displayName = if (isUk) country.nameUk else country.name
+
+        if (InitialSetupDialog.isCountryInQueue(country.code)) {
+            val msg = if (isUk) "Компоненти для $displayName вже знаходяться у черзі завантаження..." else "Components for ${country.name} are already in download queue..."
             Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
             return
         }
-        val isUk = AppPrefs.isUk(activity)
+
         val status = MapDownloadManager.getCountryStatus(country)
+        if (status == CountryStatus.READY) {
+            val msg = if (isUk) "✓ Всі компоненти для $displayName вже встановлені та актуальні" else "✓ All components for ${country.name} are already up to date"
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val isUpdate = (status == CountryStatus.NEEDS_UPDATE)
         val segments = country.getRd5Segments()
         val needsWorldMap = !MapDownloadManager.isWorldMapReady()
         val regCount = InitialSetupDialog.getCountryRegionCount(country)
         val regSuffix = if (isUk) "$regCount регіонів" else "$regCount regions"
 
-        val displayName = if (isUk) country.nameUk else country.name
         val title = if (isUpdate) {
             if (isUk) "Оновити компоненти: $displayName?" else "Update components: ${country.name}?"
         } else {
@@ -237,7 +240,18 @@ object RegionDownloadDialog {
                 .setMessage(msg)
                 .setPositiveButton(actionBtn) { _, _ ->
                     onDownloadStarted()
-                    InitialSetupDialog.startCountryDownload(activity, country)
+                    val res = InitialSetupDialog.enqueueCountry(activity, country)
+                    val toastMsg = when (res) {
+                        InitialSetupDialog.EnqueueResult.ENQUEUED ->
+                            if (isUk) "Компоненти для $displayName додано до черги завантаження" else "Components for ${country.name} added to download queue"
+                        InitialSetupDialog.EnqueueResult.STARTED ->
+                            if (isUk) "Завантаження для $displayName розпочато" else "Download started for ${country.name}"
+                        InitialSetupDialog.EnqueueResult.ALREADY_IN_QUEUE ->
+                            if (isUk) "Компоненти для $displayName вже знаходяться у черзі" else "Components for ${country.name} already in queue"
+                        InitialSetupDialog.EnqueueResult.ALREADY_INSTALLED ->
+                            if (isUk) "✓ Всі компоненти для $displayName вже встановлені" else "✓ All components for ${country.name} are installed"
+                    }
+                    Toast.makeText(activity, toastMsg, Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton(if (isUk) "Скасувати" else "Cancel", null)
                 .show()

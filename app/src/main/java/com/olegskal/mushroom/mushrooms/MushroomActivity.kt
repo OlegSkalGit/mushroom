@@ -229,6 +229,12 @@ class MushroomActivity : Activity() {
         if (lang != currentLang) {
             updateLanguage(lang)
         }
+        if (::encyclopediaTab.isInitialized) {
+            encyclopediaTab.onResume()
+        }
+        if (::classifierTab.isInitialized) {
+            classifierTab.onResume()
+        }
     }
 
     @Deprecated("Deprecated in Java")

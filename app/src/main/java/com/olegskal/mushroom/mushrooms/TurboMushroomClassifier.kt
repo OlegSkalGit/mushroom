@@ -201,8 +201,8 @@ class TurboMushroomClassifier(private val context: Context) {
         val topBeit = beitProbs.indices.sortedByDescending { beitProbs[it] }.take(topK).toSet()
         val topSwin = swinProbs.indices.sortedByDescending { swinProbs[it] }.take(topK).toSet()
         val candidates = (topBeit + topSwin).map { idx ->
-            val pBeit = if (idx in topBeit) beitProbs[idx] else 0f
-            val pSwin = if (idx in topSwin) swinProbs[idx] else 0f
+            val pBeit = beitProbs[idx]
+            val pSwin = swinProbs[idx]
             Triple(idx, (pBeit + pSwin) / 2f, Pair(pBeit, pSwin))
         }.filter { it.second > 0f }
          .sortedByDescending { it.second }
