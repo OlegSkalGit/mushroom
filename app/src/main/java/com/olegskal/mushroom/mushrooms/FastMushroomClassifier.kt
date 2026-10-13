@@ -103,18 +103,19 @@ class FastMushroomClassifier(private val context: Context) {
                 settings.javaScriptEnabled = true
                 settings.allowFileAccess = true
                 settings.allowContentAccess = true
+                settings.domStorageEnabled = true
 
                 wv.addJavascriptInterface(object {
                     @JavascriptInterface
-                    fun onModelLoaded(success: Boolean, errorMsg: String) {
+                    fun onModelLoaded(success: Boolean, errorMsg: String, diagJson: String) {
                         isSessionReady = success
                         isInitializing = false
                         if (!success) {
                             lastError = errorMsg
-                            logExperiment("INIT ERROR: $errorMsg")
+                            logExperiment("INIT ERROR: $errorMsg | Markers: $diagJson")
                         } else {
                             lastError = null
-                            logExperiment("ENGINE READY: numThreads=$numThreads (CPU cores: ${Runtime.getRuntime().availableProcessors()})")
+                            logExperiment("ENGINE READY: Markers: $diagJson | Kotlin targetThreads=$numThreads (CPU cores: ${Runtime.getRuntime().availableProcessors()})")
                         }
                         mainHandler.post { onReady(success, errorMsg) }
                     }
@@ -126,11 +127,12 @@ class FastMushroomClassifier(private val context: Context) {
                         batchSize: Int,
                         jsDecodeMs: Long,
                         beitMs: Long,
-                        swinMs: Long
+                        swinMs: Long,
+                        diagJson: String
                     ) {
                         val tEnd = System.currentTimeMillis()
                         val totalMs = tEnd - tTransferStartMs + tPreprocessMs
-                        val bridgeTransferMs = tEnd - tTransferStartMs - maxOf(beitMs, swinMs) - jsDecodeMs
+                        val bridgeTransferMs = tEnd - tTransferStartMs - (beitMs + swinMs) - jsDecodeMs
                         lastError = null
 
                         mainHandler.post {
@@ -144,7 +146,7 @@ class FastMushroomClassifier(private val context: Context) {
                                 val topInfo = preds.firstOrNull()?.let { "${it.species} (${String.format(Locale.US, "%.1f", it.confidence)}%)" } ?: "None"
                                 val logText = buildString {
                                     appendLine("--- FAST MULTI-THREAD CLASSIFICATION ---")
-                                    appendLine("Batch: $batchSize photo(s) | Threads: $numThreads (Cores: ${Runtime.getRuntime().availableProcessors()})")
+                                    appendLine("Batch: $batchSize photo(s) | Markers: $diagJson")
                                     appendLine("[1] Preprocessing: ${tPreprocessMs}ms")
                                     appendLine("[2] Bridge Transfer: ${maxOf(0, bridgeTransferMs)}ms (JS decode: ${jsDecodeMs}ms)")
                                     appendLine("[3] BEiT Inference: ${beitMs}ms")
@@ -171,42 +173,48 @@ class FastMushroomClassifier(private val context: Context) {
                     }
                 }, "AndroidBridge")
 
+                fun makeResponse(mime: String, encoding: String?, stream: java.io.InputStream): WebResourceResponse {
+                    val resp = WebResourceResponse(mime, encoding, stream)
+                    resp.responseHeaders = mapOf(
+                        "Cross-Origin-Opener-Policy" to "same-origin",
+                        "Cross-Origin-Embedder-Policy" to "require-corp",
+                        "Cross-Origin-Resource-Policy" to "cross-origin",
+                        "Access-Control-Allow-Origin" to "*"
+                    )
+                    return resp
+                }
+
                 wv.webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                         val urlStr = request.url.toString()
                         return when {
                             urlStr.startsWith("https://local.mushroom/fast_index.html") -> {
                                 val html = getFastRunnerHtml()
-                                val resp = WebResourceResponse("text/html", "UTF-8", ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
-                                resp.responseHeaders = mapOf(
-                                    "Cross-Origin-Opener-Policy" to "same-origin",
-                                    "Cross-Origin-Embedder-Policy" to "require-corp"
-                                )
-                                resp
+                                makeResponse("text/html", "UTF-8", ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
                             }
                             urlStr.startsWith("https://local.mushroom/ort.wasm.min.js") -> {
                                 val f = MushroomClassifier.getRequiredFile(context, "ort.wasm.min.js")
-                                WebResourceResponse("application/javascript", "UTF-8", FileInputStream(f))
+                                makeResponse("application/javascript", "UTF-8", FileInputStream(f))
                             }
                             urlStr.startsWith("https://local.mushroom/ort-wasm-simd-threaded.mjs") -> {
                                 val f = MushroomClassifier.getRequiredFile(context, "ort-wasm-simd-threaded.mjs")
-                                WebResourceResponse("application/javascript", "UTF-8", FileInputStream(f))
+                                makeResponse("application/javascript", "UTF-8", FileInputStream(f))
                             }
                             urlStr.startsWith("https://local.mushroom/ort-wasm-simd-threaded.wasm") -> {
                                 val f = MushroomClassifier.getRequiredFile(context, "ort-wasm-simd-threaded.wasm")
-                                WebResourceResponse("application/wasm", null, FileInputStream(f))
+                                makeResponse("application/wasm", null, FileInputStream(f))
                             }
                             urlStr.startsWith("https://local.mushroom/beit_base_384_arm_int8.ort") -> {
                                 val f = MushroomClassifier.getRequiredFile(context, "beit_base_384_arm_int8.ort")
-                                WebResourceResponse("application/octet-stream", null, FileInputStream(f))
+                                makeResponse("application/octet-stream", null, FileInputStream(f))
                             }
                             urlStr.startsWith("https://local.mushroom/swin_base_384_arm_int8.ort") -> {
                                 val f = MushroomClassifier.getRequiredFile(context, "swin_base_384_arm_int8.ort")
-                                WebResourceResponse("application/octet-stream", null, FileInputStream(f))
+                                makeResponse("application/octet-stream", null, FileInputStream(f))
                             }
                             urlStr.startsWith("https://local.mushroom/classes.json") -> {
                                 val f = MushroomClassifier.getRequiredFile(context, "classes.json")
-                                WebResourceResponse("application/json", "UTF-8", FileInputStream(f))
+                                makeResponse("application/json", "UTF-8", FileInputStream(f))
                             }
                             else -> super.shouldInterceptRequest(view, request)
                         }
@@ -236,6 +244,15 @@ class FastMushroomClassifier(private val context: Context) {
                 let sessionBeit = null;
                 let sessionSwin = null;
 
+                function getMarkers() {
+                  return {
+                    crossOriginIsolated: typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : false,
+                    hasSharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
+                    hardwareConcurrency: navigator.hardwareConcurrency || 0,
+                    ortEnvThreads: ort.env.wasm.numThreads
+                  };
+                }
+
                 async function initSession() {
                   try {
                     ort.env.wasm.wasmPaths = "https://local.mushroom/";
@@ -251,14 +268,13 @@ class FastMushroomClassifier(private val context: Context) {
                     ]);
                     sessionBeit = s1;
                     sessionSwin = s2;
-                    AndroidBridge.onModelLoaded(true, "");
+                    AndroidBridge.onModelLoaded(true, "", JSON.stringify(getMarkers()));
                   } catch(e) {
-                    AndroidBridge.onModelLoaded(false, e.toString());
+                    AndroidBridge.onModelLoaded(false, e.toString(), JSON.stringify(getMarkers()));
                   }
                 }
 
-                async function runSingleModelTimed(session, bytes, batchSize, floatsPerImage) {
-                  const tStart = performance.now();
+                async function runSingleModel(session, bytes, batchSize, floatsPerImage) {
                   const allOutputs = [];
                   for (let b = 0; b < batchSize; b++) {
                     const byteOffset = b * floatsPerImage * 4;
@@ -272,8 +288,7 @@ class FastMushroomClassifier(private val context: Context) {
                       allOutputs.push(output[i]);
                     }
                   }
-                  const elapsed = Math.round(performance.now() - tStart);
-                  return { outputs: allOutputs, elapsedMs: elapsed };
+                  return allOutputs;
                 }
 
                 async function classifyBatchBase64Fast(base64Data, batchSize) {
@@ -287,18 +302,22 @@ class FastMushroomClassifier(private val context: Context) {
                     const decodeMs = Math.round(performance.now() - tDecodeStart);
                     const floatsPerImage = 3 * 384 * 384;
 
-                    const [resBeit, resSwin] = await Promise.all([
-                      runSingleModelTimed(sessionBeit, bytes, batchSize, floatsPerImage),
-                      runSingleModelTimed(sessionSwin, bytes, batchSize, floatsPerImage)
-                    ]);
+                    const tBeit = performance.now();
+                    const outBeit = await runSingleModel(sessionBeit, bytes, batchSize, floatsPerImage);
+                    const beitMs = Math.round(performance.now() - tBeit);
+
+                    const tSwin = performance.now();
+                    const outSwin = await runSingleModel(sessionSwin, bytes, batchSize, floatsPerImage);
+                    const swinMs = Math.round(performance.now() - tSwin);
 
                     AndroidBridge.onDualInferenceResult(
-                      JSON.stringify(resBeit.outputs),
-                      JSON.stringify(resSwin.outputs),
+                      JSON.stringify(outBeit),
+                      JSON.stringify(outSwin),
                       batchSize,
                       decodeMs,
-                      resBeit.elapsedMs,
-                      resSwin.elapsedMs
+                      beitMs,
+                      swinMs,
+                      JSON.stringify(getMarkers())
                     );
                   } catch(e) {
                     AndroidBridge.onInferenceError(e.toString());
