@@ -120,6 +120,7 @@ class MushroomActivity : Activity() {
         }
 
         encyclopediaTab = MushroomEncyclopediaTab(this, currentLang)
+
         classifierTab = MushroomClassifierTab(
             activity = this,
             currentLang = currentLang,

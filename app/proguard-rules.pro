@@ -7,3 +7,7 @@
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
+
+# Keep Microsoft ONNX Runtime for Android JNI
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**

@@ -37,17 +37,14 @@ object MushroomDataConfig {
     const val MODEL_FALLBACK_DOWNLOAD_URL = "https://github.com/OlegSkalGit/mushroom/raw/main/downloads/"
 
     val MODEL_PARTS = listOf(
-        DataFileItem("model.z01", 65011712L),
-        DataFileItem("model.zip", 64074457L)
+        DataFileItem("model.z01", 62914560L),
+        DataFileItem("model.zip", 62507457L)
     )
     val MODEL_TOTAL_ARCHIVE_SIZE = MODEL_PARTS.sumOf { it.exactSize }
 
     val MODEL_REQUIRED_FILES = listOf(
         DataFileItem("beit_base_384_arm_int8.ort", 123692528L),
         DataFileItem("swin_base_384_arm_int8.ort", 132813600L),
-        DataFileItem("classes.json", 347878L),
-        DataFileItem("ort-wasm-simd-threaded.wasm", 14239897L),
-        DataFileItem("ort-wasm-simd-threaded.mjs", 24381L),
-        DataFileItem("ort.wasm.min.js", 50196L)
+        DataFileItem("classes.json", 347878L)
     )
 }

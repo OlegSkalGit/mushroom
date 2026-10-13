@@ -22,6 +22,9 @@ android {
         versionCode = getFormattedVersionCode()
         versionName = getFormattedVersionName()
         resourceConfigurations += setOf("en")
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -76,6 +79,7 @@ dependencies {
     implementation("com.github.abrensch.brouter:brouter-util:v1.7.9")
     implementation("com.github.abrensch.brouter:brouter-expressions:v1.7.9")
     implementation("com.github.abrensch.brouter:brouter-codec:v1.7.9")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.18.0")
 }
 
 tasks.matching {

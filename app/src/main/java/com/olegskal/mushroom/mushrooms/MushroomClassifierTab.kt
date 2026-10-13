@@ -43,7 +43,6 @@ class MushroomClassifierTab(
     private val placeholderTv: TextView
     private val badgeZoom: TextView
     private val btnAnalyze: Button
-    private val btnFast: Button
     private val warningContainer: LinearLayout
     private val tvWarning: TextView
     private val tvStatus: TextView
@@ -52,8 +51,7 @@ class MushroomClassifierTab(
     private val btnDownloadModel: Button
     private val thumbnailsBar: LinearLayout
     private val resultsContainer: LinearLayout
-    private val classifier = MushroomClassifier(activity)
-    private val fastClassifier = FastMushroomClassifier(activity)
+    private val classifier = TurboMushroomClassifier(activity)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     data class ClassifierPhoto(
@@ -247,41 +245,20 @@ class MushroomClassifierTab(
         previewFrame.addView(placeholderTv)
         view.addView(previewFrame)
 
-        // 5. Action Buttons (75% Normal, 25% Fast)
-        val buttonRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, 8)
-            }
-        }
-
+        // 5. Action Button (Full width)
         btnAnalyze = UiUtils.createStyledButton(activity, if (currentLang == "uk") "🔍 Визначити гриб" else "🔍 Identify Mushroom") {
-            startClassificationFlow(isFast = false)
+            startClassificationFlow()
         }.apply {
             setBackgroundColor(Color.parseColor("#10B981"))
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 3f).apply {
-                setMargins(0, 0, (4 * density).toInt(), 0)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, 8)
             }
         }
-        buttonRow.addView(btnAnalyze)
+        view.addView(btnAnalyze)
 
-        btnFast = UiUtils.createStyledButton(activity, if (currentLang == "uk") "⚡ Швидко" else "⚡ Fast") {
-            startClassificationFlow(isFast = true)
-        }.apply {
-            setBackgroundColor(Color.parseColor("#2563EB"))
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins((4 * density).toInt(), 0, 0, 0)
-            }
-        }
-        buttonRow.addView(btnFast)
-
-        view.addView(buttonRow)
-
-        // 7. Status text
+        // 6. Status text
         tvStatus = TextView(activity).apply {
             setTextColor(Color.parseColor("#9CA3AF"))
             textSize = 13f
@@ -291,7 +268,7 @@ class MushroomClassifierTab(
         }
         view.addView(tvStatus)
 
-        // 8. Results Scroll Container
+        // 7. Results Scroll Container
         val scrollView = ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
@@ -558,7 +535,6 @@ class MushroomClassifierTab(
         } else {
             if (count > 1) "🔍 Identify ($count)" else "🔍 Identify Mushroom"
         }
-        btnFast.text = if (currentLang == "uk") "⚡ Швидко" else "⚡ Fast"
     }
 
     private fun showAddPhotoDialog() {
@@ -612,7 +588,7 @@ class MushroomClassifierTab(
         activity.startActivityForResult(chooser, REQ_GALLERY)
     }
 
-    private fun startClassificationFlow(isFast: Boolean = false) {
+    private fun startClassificationFlow() {
         if (loadedPhotos.isEmpty()) {
             val msg = if (currentLang == "uk") "Будь ласка, спочатку зробіть або оберіть фото гриба" else "Please take or choose a mushroom photo first"
             Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
@@ -621,14 +597,14 @@ class MushroomClassifierTab(
 
         val status = MushroomClassifier.checkModelStatus(activity)
         if (status == MushroomClassifier.ModelStatus.READY) {
-            executeClassification(isFast)
+            executeClassification()
         } else {
             val isUpdate = (status == MushroomClassifier.ModelStatus.NEEDS_UPDATE)
             promptAndDownloadModel(isUpdate = isUpdate) { success ->
                 if (success) {
-                    executeClassification(isFast)
+                    executeClassification()
                 } else if (isUpdate && MushroomClassifier.isModelAvailable(activity)) {
-                    executeClassification(isFast)
+                    executeClassification()
                 }
             }
         }
@@ -645,17 +621,17 @@ class MushroomClassifierTab(
             if (currentLang == "uk") {
                 "Розмір встановлених файлів моделі не співпадає з актуальною версією.\n\n" +
                 "Оновлення містить актуальні моделі (BEiT та Swin INT8 .ort) та компоненти.\n\n" +
-                "Оновити модель зараз (архів ~139 МБ, 2 томи)?"
+                "Оновити модель зараз (архів ~125 МБ, 2 томи)?"
             } else {
                 "Installed model files differ from current version.\n\n" +
                 "Update contains fresh neural models (BEiT & Swin INT8 .ort) and runtime.\n\n" +
-                "Update model now (archive ~139 MB, 2 volumes)?"
+                "Update model now (archive ~125 MB, 2 volumes)?"
             }
         } else {
             if (currentLang == "uk") {
-                "Для автономного визначення грибів потрібен архів моделі (~139 МБ, 2 томи). Після завантаження його буде автоматично розпаковано. Завантажити зараз?"
+                "Для автономного визначення грибів потрібен архів моделі (~125 МБ, 2 томи). Після завантаження його буде автоматично розпаковано. Завантажити зараз?"
             } else {
-                "Offline mushroom recognition requires model archive (~139 MB, 2 volumes). It will be unpacked automatically. Download now?"
+                "Offline mushroom recognition requires model archive (~125 MB, 2 volumes). It will be unpacked automatically. Download now?"
             }
         }
 
@@ -772,39 +748,22 @@ class MushroomClassifierTab(
         )
     }
 
-    private fun executeClassification(isFast: Boolean = false) {
+    private fun executeClassification() {
         val count = loadedPhotos.size
-        val threads = fastClassifier.numThreads
         tvStatus.visibility = View.VISIBLE
         tvStatus.text = if (currentLang == "uk") {
-            if (isFast) {
-                if (count > 1) "⚡ Швидкий аналіз (ансамбль з $count фото, $threads потоки)..." else "⚡ Швидкий аналіз ($threads потоки)..."
-            } else {
-                if (count > 1) "⏳ Виконується аналіз нейромережами (ансамбль з $count фото)..." else "⏳ Виконується аналіз нейромережами..."
-            }
+            if (count > 1) "Розпізнавання (ансамбль з $count фото)..." else "Розпізнавання гриба..."
         } else {
-            if (isFast) {
-                if (count > 1) "⚡ Fast analysis (ensemble of $count photos, $threads threads)..." else "⚡ Fast analysis ($threads threads)..."
-            } else {
-                if (count > 1) "⏳ Running neural analysis (ensemble of $count photos)..." else "⏳ Running neural analysis..."
-            }
+            if (count > 1) "Recognizing (ensemble of $count photos)..." else "Recognizing mushroom..."
         }
         btnAnalyze.isEnabled = false
-        btnFast.isEnabled = false
         resultsContainer.removeAllViews()
 
         val photos = loadedPhotos.map { it.current }
-        val onFinish = { predictions: List<MushroomPrediction> ->
+        classifier.classify(photos, topK = 5) { predictions ->
             btnAnalyze.isEnabled = true
-            btnFast.isEnabled = true
             tvStatus.visibility = View.GONE
             renderPredictions(predictions)
-        }
-
-        if (isFast) {
-            fastClassifier.classify(photos, topK = 5, callback = onFinish)
-        } else {
-            classifier.classify(photos, topK = 5, callback = onFinish)
         }
     }
 
@@ -814,7 +773,7 @@ class MushroomClassifierTab(
 
         if (predictions.isEmpty()) {
             val tvEmpty = TextView(activity).apply {
-                val err = fastClassifier.lastError ?: classifier.lastError
+                val err = classifier.lastError
                 text = if (err != null) {
                     if (currentLang == "uk") "⚠️ Помилка моделі: $err" else "⚠️ Model error: $err"
                 } else {
@@ -828,28 +787,6 @@ class MushroomClassifierTab(
             resultsContainer.addView(tvEmpty)
             return
         }
-
-        val count = loadedPhotos.size
-        val headerTv = TextView(activity).apply {
-            text = if (currentLang == "uk") {
-                if (count > 1) "🎯 Результати (ансамбль з $count фото):" else "🎯 Ймовірні кандидати (Top-5):"
-            } else {
-                if (count > 1) "🎯 Results (ensemble of $count photos):" else "🎯 Top Candidates (Top-5):"
-            }
-            setTextColor(Color.WHITE)
-            textSize = 15f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 4)
-        }
-        resultsContainer.addView(headerTv)
-
-        val hintTv = TextView(activity).apply {
-            text = if (currentLang == "uk") "💡 Натисніть на картку для копіювання назви та пошуку в енциклопедії" else "💡 Tap card to copy name & search in encyclopedia"
-            setTextColor(Color.parseColor("#9CA3AF"))
-            textSize = 11.5f
-            setPadding(0, 0, 0, 10)
-        }
-        resultsContainer.addView(hintTv)
 
         predictions.forEachIndexed { index, item ->
             val isTop = index == 0
