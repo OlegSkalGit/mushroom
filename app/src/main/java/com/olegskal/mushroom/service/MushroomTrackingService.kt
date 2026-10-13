@@ -154,14 +154,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
 
         registerSensors()
         registerGpsUpdates()
-
-        val lastKnown = LocationUtils.getLastKnownLocationCascade(locationManager)
-        if (lastKnown != null) {
-            lastLocation = lastKnown
-            publishMetrics(lastKnown, 0f, isStationary = true)
-            hasUpdatedActiveNotification = true
-            updateNotification()
-        }
+        fetchInitialLocationCascade()
 
         // Resume track recording if was active prior to process kill
         if (AppPrefs.isRecordingTrack(this)) {
@@ -184,11 +177,24 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         AppLogger.log("TrackingService", "onCreate", true, "MushroomTrackingService started. GPS at full 1-sec rate.")
     }
 
+    private fun fetchInitialLocationCascade() {
+        if (lastLocation == null || lastLocation?.provider != LocationManager.GPS_PROVIDER) {
+            val lastKnown = LocationUtils.getLastKnownLocationCascade(locationManager)
+            if (lastKnown != null) {
+                lastLocation = lastKnown
+                publishMetrics(lastKnown, 0f, isStationary = true)
+                hasUpdatedActiveNotification = true
+                updateNotification()
+            }
+        }
+    }
+
     private val gpsSwitchReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == LocationManager.PROVIDERS_CHANGED_ACTION) {
                 AppLogger.log("TrackingService", "gpsSwitchReceiver", true, "Location providers changed, re-registering GPS")
                 registerGpsUpdates()
+                fetchInitialLocationCascade()
             }
         }
     }
@@ -206,11 +212,13 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
     fun registerGpsUpdates() {
         try {
             locationManager.removeUpdates(this)
-            val providers = arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-            for (p in providers) {
-                if (locationManager.isProviderEnabled(p)) {
-                    locationManager.requestLocationUpdates(p, GPS_FULL_UPDATE_INTERVAL_MS, 0f, this)
-                }
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    GPS_FULL_UPDATE_INTERVAL_MS,
+                    0f,
+                    this
+                )
             }
         } catch (e: SecurityException) {
             AppLogger.log("TrackingService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
@@ -600,6 +608,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
     override fun onProviderEnabled(provider: String) {
         AppLogger.log("TrackingService", "onProviderEnabled", true, "Provider enabled: $provider")
         registerGpsUpdates()
+        fetchInitialLocationCascade()
     }
 
     override fun onProviderDisabled(provider: String) {
