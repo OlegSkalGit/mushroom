@@ -182,17 +182,17 @@ object InitialSetupDialog {
             if (MapDownloadManager.isSegmentNeeded(seg)) return true
         }
 
-        // 5. База адрес
-        val addressReady = AddressDownloadManager.hasAddressesForCountry(activity, country.code)
-        if (!addressReady) return true
-
-        // 6. Енциклопедія
+        // 5. Енциклопедія
         val dbReady = MushroomDatabaseManager.checkDatabaseStatus(activity) == MushroomDatabaseManager.DataStatus.READY
         if (!dbReady) return true
 
-        // 7. Файли визначника
+        // 6. Файли визначника
         val modelReady = MushroomClassifier.checkModelStatus(activity) == MushroomClassifier.ModelStatus.READY
         if (!modelReady) return true
+
+        // 7. База адрес
+        val addressReady = AddressDownloadManager.hasAddressesForCountry(activity, country.code)
+        if (!addressReady) return true
 
         return false
     }
@@ -565,9 +565,16 @@ object InitialSetupDialog {
             }
         }
 
-        // 5. База адрес
+        return list
+    }
+
+    fun scanAddressItems(context: Context, country: MapCountry): List<UpdateItem> {
+        val list = mutableListOf<UpdateItem>()
         val addressReady = AddressDownloadManager.hasAddressesForCountry(context, country.code)
         if (!addressReady) {
+            val isUk = AppPrefs.isUk(context)
+            val regCount = getCountryRegionCount(country)
+            val regSuffix = if (isUk) "$regCount регіонів" else "$regCount regions"
             val loadedRegs = AddressDownloadManager.getLoadedRegionCount(context, country.code)
             val totalRegs = AddressDownloadManager.getCountryRegionCount(country.code)
             val regDisplay = if (loadedRegs in 1 until totalRegs) {
@@ -603,7 +610,6 @@ object InitialSetupDialog {
                 }
             )
         }
-
         return list
     }
 
@@ -694,6 +700,7 @@ object InitialSetupDialog {
         list.addAll(scanCountryItems(context, country, countryMapNeedsUpdate, worldNeedsUpdate))
         list.addAll(scanDatabaseItems(context))
         list.addAll(scanModelItems(context))
+        list.addAll(scanAddressItems(context, country))
         return list
     }
 
@@ -737,7 +744,7 @@ object InitialSetupDialog {
         onFinished: () -> Unit = {}
     ): EnqueueResult {
         if (activity.isFinishing || activity.isDestroyed) return EnqueueResult.ALREADY_IN_QUEUE
-        val items = scanCountryItems(activity, country)
+        val items = scanCountryItems(activity, country) + scanAddressItems(activity, country)
         if (items.isEmpty()) {
             return EnqueueResult.ALREADY_INSTALLED
         }
