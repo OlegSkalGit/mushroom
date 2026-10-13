@@ -131,8 +131,8 @@ class FastMushroomClassifier(private val context: Context) {
                         diagJson: String
                     ) {
                         val tEnd = System.currentTimeMillis()
-                        val totalMs = tEnd - tTransferStartMs + tPreprocessMs
-                        val bridgeTransferMs = tEnd - tTransferStartMs - (beitMs + swinMs) - jsDecodeMs
+                        val totalInferenceMs = beitMs + swinMs
+                        val bridgeTransferMs = maxOf(0L, tEnd - tTransferStartMs - totalInferenceMs - jsDecodeMs)
                         lastError = null
 
                         mainHandler.post {
@@ -142,18 +142,48 @@ class FastMushroomClassifier(private val context: Context) {
                                 val tPostStart = System.currentTimeMillis()
                                 val preds = processDualResultJson(beitJson, swinJson, batchSize, pendingTopK)
                                 val postMs = System.currentTimeMillis() - tPostStart
+                                val totalTimeMs = tPreprocessMs + (tEnd - tTransferStartMs) + postMs
 
-                                val topInfo = preds.firstOrNull()?.let { "${it.species} (${String.format(Locale.US, "%.1f", it.confidence)}%)" } ?: "None"
+                                val rt = Runtime.getRuntime()
+                                val usedRamMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+                                val maxRamMb = rt.maxMemory() / (1024 * 1024)
+
                                 val logText = buildString {
-                                    appendLine("--- FAST MULTI-THREAD CLASSIFICATION ---")
-                                    appendLine("Batch: $batchSize photo(s) | Markers: $diagJson")
-                                    appendLine("[1] Preprocessing: ${tPreprocessMs}ms")
-                                    appendLine("[2] Bridge Transfer: ${maxOf(0, bridgeTransferMs)}ms (JS decode: ${jsDecodeMs}ms)")
-                                    appendLine("[3] BEiT Inference: ${beitMs}ms")
-                                    appendLine("[4] Swin Inference: ${swinMs}ms")
-                                    appendLine("[5] Postprocessing: ${postMs}ms")
-                                    appendLine("TOTAL TIME: ${totalMs + postMs}ms | Top-1: $topInfo")
-                                    appendLine("----------------------------------------")
+                                    appendLine("================================================================================")
+                                    appendLine("FAST MULTI-THREAD CLASSIFICATION BENCHMARK REPORT")
+                                    appendLine("--------------------------------------------------------------------------------")
+                                    appendLine("[1] SYSTEM & HARDWARE:")
+                                    appendLine("    Device:      ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE}, API ${android.os.Build.VERSION.SDK_INT})")
+                                    appendLine("    CPU Cores:   ${rt.availableProcessors()} cores detected")
+                                    appendLine("    RAM Heap:    ${usedRamMb}MB used / ${maxRamMb}MB max")
+                                    appendLine("    Thread Mode: Wasm requested $numThreads threads")
+                                    appendLine("")
+                                    appendLine("[2] BROWSER ENVIRONMENT & MARKERS:")
+                                    appendLine("    Telemetry:   $diagJson")
+                                    appendLine("")
+                                    appendLine("[3] INPUT PAYLOAD:")
+                                    appendLine("    Batch Size:  $batchSize photo(s) [384x384 px, 3 channels Float32]")
+                                    appendLine("    Raw Tensor:  ${batchSize * 3 * 384 * 384 * 4} bytes")
+                                    appendLine("")
+                                    appendLine("[4] GRANULAR STEP-BY-STEP TIMINGS:")
+                                    appendLine("    1. Preprocessing (Resize + Norm + Base64):  ${tPreprocessMs} ms")
+                                    appendLine("    2. Bridge Transfer & JS Atob:               ${bridgeTransferMs + jsDecodeMs} ms (JS decode: ${jsDecodeMs} ms)")
+                                    appendLine("    3. Model 1 [BEiT INT8 384x384] Inference:   ${beitMs} ms")
+                                    appendLine("    4. Model 2 [Swin INT8 384x384] Inference:   ${swinMs} ms")
+                                    appendLine("    5. Postprocessing (Softmax + Top-K):        ${postMs} ms")
+                                    appendLine("    ----------------------------------------------------------------------------")
+                                    appendLine("    TOTAL END-TO-END TIME:                     ${totalTimeMs} ms (${String.format(Locale.US, "%.2f", totalTimeMs / 1000.0)} s)")
+                                    appendLine("    PURE NEURAL INFERENCE (BEiT + Swin):        ${totalInferenceMs} ms")
+                                    appendLine("")
+                                    appendLine("[5] TOP CANDIDATES:")
+                                    if (preds.isEmpty()) {
+                                        appendLine("    No candidates recognized")
+                                    } else {
+                                        preds.forEachIndexed { i, p ->
+                                            appendLine("    #${i + 1} ${p.species.padEnd(35)} | ${String.format(Locale.US, "%5.1f", p.confidence)}% | BEiT: ${String.format(Locale.US, "%5.1f", p.beitConfidence)}% | Swin: ${String.format(Locale.US, "%5.1f", p.swinConfidence)}% | [${p.edibility}]")
+                                        }
+                                    }
+                                    appendLine("================================================================================")
                                 }
                                 logExperiment(logText)
                                 cb(preds)
