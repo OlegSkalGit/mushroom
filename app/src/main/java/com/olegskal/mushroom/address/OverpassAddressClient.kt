@@ -20,7 +20,6 @@ class OverpassAddressClient(
         const val USER_AGENT = "Mushroom-Address-Tool/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
         val DEFAULT_MIRRORS = listOf(
             "https://overpass.openstreetmap.fr/api/interpreter",
-            "https://overpass.osm.ch/api/interpreter",
             "https://overpass-api.de/api/interpreter",
             "https://gall.openstreetmap.de/api/interpreter",
             "https://lambert.openstreetmap.de/api/interpreter",
@@ -41,15 +40,19 @@ class OverpassAddressClient(
         val statusUrl = mirror.replace("/interpreter", "/status")
         return try {
             val conn = (URL(statusUrl).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 3000
-                readTimeout = 3000
+                connectTimeout = 2000
+                readTimeout = 2000
                 setRequestProperty("User-Agent", USER_AGENT)
             }
             val code = conn.responseCode
-            if (code == 400 || code == 404) {
-                // Сервери (як-от openstreetmap.fr), які не мають окремого ендпоінту /status, але активні
+            if (code in 400..499) {
+                // Сервери (як-от openstreetmap.fr з 403), які не мають окремого публічного /status, але активні
                 conn.disconnect()
                 return MirrorRank(mirror, 0, 1)
+            }
+            if (code !in 200..299) {
+                conn.disconnect()
+                return MirrorRank(mirror, 9999, 0)
             }
             val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             conn.disconnect()
@@ -76,7 +79,7 @@ class OverpassAddressClient(
     fun findBestMirrors(): List<MirrorRank> {
         val tasks = mirrors.map { m -> Callable { checkMirrorStatus(m) } }
         val results = try {
-            val futures = pool.invokeAll(tasks, 3500, TimeUnit.MILLISECONDS)
+            val futures = pool.invokeAll(tasks, 2500, TimeUnit.MILLISECONDS)
             futures.mapNotNull {
                 try { it.get() } catch (_: Exception) { null }
             }
@@ -85,7 +88,11 @@ class OverpassAddressClient(
         }
 
         val alive = results.filter { it.effectiveWaitSec < 9999 }.sortedBy { it.effectiveWaitSec }
-        if (alive.isNotEmpty()) return alive
+        if (alive.isNotEmpty() && alive.any { it.effectiveWaitSec == 0 }) {
+            return alive
+        }
+
+        // Якщо статус висить (таймаут) або всі зайняті/недоступні — пробуємо без статусу для усіх серверів
         return mirrors.map { MirrorRank(it, 0, 1) }
     }
 
