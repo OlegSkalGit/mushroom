@@ -379,6 +379,14 @@ class AddressIngestor:
                 for sid, place_id, name_id in self.cur.fetchall():
                     self.streets_cache[(place_id, name_id)] = sid
 
+        self.seen_houses = set()
+        try:
+            self.cur.execute("SELECT lat, lon, number FROM houses;")
+            for h_lat, h_lon, h_num in self.cur.fetchall():
+                self.seen_houses.add((int(h_lat), int(h_lon), str(h_num).strip().upper()))
+        except Exception:
+            pass
+
     def get_or_create_place(self, parent_id, name, level, osm_id=None):
         if not name:
             return parent_id
@@ -449,8 +457,13 @@ class AddressIngestor:
         except (ValueError, TypeError):
             return
 
-        s_num = str(house_number).strip()
-        val_num = int(s_num) if s_num.isdigit() else s_num.upper()
+        s_num = str(house_number).strip().upper()
+        h_key = (lat_i, lon_i, s_num)
+        if h_key in self.seen_houses:
+            return
+        self.seen_houses.add(h_key)
+
+        val_num = int(s_num) if s_num.isdigit() else s_num
         self.houses_batch.append((street_id, val_num, lat_i, lon_i))
         if len(self.houses_batch) >= 10000:
             self.flush()
@@ -1123,6 +1136,12 @@ out center;
                 street = row_place
 
             if not housenumber and not street:
+                continue
+
+            lat_i = int(round(lat / 10.0)) if abs(lat) > 1000 else int(round(lat * 100_000))
+            lon_i = int(round(lon / 10.0)) if abs(lon) > 1000 else int(round(lon * 100_000))
+            val_num = str(housenumber).strip().upper()
+            if (lat_i, lon_i, val_num) in ingestor.seen_houses:
                 continue
 
             # Відновлення поселення: якщо явний тег відсутній, визначаємо реальне місто/село за просторовим індексом

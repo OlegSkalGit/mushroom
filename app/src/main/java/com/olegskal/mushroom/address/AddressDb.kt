@@ -188,6 +188,9 @@ object AddressDb {
         if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses") || !hasTable(db, "poi_places") || !hasTable(db, "poi_country_ranges")) {
             initSchema(db)
         }
+        try {
+            db.execSQL("DROP INDEX IF EXISTS idx_houses_coords;")
+        } catch (_: Exception) {}
         checkAndMigratePoiPlaces(db)
         if (hasTable(db, "search_fts_content") || isFtsUpgradeNeeded(db)) {
             rebuildFtsIndex(db)
@@ -289,7 +292,7 @@ object AddressDb {
         }
 
         try {
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")
+            db.execSQL("DROP INDEX IF EXISTS idx_houses_coords;")
         } catch (_: Exception) {}
 
         try {

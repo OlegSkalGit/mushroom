@@ -7,6 +7,7 @@ import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
 import com.olegskal.mushroom.map.PoiManager
 import com.olegskal.mushroom.math.GeoMath
+import kotlin.math.roundToInt
 import org.json.JSONObject
 import java.io.File
 
@@ -353,7 +354,6 @@ object AddressDownloadManager {
         logFn: (String) -> Unit,
         isCancelled: () -> Boolean
     ): Map<Pair<String, Long>, String> {
-        var raw: String? = null
         val areaClause = if (region.relId > 0) {
             "area(${3600000000L + region.relId})->.a;"
         } else {
@@ -365,7 +365,7 @@ object AddressDownloadManager {
             relation["type"="associatedStreet"](area.a);
             out body;
         """.trimIndent()
-        raw = client.query(qArea, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
+        var raw = client.query(qArea, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
 
         val hasAssoc = try {
             raw != null && (JSONObject(raw).optJSONArray("elements")?.length() ?: 0) > 0
@@ -419,7 +419,6 @@ object AddressDownloadManager {
         logFn: (String) -> Unit,
         isCancelled: () -> Boolean
     ): SpatialSettlementIndex {
-        var rawCsv: String? = null
         val areaClause = if (region.relId > 0) {
             "area(${3600000000L + region.relId})->.a;"
         } else {
@@ -434,7 +433,7 @@ object AddressDownloadManager {
             );
             out center;
         """.trimIndent()
-        rawCsv = client.query(qArea, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
+        var rawCsv = client.query(qArea, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
 
         val hasSettlements = (rawCsv?.lines()?.count { it.isNotBlank() } ?: 0) > 2
         if (!hasSettlements && region.isBbox && !isCancelled()) {
@@ -743,45 +742,6 @@ object AddressDownloadManager {
                                 }
                             }
 
-                            // 2. Spatial proximity match (within 30 meters, using house coordinates 1e5 scale)
-                            if (matchedStreetId == null) {
-                                val houseLat = (latRaw * 100_000.0).toInt()
-                                val houseLon = (lonRaw * 100_000.0).toInt()
-                                val dLat = 28 // ~30m in 1e-5
-                                val dLon = 45 // ~30m in 1e-5
-                                val cProx = db.rawQuery("""
-                                    SELECT h.street_id, h.number, h.lat, h.lon, sn.name, city.name
-                                    FROM houses h
-                                    JOIN streets s ON s.id = h.street_id
-                                    JOIN street_names sn ON sn.id = s.name_id
-                                    JOIN admin_places city ON city.id = s.place_id
-                                    WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
-                                    LIMIT 5;
-                                """.trimIndent(), arrayOf(
-                                    (houseLat - dLat).toString(),
-                                    (houseLat + dLat).toString(),
-                                    (houseLon - dLon).toString(),
-                                    (houseLon + dLon).toString()
-                                ))
-                                cProx.use { cp ->
-                                    var bestDist = 31.0f // max 30m
-                                    while (cp.moveToNext()) {
-                                        val sId = cp.getLong(0)
-                                        val num = cp.getString(1) ?: ""
-                                        val hLat = cp.getInt(2)
-                                        val hLon = cp.getInt(3)
-                                        val dist = GeoMath.calculateDistance(latRaw, lonRaw, hLat / 100_000.0, hLon / 100_000.0)
-                                        if (dist <= 30.0f && dist < bestDist) {
-                                            bestDist = dist
-                                            matchedStreetId = sId
-                                            matchedHouseNum = num
-                                            matchedStreetName = cp.getString(4) ?: ""
-                                            matchedCityName = cp.getString(5) ?: ""
-                                        }
-                                    }
-                                }
-                            }
-
                             // Insert POI place (autoincrement ID)
                             stmtInsertPoi.bindLong(1, poiId)
                             stmtInsertPoi.bindString(2, chosenName)
@@ -909,6 +869,19 @@ object AddressDownloadManager {
             // Префлайт-перевірка: миттєво за 1 швидкий SQL-запит зчитуємо всі регіони, що вже мають будинки в базі
             val loadedOsmIds = mutableSetOf<Long>()
             val loadedNames = mutableSetOf<String>()
+            val seenHouses = java.util.HashSet<Long>(500_000)
+            try {
+                val hCur = db.rawQuery("SELECT lat, lon, number FROM houses;", null)
+                hCur.use {
+                    while (it.moveToNext()) {
+                        val hLat = it.getInt(0)
+                        val hLon = it.getInt(1)
+                        val hNum = it.getString(2) ?: ""
+                        val hKey = ((hLat.toLong() shl 32) or (hLon.toLong() and 0xFFFFFFFFL)) xor (hNum.trim().lowercase().hashCode().toLong() * 31L)
+                        seenHouses.add(hKey)
+                    }
+                }
+            } catch (_: Exception) {}
             try {
                 val pCur = db.rawQuery("""
                     SELECT DISTINCT ap.osm_id, ap.name
@@ -999,7 +972,6 @@ object AddressDownloadManager {
                     client.interruptibleSleep(1500L, isCancelled)
 
                     // Спосіб 1: Точна полігональна зона (area)
-                    var tsvData: String? = null
                     val areaClause = if (curRegion.relId > 0) {
                         "area(${3600000000L + curRegion.relId})->.a;"
                     } else {
@@ -1015,7 +987,7 @@ object AddressDownloadManager {
                         );
                         out center;
                     """.trimIndent()
-                    tsvData = client.query(qArea, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 1)
+                    var tsvData = client.query(qArea, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 1)
 
                     // Спосіб 2: Якщо через area сервер нічого не повернув (відсутній шар area на цьому сервері) або помилка — резервний запит через географічну рамку (bbox)
                     val houseCountInArea = tsvData?.lines()?.count { it.isNotBlank() } ?: 0
@@ -1087,6 +1059,13 @@ object AddressDownloadManager {
                             }
 
                             if (houseNumber.isBlank() && street.isBlank()) continue
+
+                            val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
+                            val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
+                            val houseKey = ((latI.toLong() shl 32) or (lonI.toLong() and 0xFFFFFFFFL)) xor (houseNumber.trim().lowercase().hashCode().toLong() * 31L)
+                            if (!seenHouses.add(houseKey)) {
+                                continue
+                            }
 
                             var city = rowCity.ifBlank { rowTown.ifBlank { rowVillage.ifBlank { rowHamlet.ifBlank { rowSuburb.ifBlank { isInCity.ifBlank { isInTown.ifBlank { isInVillage.ifBlank { isInMuni.ifBlank { rowPlace } } } } } } } } }
                             if (city.isBlank()) {
