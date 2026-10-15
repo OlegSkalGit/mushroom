@@ -3,10 +3,10 @@ package com.olegskal.mushroom.address
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import com.olegskal.mushroom.map.MapCountry
-import com.olegskal.mushroom.map.PoiManager
-import com.olegskal.mushroom.math.GeoMath
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
+import com.olegskal.mushroom.map.PoiManager
+import com.olegskal.mushroom.math.GeoMath
 import org.json.JSONObject
 import java.io.File
 
@@ -465,10 +465,8 @@ object AddressDownloadManager {
     ): Int {
         if (!poiFile.exists() || poiFile.length() < 1024L || isCancelled()) return 0
         var count = 0
-        var poiDb: SQLiteDatabase? = null
-        val appDb = ingestor.db
         try {
-            poiDb = SQLiteDatabase.openDatabase(poiFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+            val poiDb = SQLiteDatabase.openDatabase(poiFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
             val cursor = poiDb.rawQuery("""
                 SELECT i.lat, i.lon, p.data 
                 FROM poi_data p 
@@ -476,6 +474,7 @@ object AddressDownloadManager {
                 WHERE p.data LIKE '%addr:%';
             """.trimIndent(), null)
 
+            val appDb = ingestor.db
             appDb.beginTransaction()
             try {
                 cursor.use {
@@ -521,18 +520,15 @@ object AddressDownloadManager {
                     }
                 }
                 ingestor.flush()
-                if (!isCancelled()) {
-                    appDb.setTransactionSuccessful()
-                }
+                appDb.setTransactionSuccessful()
             } finally {
                 if (appDb.inTransaction()) {
                     appDb.endTransaction()
                 }
             }
+            poiDb.close()
         } catch (e: Exception) {
             AppLogger.log(TAG, "extractAddressesFromPoiFile", false, "POI address extraction warning: ${e.message}")
-        } finally {
-            try { poiDb?.close() } catch (_: Exception) {}
         }
         return count
     }
@@ -1068,9 +1064,7 @@ object AddressDownloadManager {
                         if (region.relId > 0) loadedOsmIds.add(region.relId)
                         loadedNames.add(region.name.trim().lowercase())
                     } finally {
-                        if (db.inTransaction()) {
-                            db.endTransaction()
-                        }
+                        db.endTransaction()
                     }
                     onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, statusMsg)
                     if (!isCancelled()) {
@@ -1104,6 +1098,7 @@ object AddressDownloadManager {
                     break
                 }
             }
+
             if (isCancelled()) return false
 
             onProgress(0.95, "${country.nameUk}: Оптимізація індексу FTS")
@@ -1118,7 +1113,7 @@ object AddressDownloadManager {
             AppLogger.log(TAG, "ingestCountryAddresses", false, "Ingest failed: ${e.message}")
             return false
         } finally {
-            try { ingestor.close() } catch (_: Exception) {}
+            ingestor.close()
             try {
                 if (db.inTransaction()) {
                     db.endTransaction()
@@ -1128,7 +1123,6 @@ object AddressDownloadManager {
             AddressDb.closeDatabase()
         }
     }
-
     fun needsPoiUpdate(context: Context, country: MapCountry): Boolean {
         val dbFile = AddressDb.getDatabaseFile(context)
         if (!dbFile.exists() || dbFile.length() < 1024L) return false

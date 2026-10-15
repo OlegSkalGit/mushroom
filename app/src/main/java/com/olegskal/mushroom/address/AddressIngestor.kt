@@ -265,26 +265,17 @@ class AddressIngestor(
         } catch (e: Exception) {
             AppLogger.log(TAG, "flush", false, "Error flushing houses: ${e.message}")
         } finally {
-            if (ownTx && db.inTransaction()) {
-                db.endTransaction()
-            }
+            if (ownTx) db.endTransaction()
             housesBatch.clear()
         }
     }
 
     fun close() {
-        try {
-            flush()
-        } catch (_: Exception) {}
+        flush()
         try { stmtInsertPlace?.close() } catch (_: Exception) {}
         try { stmtInsertStreetName?.close() } catch (_: Exception) {}
         try { stmtInsertStreet?.close() } catch (_: Exception) {}
         try { stmtInsertFts?.close() } catch (_: Exception) {}
         try { stmtInsertHouse?.close() } catch (_: Exception) {}
-        stmtInsertPlace = null
-        stmtInsertStreetName = null
-        stmtInsertStreet = null
-        stmtInsertFts = null
-        stmtInsertHouse = null
     }
 }
