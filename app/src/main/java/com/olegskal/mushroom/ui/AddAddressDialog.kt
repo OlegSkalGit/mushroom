@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -17,9 +18,11 @@ import android.widget.TextView
 import android.widget.Toast
 import com.olegskal.mushroom.MushroomMapActivity
 import com.olegskal.mushroom.address.AddressDb
+import com.olegskal.mushroom.address.AddressDownloadManager
 import com.olegskal.mushroom.address.AddressSearchManager
 import com.olegskal.mushroom.address.AddressSearchResult
 import com.olegskal.mushroom.db.DatabaseHelper
+import com.olegskal.mushroom.map.MapDownloadManager
 import com.olegskal.mushroom.util.AppPrefs
 
 object AddAddressDialog {
@@ -46,7 +49,7 @@ object AddAddressDialog {
         }
 
         val titleTv = TextView(activity).apply {
-            text = if (isUk) "🔍 Додати адресу" else "🔍 Add Address"
+            text = if (isUk) "🔍 Пошук адрес та точок (POI)" else "🔍 Search Addresses & POI"
             setTextColor(Color.WHITE)
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
@@ -78,7 +81,7 @@ object AddAddressDialog {
 
         // Status / empty label
         val statusTv = TextView(activity).apply {
-            text = if (isUk) "Введіть назву вулиці або міста та натисніть «Пошук»" else "Enter street or city name and press 'Search'"
+            text = if (isUk) "Введіть назву вулиці, міста або точки інтересу та натисніть «Пошук»" else "Enter street, city or POI name and press 'Search'"
             setTextColor(Color.GRAY)
             textSize = 13f
             gravity = Gravity.CENTER
@@ -86,11 +89,60 @@ object AddAddressDialog {
         }
         listContainer.addView(statusTv)
 
+        // Check local-only POI upgrade opportunity
+        val detectedCountry = MapDownloadManager.detectCurrentCountry(activity)
+        if (AddressDownloadManager.needsPoiUpdate(activity, detectedCountry)) {
+            val banner = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundColor(Color.parseColor("#1B2E24"))
+                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                p.setMargins(0, 0, 0, dp(10))
+                layoutParams = p
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+            }
+
+            val bannerTv = TextView(activity).apply {
+                text = if (isUk) "💡 Доступне оновлення: додати точки інтересу (POI) без інтернету"
+                       else "💡 Update available: add points of interest (POI) from local file"
+                setTextColor(Color.parseColor("#86EFAC"))
+                textSize = 12f
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val btnUpdate = UiUtils.createStyledButton(activity, if (isUk) "Оновити" else "Update") {
+                banner.visibility = View.GONE
+                statusTv.text = if (isUk) "Оновлення точок інтересу (POI)..." else "Updating POI..."
+                listContainer.removeAllViews()
+                listContainer.addView(statusTv)
+                Thread {
+                    val imported = AddressDownloadManager.importPoiLocationsToAddressDb(activity, detectedCountry)
+                    activity.runOnUiThread {
+                        if (imported > 0) {
+                            Toast.makeText(
+                                activity,
+                                if (isUk) "Успішно додано $imported точок інтересу!" else "Successfully added $imported POI points!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        statusTv.text = if (isUk) "Введіть назву вулиці, міста або точки інтересу" else "Enter street, city or POI name"
+                    }
+                }.start()
+            }.apply {
+                textSize = 12f
+                setPadding(dp(10), dp(4), dp(10), dp(4))
+            }
+
+            banner.addView(bannerTv)
+            banner.addView(btnUpdate)
+            container.addView(banner)
+        }
+
         fun renderResults(results: List<AddressSearchResult>) {
             listContainer.removeAllViews()
             if (results.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
-                    text = if (isUk) "Нічого не знайдено за цим запитом" else "No addresses found for this query"
+                    text = if (isUk) "Нічого не знайдено за цим запитом" else "No results found for this query"
                     setTextColor(Color.GRAY)
                     textSize = 13f
                     gravity = Gravity.CENTER
@@ -109,31 +161,92 @@ object AddAddressDialog {
                         setMargins(0, 0, 0, dp(6))
                     }
                     layoutParams = p
-                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    setPadding(dp(12), dp(8), dp(12), dp(8))
                     isClickable = true
                     isFocusable = true
                 }
 
-                val titleLine = TextView(activity).apply {
-                    text = addr.getFullTitle()
-                    setTextColor(Color.WHITE)
-                    textSize = 13.5f
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
-                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                val iconTv = TextView(activity).apply {
+                    text = if (addr.isPoiOnly) (addr.poiIcon ?: "📍") else if (!addr.poiIcon.isNullOrBlank()) addr.poiIcon else "📍"
+                    textSize = 18f
+                    setPadding(0, 0, dp(10), 0)
+                }
+                itemRow.addView(iconTv)
+
+                val textCol = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 }
 
-                itemRow.addView(titleLine)
+                val titleText = if (addr.isPoiOnly) {
+                    addr.poiName ?: addr.getFullTitle()
+                } else {
+                    val streetPart = if (addr.houseNumber.isNotBlank()) "${addr.streetName}, ${addr.houseNumber}" else addr.streetName
+                    if (!addr.poiName.isNullOrBlank()) {
+                        "$streetPart • ${addr.poiName}"
+                    } else {
+                        streetPart.ifBlank { addr.cityName }
+                    }
+                }
+
+                val itemTitleTv = TextView(activity).apply {
+                    text = titleText
+                    setTextColor(Color.WHITE)
+                    textSize = 14f
+                    setTypeface(null, Typeface.BOLD)
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                }
+
+                val subtitleText = if (addr.isPoiOnly) {
+                    val loc = listOf(
+                        addr.streetName + (if (addr.houseNumber.isNotBlank()) ", " + addr.houseNumber else ""),
+                        addr.cityName,
+                        addr.regionName
+                    ).filter { it.isNotBlank() }.joinToString(", ")
+                    val cat = addr.poiCategory ?: ""
+                    if (cat.isNotBlank() && loc.isNotBlank()) "$cat • $loc" else cat.ifBlank { loc }
+                } else {
+                    listOf(addr.cityName, addr.regionName).filter { it.isNotBlank() }.joinToString(", ")
+                }
+
+                val subtitleTv = TextView(activity).apply {
+                    text = subtitleText
+                    setTextColor(Color.parseColor("#9CA3AF"))
+                    textSize = 11.5f
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                }
+
+                textCol.addView(itemTitleTv)
+                if (subtitleText.isNotBlank()) {
+                    textCol.addView(subtitleTv)
+                }
+                itemRow.addView(textCol)
 
                 itemRow.setOnClickListener {
                     dialog.dismiss()
+                    val initialType = if (addr.isPoiOnly) {
+                        if (!addr.poiCategory.isNullOrBlank()) {
+                            "${addr.poiIcon ?: "📍"} ${addr.poiCategory}"
+                        } else {
+                            if (isUk) "📍 Точка інтересу" else "📍 Point of Interest"
+                        }
+                    } else {
+                        if (isUk) "📍 Адреса" else "📍 Address"
+                    }
+                    val initialName = if (addr.isPoiOnly) {
+                        addr.poiName ?: addr.getFullTitle()
+                    } else {
+                        addr.getFullTitle()
+                    }
                     ItemEditDialog.showAddMarker(
                         activity = activity,
                         dbHelper = dbHelper,
                         lat = addr.lat,
                         lon = addr.lon,
-                        initialName = addr.getFullTitle(),
-                        initialType = if (isUk) "📍 Адреса" else "📍 Address"
+                        initialName = initialName,
+                        initialType = initialType
                     ) { marker ->
                         val mapActivity = activity as? MushroomMapActivity
                         mapActivity?.centerOnLocation(marker.lat, marker.lon)
@@ -149,7 +262,7 @@ object AddAddressDialog {
             val query = searchInput?.text?.toString()?.trim() ?: ""
             if (query.isBlank()) {
                 listContainer.removeAllViews()
-                statusTv.text = if (isUk) "Введіть назву вулиці або міста" else "Enter street or city name"
+                statusTv.text = if (isUk) "Введіть назву вулиці, міста або точки інтересу" else "Enter street, city or POI name"
                 listContainer.addView(statusTv)
                 return
             }
@@ -185,7 +298,7 @@ object AddAddressDialog {
         }
 
         searchInput = EditText(activity).apply {
-            hint = if (isUk) "Введіть адресу (місто, вулиця, будинок)..." else "Enter address (city, street, house)..."
+            hint = if (isUk) "Адреса або точка інтересу (аптека, готель, джерело)..." else "Address or POI (pharmacy, hotel, spring)..."
             setHintTextColor(Color.GRAY)
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#263226"))

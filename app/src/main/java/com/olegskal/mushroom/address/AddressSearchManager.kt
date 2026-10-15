@@ -13,21 +13,54 @@ data class AddressSearchResult(
     val streetName: String,
     val houseNumber: String,
     val lat: Double,
-    val lon: Double
+    val lon: Double,
+    val poiName: String? = null,
+    val poiCategory: String? = null,
+    val poiIcon: String? = null,
+    val isPoiOnly: Boolean = false
 ) {
     fun getFullTitle(): String {
+        if (isPoiOnly) {
+            val iconPrefix = if (!poiIcon.isNullOrBlank()) "$poiIcon " else "📍 "
+            val catSuffix = if (!poiCategory.isNullOrBlank()) " • $poiCategory" else ""
+            val streetPart = if (streetName.isNotBlank()) {
+                if (houseNumber.isNotBlank()) ", $streetName, $houseNumber" else ", $streetName"
+            } else ""
+            val cityPart = if (cityName.isNotBlank()) " ($cityName$streetPart)" else if (streetPart.isNotBlank()) " (${streetPart.removePrefix(", ")})" else ""
+            return "$iconPrefix${poiName ?: ""}$catSuffix$cityPart"
+        }
+
         val parts = mutableListOf<String>()
         if (streetName.isNotBlank()) parts.add(streetName)
         if (houseNumber.isNotBlank()) parts.add(houseNumber)
         if (cityName.isNotBlank() && cityName != streetName) parts.add(cityName)
         if (regionName.isNotBlank() && regionName != cityName) parts.add(regionName)
-        return parts.joinToString(", ")
+        val baseAddr = parts.joinToString(", ")
+
+        return if (!poiName.isNullOrBlank()) {
+            val iconPrefix = if (!poiIcon.isNullOrBlank()) "$poiIcon " else ""
+            "$baseAddr • $iconPrefix$poiName"
+        } else {
+            baseAddr
+        }
     }
 
     fun getShortDisplay(): String {
+        if (isPoiOnly) {
+            val iconPrefix = if (!poiIcon.isNullOrBlank()) "$poiIcon " else "📍 "
+            val cityPart = if (cityName.isNotBlank()) cityName else regionName
+            return if (cityPart.isNotBlank()) "$iconPrefix${poiName ?: ""} ($cityPart)" else "$iconPrefix${poiName ?: ""}"
+        }
+
         val streetPart = if (houseNumber.isNotBlank()) "$streetName, $houseNumber" else streetName
         val cityPart = if (cityName.isNotBlank()) cityName else regionName
-        return if (streetPart.isNotBlank() && cityPart.isNotBlank()) "$streetPart ($cityPart)" else streetPart.ifBlank { cityPart }
+        val base = if (streetPart.isNotBlank() && cityPart.isNotBlank()) "$streetPart ($cityPart)" else streetPart.ifBlank { cityPart }
+        return if (!poiName.isNullOrBlank()) {
+            val iconPrefix = if (!poiIcon.isNullOrBlank()) "$poiIcon " else ""
+            "$base • $iconPrefix$poiName"
+        } else {
+            base
+        }
     }
 }
 
@@ -48,9 +81,10 @@ object AddressSearchManager {
         if (query.isBlank()) return emptyList()
 
         val userLoc = userLocation ?: LocationUtils.getUserLocation(context)
+        val uLat = if (userLoc != null) kotlin.math.round(userLoc.latitude * 1_000_000.0).toLong() else 0L
+        val uLon = if (userLoc != null) kotlin.math.round(userLoc.longitude * 1_000_000.0).toLong() else 0L
+
         val orderByClause = if (userLoc != null) {
-            val uLat = kotlin.math.round(userLoc.latitude * 1_000_000.0).toLong()
-            val uLon = kotlin.math.round(userLoc.longitude * 1_000_000.0).toLong()
             """
                 ORDER BY
                   (CASE WHEN h.lat IS NULL OR h.lat = 0 THEN 1 ELSE 0 END) ASC,
@@ -62,6 +96,17 @@ object AddressSearchManager {
             """.trimIndent()
         } else {
             "ORDER BY CAST(h.number AS INTEGER), h.number"
+        }
+
+        val poiOrderByClause = if (userLoc != null) {
+            """
+                ORDER BY
+                  ((pp.lat - $uLat) * (pp.lat - $uLat) +
+                   (pp.lon - $uLon) * (pp.lon - $uLon)) ASC,
+                  pp.name ASC
+            """.trimIndent()
+        } else {
+            "ORDER BY pp.name ASC"
         }
 
         val cleanQ = query.replace("\"", " ")
@@ -83,7 +128,17 @@ object AddressSearchManager {
                 while (matcher.find()) {
                     val w = matcher.group()
                     if (w.isNotBlank()) {
-                        textTokens.add("${w.lowercase()}*")
+                        val low = w.lowercase()
+                        val stem = if (low.length >= 4) {
+                            low.replace(Regex("[аеиіоуєюя]+$"), "")
+                        } else {
+                            low
+                        }
+                        if (stem.length >= 3) {
+                            textTokens.add("$stem*")
+                        } else {
+                            textTokens.add("$low*")
+                        }
                     }
                 }
             }
@@ -91,11 +146,15 @@ object AddressSearchManager {
 
         val ftsQuery = textTokens.joinToString(" ")
         if (ftsQuery.isBlank() && houseNum == null) return emptyList()
-        if (ftsQuery.isBlank() && houseNum != null) return emptyList() // Need city/street context
+        if (ftsQuery.isBlank() && houseNum != null) return emptyList()
 
         val results = mutableListOf<AddressSearchResult>()
+        val hasPoi = AddressDb.hasPoiTables(db)
+        val hasPoiFts = hasPoi && AddressDb.hasTable(db, "poi_fts")
+        val seenCoords = mutableSetOf<Pair<Int, Int>>()
 
         try {
+            // 1. ADDRESS SEARCH (with optional linked POI info)
             if (houseNum != null) {
                 val hUp = houseNum.uppercase().trim()
                 val hLow = houseNum.lowercase().trim()
@@ -120,20 +179,43 @@ object AddressSearchManager {
                 val varsList = hVars.toList()
                 val inPlaceholders = varsList.joinToString(",") { "?" }
 
-                val sql = """
-                    SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon
-                    FROM search_fts f
-                    JOIN streets s ON s.id = f.rowid
-                    JOIN street_names sn ON sn.id = s.name_id
-                    JOIN admin_places city ON city.id = s.place_id
-                    LEFT JOIN admin_places reg ON reg.id = s.region_id
-                    LEFT JOIN admin_places country ON country.id = s.country_id
-                    JOIN houses h ON h.street_id = s.id
-                    WHERE search_fts MATCH ?
-                      AND (h.number IN ($inPlaceholders) OR h.number LIKE ? OR h.number LIKE ?)
-                    $orderByClause
-                    LIMIT ?;
-                """.trimIndent()
+                val sql = if (hasPoi) {
+                    """
+                        SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon,
+                               COALESCE(GROUP_CONCAT(DISTINCT pp.name), ''),
+                               COALESCE(MAX(pc.name_uk), ''),
+                               COALESCE(MAX(pc.icon), '')
+                        FROM search_fts f
+                        JOIN streets s ON s.id = f.rowid
+                        JOIN street_names sn ON sn.id = s.name_id
+                        JOIN admin_places city ON city.id = s.place_id
+                        LEFT JOIN admin_places reg ON reg.id = s.region_id
+                        LEFT JOIN admin_places country ON country.id = s.country_id
+                        JOIN houses h ON h.street_id = s.id
+                        LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
+                        LEFT JOIN poi_categories pc ON pc.id = pp.category_id
+                        WHERE search_fts MATCH ?
+                          AND (h.number IN ($inPlaceholders) OR h.number LIKE ? OR h.number LIKE ?)
+                        GROUP BY h.street_id, h.number
+                        $orderByClause
+                        LIMIT ?;
+                    """.trimIndent()
+                } else {
+                    """
+                        SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon
+                        FROM search_fts f
+                        JOIN streets s ON s.id = f.rowid
+                        JOIN street_names sn ON sn.id = s.name_id
+                        JOIN admin_places city ON city.id = s.place_id
+                        LEFT JOIN admin_places reg ON reg.id = s.region_id
+                        LEFT JOIN admin_places country ON country.id = s.country_id
+                        JOIN houses h ON h.street_id = s.id
+                        WHERE search_fts MATCH ?
+                          AND (h.number IN ($inPlaceholders) OR h.number LIKE ? OR h.number LIKE ?)
+                        $orderByClause
+                        LIMIT ?;
+                    """.trimIndent()
+                }
 
                 val args = mutableListOf<String>()
                 args.add(ftsQuery)
@@ -152,7 +234,14 @@ object AddressSearchManager {
                         val hNum = it.getString(4) ?: ""
                         val latRaw = it.getInt(5)
                         val lonRaw = it.getInt(6)
+                        val pName = if (hasPoi) it.getString(7)?.takeIf { s -> s.isNotBlank() } else null
+                        val pCat = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
+                        val pIcon = if (hasPoi) it.getString(9)?.takeIf { s -> s.isNotBlank() } else null
+
                         val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
+                        val dLat = latRaw / div
+                        val dLon = lonRaw / div
+
                         results.add(
                             AddressSearchResult(
                                 countryCode = cCode,
@@ -160,26 +249,53 @@ object AddressSearchManager {
                                 cityName = cName,
                                 streetName = sName,
                                 houseNumber = hNum,
-                                lat = latRaw / div,
-                                lon = lonRaw / div
+                                lat = dLat,
+                                lon = dLon,
+                                poiName = pName,
+                                poiCategory = pCat,
+                                poiIcon = pIcon,
+                                isPoiOnly = false
                             )
                         )
+                        seenCoords.add(Pair(kotlin.math.round(dLat * 1000.0).toInt(), kotlin.math.round(dLon * 1000.0).toInt()))
                     }
                 }
             } else {
-                val sql = """
-                    SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon
-                    FROM search_fts f
-                    JOIN streets s ON s.id = f.rowid
-                    JOIN street_names sn ON sn.id = s.name_id
-                    JOIN admin_places city ON city.id = s.place_id
-                    LEFT JOIN admin_places reg ON reg.id = s.region_id
-                    LEFT JOIN admin_places country ON country.id = s.country_id
-                    JOIN houses h ON h.street_id = s.id
-                    WHERE search_fts MATCH ?
-                    $orderByClause
-                    LIMIT ?;
-                """.trimIndent()
+                val sql = if (hasPoi) {
+                    """
+                        SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon,
+                               COALESCE(GROUP_CONCAT(DISTINCT pp.name), ''),
+                               COALESCE(MAX(pc.name_uk), ''),
+                               COALESCE(MAX(pc.icon), '')
+                        FROM search_fts f
+                        JOIN streets s ON s.id = f.rowid
+                        JOIN street_names sn ON sn.id = s.name_id
+                        JOIN admin_places city ON city.id = s.place_id
+                        LEFT JOIN admin_places reg ON reg.id = s.region_id
+                        LEFT JOIN admin_places country ON country.id = s.country_id
+                        JOIN houses h ON h.street_id = s.id
+                        LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
+                        LEFT JOIN poi_categories pc ON pc.id = pp.category_id
+                        WHERE search_fts MATCH ?
+                        GROUP BY h.street_id, h.number
+                        $orderByClause
+                        LIMIT ?;
+                    """.trimIndent()
+                } else {
+                    """
+                        SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon
+                        FROM search_fts f
+                        JOIN streets s ON s.id = f.rowid
+                        JOIN street_names sn ON sn.id = s.name_id
+                        JOIN admin_places city ON city.id = s.place_id
+                        LEFT JOIN admin_places reg ON reg.id = s.region_id
+                        LEFT JOIN admin_places country ON country.id = s.country_id
+                        JOIN houses h ON h.street_id = s.id
+                        WHERE search_fts MATCH ?
+                        $orderByClause
+                        LIMIT ?;
+                    """.trimIndent()
+                }
 
                 val cursor = db.rawQuery(sql, arrayOf(ftsQuery, limit.toString()))
                 cursor.use {
@@ -191,7 +307,14 @@ object AddressSearchManager {
                         val hNum = it.getString(4) ?: ""
                         val latRaw = it.getInt(5)
                         val lonRaw = it.getInt(6)
+                        val pName = if (hasPoi) it.getString(7)?.takeIf { s -> s.isNotBlank() } else null
+                        val pCat = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
+                        val pIcon = if (hasPoi) it.getString(9)?.takeIf { s -> s.isNotBlank() } else null
+
                         val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
+                        val dLat = latRaw / div
+                        val dLon = lonRaw / div
+
                         results.add(
                             AddressSearchResult(
                                 countryCode = cCode,
@@ -199,13 +322,88 @@ object AddressSearchManager {
                                 cityName = cName,
                                 streetName = sName,
                                 houseNumber = hNum,
-                                lat = latRaw / div,
-                                lon = lonRaw / div
+                                lat = dLat,
+                                lon = dLon,
+                                poiName = pName,
+                                poiCategory = pCat,
+                                poiIcon = pIcon,
+                                isPoiOnly = false
                             )
                         )
+                        seenCoords.add(Pair(kotlin.math.round(dLat * 1000.0).toInt(), kotlin.math.round(dLon * 1000.0).toInt()))
                     }
                 }
             }
+
+            // 2. POI SEARCH (standalone or query by POI name/category)
+            if (hasPoiFts && results.size < limit && ftsQuery.isNotBlank()) {
+                try {
+                    val remainingLimit = limit - results.size
+                    val poiSql = """
+                        SELECT 
+                            pp.name, 
+                            COALESCE(pc.name_uk, pp.category_id), 
+                            COALESCE(pc.icon, '📍'),
+                            COALESCE(pp.house_number, ''), 
+                            pp.lat, 
+                            pp.lon,
+                            COALESCE(sn.name, ''),
+                            COALESCE(city.name, ''),
+                            COALESCE(reg.name, ''),
+                            COALESCE(country.code, '')
+                        FROM poi_fts pf
+                        JOIN poi_places pp ON pp.id = pf.rowid
+                        LEFT JOIN poi_categories pc ON pc.id = pp.category_id
+                        LEFT JOIN streets s ON s.id = pp.street_id
+                        LEFT JOIN street_names sn ON sn.id = s.name_id
+                        LEFT JOIN admin_places city ON city.id = s.place_id
+                        LEFT JOIN admin_places reg ON reg.id = s.region_id
+                        LEFT JOIN admin_places country ON country.id = s.country_id
+                        WHERE poi_fts MATCH ?
+                        $poiOrderByClause
+                        LIMIT ?;
+                    """.trimIndent()
+
+                    val poiCursor = db.rawQuery(poiSql, arrayOf(ftsQuery, remainingLimit.toString()))
+                    poiCursor.use {
+                        while (it.moveToNext()) {
+                            val pName = it.getString(0) ?: ""
+                            val pCat = it.getString(1) ?: ""
+                            val pIcon = it.getString(2) ?: "📍"
+                            val pHouse = it.getString(3) ?: ""
+                            val pLat = it.getInt(4) / 1_000_000.0
+                            val pLon = it.getInt(5) / 1_000_000.0
+                            val pStreet = it.getString(6) ?: ""
+                            val pCity = it.getString(7) ?: ""
+                            val pReg = it.getString(8) ?: ""
+                            val pCountry = it.getString(9) ?: ""
+
+                            val coordKey = Pair(kotlin.math.round(pLat * 1000.0).toInt(), kotlin.math.round(pLon * 1000.0).toInt())
+                            if (!seenCoords.contains(coordKey)) {
+                                seenCoords.add(coordKey)
+                                results.add(
+                                    AddressSearchResult(
+                                        countryCode = pCountry,
+                                        regionName = pReg,
+                                        cityName = pCity,
+                                        streetName = pStreet,
+                                        houseNumber = pHouse,
+                                        lat = pLat,
+                                        lon = pLon,
+                                        poiName = pName,
+                                        poiCategory = pCat,
+                                        poiIcon = pIcon,
+                                        isPoiOnly = true
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } catch (pe: Exception) {
+                    AppLogger.log(TAG, "search", false, "POI FTS search warning: ${pe.message}")
+                }
+            }
+
         } catch (e: Exception) {
             AppLogger.log(TAG, "search", false, "Address search query failed: ${e.message}")
             throw e

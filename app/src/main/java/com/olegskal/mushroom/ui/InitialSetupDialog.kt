@@ -194,6 +194,9 @@ object InitialSetupDialog {
         val addressReady = AddressDownloadManager.hasAddressesForCountry(activity, country.code)
         if (!addressReady) return true
 
+        // 8. Локальні точки інтересу (POI) в базі адрес
+        if (AddressDownloadManager.needsPoiUpdate(activity, country)) return true
+
         return false
     }
 
@@ -607,6 +610,37 @@ object InitialSetupDialog {
                         },
                         isCancelled = isCancel
                     )
+                }
+            )
+        } else if (AddressDownloadManager.needsPoiUpdate(context, country)) {
+            val isUk = AppPrefs.isUk(context)
+            list.add(
+                UpdateItem(
+                    "addr_poi_${country.code}",
+                    BlockType.ADDRESSES,
+                    if (isUk) "Точки інтересу (POI)" else "Points of Interest (POI)",
+                    if (isUk) "Оновлення локальних POI" else "Local POI update",
+                    "${if (isUk) country.nameUk else country.name} (${if (isUk) "оновити POI з локального файлу, addr.db" else "update POI from local file, addr.db"})",
+                    5_000_000L
+                ) { onBytes, _, isCancel ->
+                    var lastReported = 0L
+                    AddressDownloadManager.importPoiLocationsToAddressDb(
+                        context = context,
+                        country = country,
+                        onProgress = { ratio, statusMsg ->
+                            val curBytes = (ratio * 5_000_000L).toLong()
+                            val delta = curBytes - lastReported
+                            if (delta > 0L) {
+                                lastReported = curBytes
+                                onBytes(delta)
+                            }
+                            val mapAct = context as? MushroomMapActivity
+                            val rem = pendingQueue.size
+                            val remSuffix = if (rem > 0) (if (isUk) " (у черзі: $rem)" else " (in queue: $rem)") else ""
+                            mapAct?.updateBottomDownloadProgress(true, -1, 1000, "$statusMsg$remSuffix")
+                        },
+                        isCancelled = isCancel
+                    ) > 0
                 }
             )
         }

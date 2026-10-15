@@ -765,15 +765,28 @@ class MushroomClassifierTab(
             return
         }
 
+        val localizedNames = MushroomDatabaseManager.getLocalizedNames(
+            context = activity,
+            scientificNames = predictions.map { it.species },
+            lang = currentLang
+        )
+
         predictions.forEachIndexed { index, item ->
             val isTop = index == 0
+            val localizedName = localizedNames[item.species.trim().lowercase()]
+            val mainTitle = localizedName ?: item.species
 
             val onCardAction = {
                 val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 val clip = ClipData.newPlainText("Mushroom Name", item.species)
                 clipboard.setPrimaryClip(clip)
 
-                val msg = if (currentLang == "uk") "Скопійовано: ${item.species} → Енциклопедія" else "Copied: ${item.species} → Encyclopedia"
+                val displayTitle = if (localizedName != null && !localizedName.equals(item.species, ignoreCase = true)) {
+                    "$localizedName (${item.species})"
+                } else {
+                    item.species
+                }
+                val msg = if (currentLang == "uk") "Скопійовано: $displayTitle → Енциклопедія" else "Copied: $displayTitle → Encyclopedia"
                 Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
 
                 onSearchInEncyclopedia(item.species)
@@ -809,16 +822,31 @@ class MushroomClassifierTab(
             }
             topRow.addView(rankBadge)
 
-            val nameTv = TextView(activity).apply {
-                text = item.species
-                setTextColor(Color.WHITE)
-                textSize = 14f
-                setTypeface(null, Typeface.BOLD)
+            val nameCol = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     setMargins(0, 0, 6, 0)
                 }
             }
-            topRow.addView(nameTv)
+
+            val titleTv = TextView(activity).apply {
+                text = mainTitle
+                setTextColor(Color.WHITE)
+                textSize = 14f
+                setTypeface(null, Typeface.BOLD)
+            }
+            nameCol.addView(titleTv)
+
+            if (localizedName != null && !localizedName.equals(item.species, ignoreCase = true)) {
+                val latinTv = TextView(activity).apply {
+                    text = item.species
+                    setTextColor(Color.parseColor("#9CA3AF"))
+                    textSize = 11.5f
+                    setTypeface(null, Typeface.ITALIC)
+                }
+                nameCol.addView(latinTv)
+            }
+            topRow.addView(nameCol)
 
             val edibility = item.edibility
             val edibilityBadge = TextView(activity).apply {

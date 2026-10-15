@@ -560,6 +560,40 @@ object MushroomDatabaseManager {
         return Pair(resultList, hasMore)
     }
 
+    /**
+     * Retrieves localized names (name_uk or name_en depending on lang) from taxa table for given scientific names.
+     */
+    fun getLocalizedNames(
+        context: Context,
+        scientificNames: Collection<String>,
+        lang: String
+    ): Map<String, String> {
+        if (scientificNames.isEmpty()) return emptyMap()
+        val db = getDatabase(context) ?: return emptyMap()
+        val result = HashMap<String, String>(scientificNames.size)
+        try {
+            val distinctNames = scientificNames.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
+            if (distinctNames.isEmpty()) return emptyMap()
+            val placeholders = distinctNames.joinToString(",") { "?" }
+            val cursor = db.rawQuery(
+                "SELECT LOWER(scientific_name), name_uk, name_en FROM taxa WHERE LOWER(scientific_name) IN ($placeholders)",
+                distinctNames.toTypedArray()
+            )
+            cursor.use {
+                while (it.moveToNext()) {
+                    val sci = it.getString(0) ?: ""
+                    val uk = it.getString(1)?.trim()?.takeIf { s -> s.isNotEmpty() && !s.equals("null", ignoreCase = true) }
+                    val en = it.getString(2)?.trim()?.takeIf { s -> s.isNotEmpty() && !s.equals("null", ignoreCase = true) }
+                    val chosen = if (lang == "uk") (uk ?: en) else (en ?: uk)
+                    if (!chosen.isNullOrBlank()) {
+                        result[sci] = chosen
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return result
+    }
+
     private fun getTaxonPhotoUris(db: SQLiteDatabase, taxonDbId: Int): List<String> {
         val list = mutableListOf<String>()
         try {
