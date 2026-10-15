@@ -19,9 +19,11 @@ class OverpassAddressClient(
         private const val TAG = "OverpassClient"
         const val USER_AGENT = "Mushroom-Address-Tool/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
         val DEFAULT_MIRRORS = listOf(
+            "https://overpass.openstreetmap.fr/api/interpreter",
+            "https://overpass.osm.ch/api/interpreter",
+            "https://overpass-api.de/api/interpreter",
             "https://gall.openstreetmap.de/api/interpreter",
             "https://lambert.openstreetmap.de/api/interpreter",
-            "https://overpass-api.de/api/interpreter",
             "https://z.overpass-api.de/api/interpreter",
             "https://lz4.overpass-api.de/api/interpreter"
         )
@@ -42,6 +44,12 @@ class OverpassAddressClient(
                 connectTimeout = 3000
                 readTimeout = 3000
                 setRequestProperty("User-Agent", USER_AGENT)
+            }
+            val code = conn.responseCode
+            if (code == 400 || code == 404) {
+                // Сервери (як-от openstreetmap.fr), які не мають окремого ендпоінту /status, але активні
+                conn.disconnect()
+                return MirrorRank(mirror, 0, 1)
             }
             val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             conn.disconnect()
@@ -134,7 +142,7 @@ class OverpassAddressClient(
 
                     conn = (URL(mirror).openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
-                        connectTimeout = 15000
+                        connectTimeout = 8000
                         readTimeout = timeoutSec * 1000
                         doOutput = true
                         setRequestProperty("User-Agent", USER_AGENT)

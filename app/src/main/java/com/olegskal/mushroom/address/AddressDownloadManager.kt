@@ -264,6 +264,18 @@ object AddressDownloadManager {
             }
         }
 
+        // Резервний варіант для України: 27 перевірених регіонів OSM
+        if (code == "UA") {
+            val uaList = UKRAINE_REGIONS.map { RegionTarget(it.first, it.second) }
+            cachedRegionCounts["UA"] = uaList.size
+            cachedRegions["UA"] = uaList
+            if (db != null && countryId != null) {
+                saveRegionsToDb(db, countryId, uaList, code)
+            }
+            logFn("[+] Структура 27 регіонів України активована (резервний список)")
+            return uaList
+        }
+
         // Резервний варіант за алгоритмом скрипта: вся країна в один прохід
         val fallback = listOf(RegionTarget(0L, country.nameUk))
         cachedRegionCounts[code] = 1
@@ -332,6 +344,36 @@ object AddressDownloadManager {
             else -> 10
         }
     }
+
+    val UKRAINE_REGIONS = listOf(
+        Pair(72639L, "Автономна Республіка Крим"),
+        Pair(90726L, "Вінницька область"),
+        Pair(71064L, "Волинська область"),
+        Pair(101746L, "Дніпропетровська область"),
+        Pair(71973L, "Донецька область"),
+        Pair(71245L, "Житомирська область"),
+        Pair(72489L, "Закарпатська область"),
+        Pair(71980L, "Запорізька область"),
+        Pair(72488L, "Івано-Франківська область"),
+        Pair(421866L, "Київ"),
+        Pair(71248L, "Київська область"),
+        Pair(101859L, "Кіровоградська область"),
+        Pair(71971L, "Луганська область"),
+        Pair(72380L, "Львівська область"),
+        Pair(72635L, "Миколаївська область"),
+        Pair(72634L, "Одеська область"),
+        Pair(91294L, "Полтавська область"),
+        Pair(71236L, "Рівненська область"),
+        Pair(1574364L, "Севастополь"),
+        Pair(71250L, "Сумська область"),
+        Pair(72525L, "Тернопільська область"),
+        Pair(71254L, "Харківська область"),
+        Pair(71022L, "Херсонська область"),
+        Pair(90742L, "Хмельницька область"),
+        Pair(91278L, "Черкаська область"),
+        Pair(72526L, "Чернівецька область"),
+        Pair(71249L, "Чернігівська область")
+    )
 
     private fun fetchAssociatedStreets(
         region: RegionTarget,
@@ -575,36 +617,25 @@ object AddressDownloadManager {
 
             val countryCode = country.code.uppercase()
             try {
-                val curRange = db.rawQuery(
-                    "SELECT min_id, max_id FROM poi_country_ranges WHERE country_code = ? LIMIT 1;",
-                    arrayOf(countryCode)
-                )
-                var prevMin = 0L
-                var prevMax = 0L
-                curRange.use {
-                    if (it.moveToFirst()) {
-                        prevMin = it.getLong(0)
-                        prevMax = it.getLong(1)
-                    }
-                }
-                if (prevMin > 0 && prevMax >= prevMin) {
-                    db.beginTransaction()
-                    try {
-                        db.execSQL("DELETE FROM poi_places WHERE id BETWEEN ? AND ?;", arrayOf(prevMin, prevMax))
-                        db.execSQL("DELETE FROM poi_fts WHERE rowid BETWEEN ? AND ?;", arrayOf(prevMin, prevMax))
-                        db.execSQL("DELETE FROM poi_country_ranges WHERE country_code = ?;", arrayOf(countryCode))
-                        db.setTransactionSuccessful()
-                    } finally {
-                        db.endTransaction()
-                    }
+                db.beginTransaction()
+                try {
+                    db.execSQL("""
+                        DELETE FROM poi_fts 
+                        WHERE rowid IN (SELECT id FROM poi_places WHERE country_code = ?);
+                    """.trimIndent(), arrayOf(countryCode))
+                    db.execSQL("DELETE FROM poi_places WHERE country_code = ?;", arrayOf(countryCode))
+                    db.execSQL("DELETE FROM poi_country_ranges WHERE country_code = ?;", arrayOf(countryCode))
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
                 }
             } catch (e: Exception) {
-                AppLogger.log(TAG, "importPoiLocationsToAddressDb", false, "Range cleanup error: ${e.message}")
+                AppLogger.log(TAG, "importPoiLocationsToAddressDb", false, "Country cleanup error: ${e.message}")
             }
 
             stmtInsertPoi = db.compileStatement("""
-                INSERT INTO poi_places (poi_id, name, category_id, street_id, house_number, lat, lon) 
-                VALUES (?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO poi_places (poi_id, name, category_id, street_id, house_number, lat, lon, country_code) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """.trimIndent())
 
             stmtInsertPoiFts = try {
@@ -619,7 +650,7 @@ object AddressDownloadManager {
             val catDefs = PoiManager.DEFAULT_CATEGORIES.associateBy { it.id }
             val addrMatchCache = mutableMapOf<Pair<String, String>, Pair<Long, String>?>()
 
-            val chunkSize = 2500
+            val chunkSize = 5000
             var lastId = -1L
             var minInsertedId = Long.MAX_VALUE
             var maxInsertedId = 0L
@@ -719,6 +750,9 @@ object AddressDownloadManager {
                                     val found = cHouse.use { ch ->
                                         if (ch.moveToFirst()) Pair(ch.getLong(0), ch.getString(1)) else null
                                     }
+                                    if (addrMatchCache.size > 5000) {
+                                        addrMatchCache.clear()
+                                    }
                                     addrMatchCache[cacheKey] = found
                                     if (found != null) {
                                         matchedStreetId = found.first
@@ -784,6 +818,7 @@ object AddressDownloadManager {
                             }
                             stmtInsertPoi.bindLong(6, latMicro.toLong())
                             stmtInsertPoi.bindLong(7, lonMicro.toLong())
+                            stmtInsertPoi.bindString(8, countryCode)
                             val rowId = stmtInsertPoi.executeInsert()
 
                             if (rowId > 0) {

@@ -363,7 +363,7 @@ object AddressSearchManager {
                             COALESCE(sn.name, ''),
                             COALESCE(city.name, ''),
                             COALESCE(reg.name, ''),
-                            COALESCE(country.code, '')
+                            COALESCE(country.code, pp.country_code, '')
                         FROM poi_fts pf
                         JOIN poi_places pp ON pp.id = pf.rowid
                         LEFT JOIN streets s ON s.id = pp.street_id

@@ -137,11 +137,22 @@ object AddressDb {
     }
 
     fun hasPoiDataForCountry(db: SQLiteDatabase, countryCode: String): Boolean {
+        val code = countryCode.uppercase()
+        if (hasTable(db, "poi_places")) {
+            try {
+                val cursor = db.rawQuery(
+                    "SELECT 1 FROM poi_places WHERE country_code = ? LIMIT 1;",
+                    arrayOf(code)
+                )
+                val hasData = cursor.use { it.moveToFirst() }
+                if (hasData) return true
+            } catch (_: Exception) {}
+        }
         if (!hasTable(db, "poi_country_ranges")) return false
         return try {
             val cursor = db.rawQuery(
                 "SELECT 1 FROM poi_country_ranges WHERE country_code = ? AND total_count > 0 LIMIT 1;",
-                arrayOf(countryCode.uppercase())
+                arrayOf(code)
             )
             cursor.use { it.moveToFirst() }
         } catch (_: Exception) {
@@ -150,11 +161,22 @@ object AddressDb {
     }
 
     fun getCountryPoiCount(db: SQLiteDatabase, countryCode: String): Int {
+        val code = countryCode.uppercase()
+        if (hasTable(db, "poi_places")) {
+            try {
+                val cursor = db.rawQuery(
+                    "SELECT count(*) FROM poi_places WHERE country_code = ?;",
+                    arrayOf(code)
+                )
+                val count = cursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+                if (count > 0) return count
+            } catch (_: Exception) {}
+        }
         if (!hasTable(db, "poi_country_ranges")) return 0
         return try {
             val cursor = db.rawQuery(
                 "SELECT total_count FROM poi_country_ranges WHERE country_code = ? LIMIT 1;",
-                arrayOf(countryCode.uppercase())
+                arrayOf(code)
             )
             cursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
         } catch (_: Exception) {
@@ -281,6 +303,7 @@ object AddressDb {
                     house_number TEXT,
                     lat INTEGER NOT NULL,
                     lon INTEGER NOT NULL,
+                    country_code TEXT NOT NULL DEFAULT 'UA',
                     FOREIGN KEY (street_id) REFERENCES streets(id)
                 );
             """.trimIndent())
@@ -289,9 +312,28 @@ object AddressDb {
         }
 
         try {
+            if (hasTable(db, "poi_places")) {
+                val cInfo = db.rawQuery("PRAGMA table_info(poi_places);", null)
+                var hasCountryCode = false
+                cInfo.use {
+                    while (it.moveToNext()) {
+                        if ("country_code".equals(it.getString(1), ignoreCase = true)) {
+                            hasCountryCode = true
+                            break
+                        }
+                    }
+                }
+                if (!hasCountryCode) {
+                    db.execSQL("ALTER TABLE poi_places ADD COLUMN country_code TEXT NOT NULL DEFAULT 'UA';")
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_cat ON poi_places(category_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);")
         } catch (_: Exception) {}
 
         try {
@@ -330,17 +372,38 @@ object AddressDb {
                             house_number TEXT,
                             lat INTEGER NOT NULL,
                             lon INTEGER NOT NULL,
+                            country_code TEXT NOT NULL DEFAULT 'UA',
                             FOREIGN KEY (street_id) REFERENCES streets(id)
                         );
                     """.trimIndent())
-                    db.execSQL("INSERT INTO poi_places_new (id, poi_id, name, category_id, street_id, house_number, lat, lon) SELECT id, poi_id, name, category_id, street_id, house_number, lat, lon FROM poi_places;")
+                    db.execSQL("""
+                        INSERT INTO poi_places_new (id, poi_id, name, category_id, street_id, house_number, lat, lon, country_code) 
+                        SELECT id, poi_id, name, category_id, street_id, house_number, lat, lon, 'UA' 
+                        FROM poi_places;
+                    """.trimIndent())
                     db.execSQL("DROP TABLE poi_places;")
                     db.execSQL("ALTER TABLE poi_places_new RENAME TO poi_places;")
                     db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);")
                     db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_cat ON poi_places(category_id);")
                     db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);")
+
+                    // Ребілд poi_fts для усунення розсинхрону
+                    if (hasTable(db, "poi_fts")) {
+                        db.execSQL("DELETE FROM poi_fts;")
+                        db.execSQL("""
+                            INSERT INTO poi_fts (rowid, poi_name, category_name, city_name, street_name)
+                            SELECT p.id, p.name, p.category_id, COALESCE(city.name, ''), COALESCE(sn.name, '')
+                            FROM poi_places p
+                            LEFT JOIN streets s ON s.id = p.street_id
+                            LEFT JOIN street_names sn ON sn.id = s.name_id
+                            LEFT JOIN admin_places city ON city.id = s.place_id;
+                        """.trimIndent())
+                        db.execSQL("INSERT INTO poi_fts(poi_fts) VALUES('optimize');")
+                    }
+
                     if (ownTx) db.setTransactionSuccessful()
-                    AppLogger.log(TAG, "checkAndMigratePoiPlaces", true, "Migrated poi_places to non-unique poi_id")
+                    AppLogger.log(TAG, "checkAndMigratePoiPlaces", true, "Migrated poi_places to non-unique poi_id with country_code")
                 } finally {
                     if (ownTx && db.inTransaction()) {
                         db.endTransaction()
@@ -357,26 +420,40 @@ object AddressDb {
                 );
             """.trimIndent())
 
+            // Визначення реального коду країни з admin_places (level = 2)
+            var detectedCountryCode = "UA"
+            try {
+                val curCode = db.rawQuery(
+                    "SELECT code FROM admin_places WHERE level = 2 AND code IS NOT NULL AND length(trim(code)) = 2 LIMIT 1;",
+                    null
+                )
+                curCode.use {
+                    if (it.moveToFirst()) {
+                        val c = it.getString(0)?.trim()?.uppercase()
+                        if (!c.isNullOrBlank()) detectedCountryCode = c
+                    }
+                }
+            } catch (_: Exception) {}
+
+            try {
+                db.execSQL("UPDATE poi_places SET country_code = ? WHERE country_code IS NULL OR country_code = '';", arrayOf(detectedCountryCode))
+            } catch (_: Exception) {}
+
             val cntCursor = db.rawQuery("SELECT count(1) FROM poi_country_ranges;", null)
             val rangeCount = cntCursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
             if (rangeCount == 0 && hasTable(db, "poi_places")) {
-                val pCursor = db.rawQuery("SELECT min(id), max(id), count(id) FROM poi_places;", null)
+                val pCursor = db.rawQuery("SELECT min(id), max(id), count(id) FROM poi_places WHERE country_code = ?;", arrayOf(detectedCountryCode))
                 pCursor.use {
                     if (it.moveToFirst()) {
                         val count = it.getInt(2)
                         if (count > 0) {
                             val minId = it.getLong(0)
                             val maxId = it.getLong(1)
-                            val sampleCur = db.rawQuery("SELECT lat, lon FROM poi_places LIMIT 1;", null)
-                            val (sLat, sLon) = sampleCur.use { sc ->
-                                if (sc.moveToFirst()) Pair(sc.getInt(0), sc.getInt(1)) else Pair(0, 0)
-                            }
-                            val code = if (sLat < 0 && sLon < 0) "PE" else "UA"
                             db.execSQL(
                                 "INSERT OR REPLACE INTO poi_country_ranges (country_code, min_id, max_id, total_count) VALUES (?, ?, ?, ?);",
-                                arrayOf(code, minId, maxId, count)
+                                arrayOf(detectedCountryCode, minId, maxId, count)
                             )
-                            AppLogger.log(TAG, "checkAndMigratePoiPlaces", true, "Backfilled existing POI range for $code: $count points")
+                            AppLogger.log(TAG, "checkAndMigratePoiPlaces", true, "Backfilled existing POI range for $detectedCountryCode: $count points")
                         }
                     }
                 }
