@@ -2,7 +2,9 @@ package com.olegskal.mushroom.address
 
 import android.content.Context
 import android.location.Location
+import com.olegskal.mushroom.map.PoiManager
 import com.olegskal.mushroom.util.AppLogger
+import com.olegskal.mushroom.util.AppPrefs
 import com.olegskal.mushroom.util.LocationUtils
 import java.util.regex.Pattern
 
@@ -145,6 +147,20 @@ object AddressSearchManager {
         }
 
         val ftsQuery = textTokens.joinToString(" ")
+        val isUk = AppPrefs.isUk(context)
+        val catDefs = PoiManager.DEFAULT_CATEGORIES.associateBy { it.id }
+
+        fun getCategoryTitle(catId: String?): String? {
+            if (catId.isNullOrBlank()) return null
+            val def = catDefs[catId] ?: return catId
+            return if (isUk) def.titleUk else def.titleEn
+        }
+
+        fun getCategoryIcon(catId: String?): String {
+            if (catId.isNullOrBlank()) return "📍"
+            return catDefs[catId]?.icon ?: "📍"
+        }
+
         if (ftsQuery.isBlank() && houseNum == null) return emptyList()
         if (ftsQuery.isBlank() && houseNum != null) return emptyList()
 
@@ -183,8 +199,7 @@ object AddressSearchManager {
                     """
                         SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon,
                                COALESCE(GROUP_CONCAT(DISTINCT pp.name), ''),
-                               COALESCE(MAX(pc.name_uk), ''),
-                               COALESCE(MAX(pc.icon), '')
+                               COALESCE(MAX(pp.category_id), '')
                         FROM search_fts f
                         JOIN streets s ON s.id = f.rowid
                         JOIN street_names sn ON sn.id = s.name_id
@@ -193,7 +208,6 @@ object AddressSearchManager {
                         LEFT JOIN admin_places country ON country.id = s.country_id
                         JOIN houses h ON h.street_id = s.id
                         LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
-                        LEFT JOIN poi_categories pc ON pc.id = pp.category_id
                         WHERE search_fts MATCH ?
                           AND (h.number IN ($inPlaceholders) OR h.number LIKE ? OR h.number LIKE ?)
                         GROUP BY h.street_id, h.number
@@ -235,8 +249,9 @@ object AddressSearchManager {
                         val latRaw = it.getInt(5)
                         val lonRaw = it.getInt(6)
                         val pName = if (hasPoi) it.getString(7)?.takeIf { s -> s.isNotBlank() } else null
-                        val pCat = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
-                        val pIcon = if (hasPoi) it.getString(9)?.takeIf { s -> s.isNotBlank() } else null
+                        val pCatId = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
+                        val pCat = getCategoryTitle(pCatId)
+                        val pIcon = if (pCatId != null) getCategoryIcon(pCatId) else null
 
                         val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
                         val dLat = latRaw / div
@@ -265,8 +280,7 @@ object AddressSearchManager {
                     """
                         SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon,
                                COALESCE(GROUP_CONCAT(DISTINCT pp.name), ''),
-                               COALESCE(MAX(pc.name_uk), ''),
-                               COALESCE(MAX(pc.icon), '')
+                               COALESCE(MAX(pp.category_id), '')
                         FROM search_fts f
                         JOIN streets s ON s.id = f.rowid
                         JOIN street_names sn ON sn.id = s.name_id
@@ -275,7 +289,6 @@ object AddressSearchManager {
                         LEFT JOIN admin_places country ON country.id = s.country_id
                         JOIN houses h ON h.street_id = s.id
                         LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
-                        LEFT JOIN poi_categories pc ON pc.id = pp.category_id
                         WHERE search_fts MATCH ?
                         GROUP BY h.street_id, h.number
                         $orderByClause
@@ -308,8 +321,9 @@ object AddressSearchManager {
                         val latRaw = it.getInt(5)
                         val lonRaw = it.getInt(6)
                         val pName = if (hasPoi) it.getString(7)?.takeIf { s -> s.isNotBlank() } else null
-                        val pCat = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
-                        val pIcon = if (hasPoi) it.getString(9)?.takeIf { s -> s.isNotBlank() } else null
+                        val pCatId = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
+                        val pCat = getCategoryTitle(pCatId)
+                        val pIcon = if (pCatId != null) getCategoryIcon(pCatId) else null
 
                         val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
                         val dLat = latRaw / div
@@ -342,8 +356,7 @@ object AddressSearchManager {
                     val poiSql = """
                         SELECT 
                             pp.name, 
-                            COALESCE(pc.name_uk, pp.category_id), 
-                            COALESCE(pc.icon, '📍'),
+                            pp.category_id, 
                             COALESCE(pp.house_number, ''), 
                             pp.lat, 
                             pp.lon,
@@ -353,7 +366,6 @@ object AddressSearchManager {
                             COALESCE(country.code, '')
                         FROM poi_fts pf
                         JOIN poi_places pp ON pp.id = pf.rowid
-                        LEFT JOIN poi_categories pc ON pc.id = pp.category_id
                         LEFT JOIN streets s ON s.id = pp.street_id
                         LEFT JOIN street_names sn ON sn.id = s.name_id
                         LEFT JOIN admin_places city ON city.id = s.place_id
@@ -368,15 +380,16 @@ object AddressSearchManager {
                     poiCursor.use {
                         while (it.moveToNext()) {
                             val pName = it.getString(0) ?: ""
-                            val pCat = it.getString(1) ?: ""
-                            val pIcon = it.getString(2) ?: "📍"
-                            val pHouse = it.getString(3) ?: ""
-                            val pLat = it.getInt(4) / 1_000_000.0
-                            val pLon = it.getInt(5) / 1_000_000.0
-                            val pStreet = it.getString(6) ?: ""
-                            val pCity = it.getString(7) ?: ""
-                            val pReg = it.getString(8) ?: ""
-                            val pCountry = it.getString(9) ?: ""
+                            val pCatId = it.getString(1) ?: ""
+                            val pCat = getCategoryTitle(pCatId) ?: pCatId
+                            val pIcon = getCategoryIcon(pCatId)
+                            val pHouse = it.getString(2) ?: ""
+                            val pLat = it.getInt(3) / 1_000_000.0
+                            val pLon = it.getInt(4) / 1_000_000.0
+                            val pStreet = it.getString(5) ?: ""
+                            val pCity = it.getString(6) ?: ""
+                            val pReg = it.getString(7) ?: ""
+                            val pCountry = it.getString(8) ?: ""
 
                             val coordKey = Pair(kotlin.math.round(pLat * 1000.0).toInt(), kotlin.math.round(pLon * 1000.0).toInt())
                             if (!seenCoords.contains(coordKey)) {

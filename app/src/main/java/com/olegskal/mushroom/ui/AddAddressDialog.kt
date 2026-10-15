@@ -116,12 +116,26 @@ object AddAddressDialog {
                 listContainer.removeAllViews()
                 listContainer.addView(statusTv)
                 Thread {
-                    val imported = AddressDownloadManager.importPoiLocationsToAddressDb(activity, detectedCountry)
+                    val imported = AddressDownloadManager.importPoiLocationsToAddressDb(
+                        context = activity,
+                        country = detectedCountry,
+                        onProgress = { _, statusMsg ->
+                            activity.runOnUiThread {
+                                statusTv.text = statusMsg
+                            }
+                        }
+                    )
                     activity.runOnUiThread {
                         if (imported > 0) {
                             Toast.makeText(
                                 activity,
                                 if (isUk) "Успішно додано $imported точок інтересу!" else "Successfully added $imported POI points!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                activity,
+                                if (isUk) "Не вдалося оновити POI або файл відсутній" else "Failed to update POI or file missing",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }

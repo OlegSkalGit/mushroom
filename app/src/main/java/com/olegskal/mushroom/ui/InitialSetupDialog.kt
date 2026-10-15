@@ -612,7 +612,8 @@ object InitialSetupDialog {
                     )
                 }
             )
-        } else if (AddressDownloadManager.needsPoiUpdate(context, country)) {
+        }
+        if (AddressDownloadManager.needsPoiUpdate(context, country)) {
             val isUk = AppPrefs.isUk(context)
             list.add(
                 UpdateItem(

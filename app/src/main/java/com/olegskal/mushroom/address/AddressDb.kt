@@ -123,11 +123,11 @@ object AddressDb {
     }
 
     fun hasPoiTables(db: SQLiteDatabase): Boolean {
-        return hasTable(db, "poi_places") && hasTable(db, "poi_categories")
+        return hasTable(db, "poi_places") && hasTable(db, "poi_country_ranges")
     }
 
     fun hasPoiData(db: SQLiteDatabase): Boolean {
-        if (!hasPoiTables(db)) return false
+        if (!hasTable(db, "poi_places")) return false
         return try {
             val cursor = db.rawQuery("SELECT 1 FROM poi_places LIMIT 1;", null)
             cursor.use { it.moveToFirst() }
@@ -136,11 +136,37 @@ object AddressDb {
         }
     }
 
+    fun hasPoiDataForCountry(db: SQLiteDatabase, countryCode: String): Boolean {
+        if (!hasTable(db, "poi_country_ranges")) return false
+        return try {
+            val cursor = db.rawQuery(
+                "SELECT 1 FROM poi_country_ranges WHERE country_code = ? AND total_count > 0 LIMIT 1;",
+                arrayOf(countryCode.uppercase())
+            )
+            cursor.use { it.moveToFirst() }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun getCountryPoiCount(db: SQLiteDatabase, countryCode: String): Int {
+        if (!hasTable(db, "poi_country_ranges")) return 0
+        return try {
+            val cursor = db.rawQuery(
+                "SELECT total_count FROM poi_country_ranges WHERE country_code = ? LIMIT 1;",
+                arrayOf(countryCode.uppercase())
+            )
+            cursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        } catch (_: Exception) {
+            0
+        }
+    }
+
     fun ensureTablesExist(db: SQLiteDatabase) {
-        if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses") || !hasTable(db, "poi_places") || !hasTable(db, "poi_categories")) {
+        if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses") || !hasTable(db, "poi_places") || !hasTable(db, "poi_country_ranges")) {
             initSchema(db)
         }
-        seedPoiCategories(db)
+        checkAndMigratePoiPlaces(db)
         if (hasTable(db, "search_fts_content") || isFtsUpgradeNeeded(db)) {
             rebuildFtsIndex(db)
         }
@@ -246,29 +272,15 @@ object AddressDb {
 
         try {
             db.execSQL("""
-                CREATE TABLE IF NOT EXISTS poi_categories (
-                    id TEXT PRIMARY KEY,
-                    name_uk TEXT NOT NULL,
-                    name_en TEXT NOT NULL,
-                    icon TEXT NOT NULL
-                );
-            """.trimIndent())
-        } catch (e: Exception) {
-            AppLogger.log(TAG, "initSchema", false, "Error creating poi_categories: ${e.message}")
-        }
-
-        try {
-            db.execSQL("""
                 CREATE TABLE IF NOT EXISTS poi_places (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    poi_id INTEGER UNIQUE,
+                    poi_id INTEGER,
                     name TEXT NOT NULL,
                     category_id TEXT NOT NULL,
                     street_id INTEGER,
                     house_number TEXT,
                     lat INTEGER NOT NULL,
                     lon INTEGER NOT NULL,
-                    FOREIGN KEY (category_id) REFERENCES poi_categories(id),
                     FOREIGN KEY (street_id) REFERENCES streets(id)
                 );
             """.trimIndent())
@@ -282,9 +294,96 @@ object AddressDb {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);")
         } catch (_: Exception) {}
 
+        try {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS poi_country_ranges (
+                    country_code TEXT PRIMARY KEY,
+                    min_id INTEGER NOT NULL,
+                    max_id INTEGER NOT NULL,
+                    total_count INTEGER NOT NULL
+                );
+            """.trimIndent())
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "initSchema", false, "Error creating poi_country_ranges: ${e.message}")
+        }
+
         createFtsTableWithFallback(db)
         createPoiFtsTableWithFallback(db)
-        seedPoiCategories(db)
+    }
+
+    fun checkAndMigratePoiPlaces(db: SQLiteDatabase) {
+        try {
+            if (!hasTable(db, "poi_places")) return
+            val cursor = db.rawQuery("SELECT sql FROM sqlite_master WHERE type='table' AND name='poi_places' LIMIT 1;", null)
+            val sql = cursor.use { if (it.moveToFirst()) it.getString(0) ?: "" else "" }
+            if (sql.contains("poi_id INTEGER UNIQUE", ignoreCase = true)) {
+                val ownTx = !db.inTransaction()
+                if (ownTx) db.beginTransaction()
+                try {
+                    db.execSQL("""
+                        CREATE TABLE poi_places_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            poi_id INTEGER,
+                            name TEXT NOT NULL,
+                            category_id TEXT NOT NULL,
+                            street_id INTEGER,
+                            house_number TEXT,
+                            lat INTEGER NOT NULL,
+                            lon INTEGER NOT NULL,
+                            FOREIGN KEY (street_id) REFERENCES streets(id)
+                        );
+                    """.trimIndent())
+                    db.execSQL("INSERT INTO poi_places_new (id, poi_id, name, category_id, street_id, house_number, lat, lon) SELECT id, poi_id, name, category_id, street_id, house_number, lat, lon FROM poi_places;")
+                    db.execSQL("DROP TABLE poi_places;")
+                    db.execSQL("ALTER TABLE poi_places_new RENAME TO poi_places;")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_cat ON poi_places(category_id);")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);")
+                    if (ownTx) db.setTransactionSuccessful()
+                    AppLogger.log(TAG, "checkAndMigratePoiPlaces", true, "Migrated poi_places to non-unique poi_id")
+                } finally {
+                    if (ownTx && db.inTransaction()) {
+                        db.endTransaction()
+                    }
+                }
+            }
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS poi_country_ranges (
+                    country_code TEXT PRIMARY KEY,
+                    min_id INTEGER NOT NULL,
+                    max_id INTEGER NOT NULL,
+                    total_count INTEGER NOT NULL
+                );
+            """.trimIndent())
+
+            val cntCursor = db.rawQuery("SELECT count(1) FROM poi_country_ranges;", null)
+            val rangeCount = cntCursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+            if (rangeCount == 0 && hasTable(db, "poi_places")) {
+                val pCursor = db.rawQuery("SELECT min(id), max(id), count(id) FROM poi_places;", null)
+                pCursor.use {
+                    if (it.moveToFirst()) {
+                        val count = it.getInt(2)
+                        if (count > 0) {
+                            val minId = it.getLong(0)
+                            val maxId = it.getLong(1)
+                            val sampleCur = db.rawQuery("SELECT lat, lon FROM poi_places LIMIT 1;", null)
+                            val (sLat, sLon) = sampleCur.use { sc ->
+                                if (sc.moveToFirst()) Pair(sc.getInt(0), sc.getInt(1)) else Pair(0, 0)
+                            }
+                            val code = if (sLat < 0 && sLon < 0) "PE" else "UA"
+                            db.execSQL(
+                                "INSERT OR REPLACE INTO poi_country_ranges (country_code, min_id, max_id, total_count) VALUES (?, ?, ?, ?);",
+                                arrayOf(code, minId, maxId, count)
+                            )
+                            AppLogger.log(TAG, "checkAndMigratePoiPlaces", true, "Backfilled existing POI range for $code: $count points")
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "checkAndMigratePoiPlaces", false, "Migration error: ${e.message}")
+        }
     }
 
     private fun createFtsTableWithFallback(db: SQLiteDatabase) {
@@ -324,67 +423,6 @@ object AddressDb {
                 return
             } catch (_: Exception) {
             }
-        }
-    }
-
-    fun seedPoiCategories(db: SQLiteDatabase) {
-        val count = try {
-            val c = db.rawQuery("SELECT count(1) FROM poi_categories", null)
-            c.use { if (it.moveToFirst()) it.getInt(0) else 0 }
-        } catch (_: Exception) { 0 }
-        if (count > 0) return
-
-        val categories = listOf(
-            Triple("natural", Pair("Природа, гори, печери", "Nature, peaks, caves"), "🌲"),
-            Triple("water", Pair("Джерела, питна вода", "Springs & drinking water"), "💧"),
-            Triple("shelter", Pair("Навіси, кемпінги", "Shelters & campsites"), "🏕️"),
-            Triple("forestry", Pair("Лісництва", "Forestry stations"), "🌳"),
-            Triple("food", Pair("Харчування, ресторани, кафе", "Food, restaurants, cafes"), "🍽️"),
-            Triple("shop", Pair("Магазини, супермаркети", "Shops & supermarkets"), "🛒"),
-            Triple("healthcare", Pair("Аптеки, лікарні", "Healthcare, pharmacies"), "🏥"),
-            Triple("fuel", Pair("АЗС", "Gas stations"), "⛽️"),
-            Triple("charging", Pair("Зарядні станції EV", "EV Charging"), "🔌"),
-            Triple("highway", Pair("Дорожня інфраструктура, паркінги", "Highway & parking"), "🛣️"),
-            Triple("tourism", Pair("Туризм, атракції, оглядові місця", "Tourism & viewpoints"), "🏰"),
-            Triple("historic", Pair("Історія, замки, пам'ятники", "Historic sites & monuments"), "🏛️"),
-            Triple("public_transport", Pair("Громадський транспорт, зупинки", "Public transport & stops"), "🚏"),
-            Triple("finance", Pair("Банки, банкомати", "Banks & ATMs"), "🏦"),
-            Triple("accommodation", Pair("Готелі, проживання", "Hotels & accommodation"), "🏨"),
-            Triple("amenity", Pair("Зручності, сервіси", "Amenities & services"), "🚻"),
-            Triple("emergency", Pair("Екстрені служби, рятувальники", "Emergency & rescue"), "🚨"),
-            Triple("administrative", Pair("Адміністративні установи", "Administrative"), "🏛️"),
-            Triple("education", Pair("Освіта, школи, дитсадки", "Education & schools"), "🎓"),
-            Triple("entertainment", Pair("Розваги, кіно, театри", "Entertainment"), "🎭"),
-            Triple("leisure", Pair("Відпочинок, парки", "Leisure & parks"), "🌳"),
-            Triple("sport", Pair("Спорт, стадіони", "Sports & stadiums"), "⚽️"),
-            Triple("waterway", Pair("Водойми, водоспади", "Waterways & waterfalls"), "🌊"),
-            Triple("other", Pair("Інші локації", "Other locations"), "📍")
-        )
-        try {
-            if (db.inTransaction()) {
-                db.endTransaction()
-            }
-            db.beginTransaction()
-            try {
-                val stmt = db.compileStatement(
-                    "INSERT OR IGNORE INTO poi_categories (id, name_uk, name_en, icon) VALUES (?, ?, ?, ?);"
-                )
-                for (cat in categories) {
-                    stmt.bindString(1, cat.first)
-                    stmt.bindString(2, cat.second.first)
-                    stmt.bindString(3, cat.second.second)
-                    stmt.bindString(4, cat.third)
-                    stmt.executeInsert()
-                }
-                stmt.close()
-                db.setTransactionSuccessful()
-            } finally {
-                if (db.inTransaction()) {
-                    db.endTransaction()
-                }
-            }
-        } catch (e: Exception) {
-            AppLogger.log(TAG, "seedPoiCategories", false, "Error seeding categories: ${e.message}")
         }
     }
 

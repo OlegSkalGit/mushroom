@@ -476,9 +476,6 @@ object AddressDownloadManager {
                 WHERE p.data LIKE '%addr:%';
             """.trimIndent(), null)
 
-            if (appDb.inTransaction()) {
-                appDb.endTransaction()
-            }
             appDb.beginTransaction()
             try {
                 cursor.use {
@@ -558,7 +555,10 @@ object AddressDownloadManager {
             File(File(context.filesDir, "poi"), country.poiFileName)
         )
         val poiFile = candidatePoiFiles.firstOrNull { it.exists() && it.length() > 1024L }
-        if (poiFile == null || isCancelled()) return 0
+        if (poiFile == null || isCancelled()) {
+            AppLogger.log(TAG, "importPoiLocationsToAddressDb", false, "POI file not found for ${country.code}")
+            return 0
+        }
 
         var count = 0
         var poiDb: SQLiteDatabase? = null
@@ -573,15 +573,41 @@ object AddressDownloadManager {
                 c.use { if (it.moveToFirst()) it.getInt(0) else 0 }
             } catch (_: Exception) { 0 }
 
-            val cursor = poiDb.rawQuery("""
-                SELECT p.id, i.lat, i.lon, p.data 
-                FROM poi_data p 
-                JOIN poi_index i ON p.id = i.id 
-                WHERE p.data LIKE '%name=%';
-            """.trimIndent(), null)
+            if (totalNamedPois == 0 || isCancelled()) {
+                return 0
+            }
+
+            val countryCode = country.code.uppercase()
+            try {
+                val curRange = db.rawQuery(
+                    "SELECT min_id, max_id FROM poi_country_ranges WHERE country_code = ? LIMIT 1;",
+                    arrayOf(countryCode)
+                )
+                var prevMin = 0L
+                var prevMax = 0L
+                curRange.use {
+                    if (it.moveToFirst()) {
+                        prevMin = it.getLong(0)
+                        prevMax = it.getLong(1)
+                    }
+                }
+                if (prevMin > 0 && prevMax >= prevMin) {
+                    db.beginTransaction()
+                    try {
+                        db.execSQL("DELETE FROM poi_places WHERE id BETWEEN ? AND ?;", arrayOf(prevMin, prevMax))
+                        db.execSQL("DELETE FROM poi_fts WHERE rowid BETWEEN ? AND ?;", arrayOf(prevMin, prevMax))
+                        db.execSQL("DELETE FROM poi_country_ranges WHERE country_code = ?;", arrayOf(countryCode))
+                        db.setTransactionSuccessful()
+                    } finally {
+                        db.endTransaction()
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "importPoiLocationsToAddressDb", false, "Range cleanup error: ${e.message}")
+            }
 
             stmtInsertPoi = db.compileStatement("""
-                INSERT OR REPLACE INTO poi_places (poi_id, name, category_id, street_id, house_number, lat, lon) 
+                INSERT INTO poi_places (poi_id, name, category_id, street_id, house_number, lat, lon) 
                 VALUES (?, ?, ?, ?, ?, ?, ?);
             """.trimIndent())
 
@@ -597,189 +623,216 @@ object AddressDownloadManager {
             val catDefs = PoiManager.DEFAULT_CATEGORIES.associateBy { it.id }
             val addrMatchCache = mutableMapOf<Pair<String, String>, Pair<Long, String>?>()
 
-            if (db.inTransaction()) {
-                db.endTransaction()
-            }
-            db.beginTransaction()
-            try {
-                cursor.use {
-                    var inTx = 0
-                    var processed = 0
+            val chunkSize = 2500
+            var lastId = -1L
+            var minInsertedId = Long.MAX_VALUE
+            var maxInsertedId = 0L
+            var hasMore = true
 
-                    while (it.moveToNext()) {
-                        if (isCancelled()) break
+            onProgress(0.01, "${country.nameUk}: Початок імпорту точок інтересу (0/$totalNamedPois)")
 
-                        val poiId = it.getLong(0)
-                        val latRaw = it.getDouble(1)
-                        val lonRaw = it.getDouble(2)
-                        val data = it.getString(3) ?: ""
+            while (hasMore && !isCancelled()) {
+                val chunkCursor = poiDb.rawQuery("""
+                    SELECT p.id, i.lat, i.lon, p.data 
+                    FROM poi_data p 
+                    JOIN poi_index i ON p.id = i.id 
+                    WHERE p.id > ? AND p.data LIKE '%name=%' 
+                    ORDER BY p.id ASC 
+                    LIMIT ?;
+                """.trimIndent(), arrayOf(lastId.toString(), chunkSize.toString()))
 
-                        var nameUk: String? = null
-                        var nameEn: String? = null
-                        var nameDef: String? = null
-                        var streetTag = ""
-                        var houseTag = ""
-                        var cityTag = ""
-                        val tagMap = mutableMapOf<String, String>()
+                var chunkCount = 0
 
-                        for (entry in data.split("\r")) {
-                            if (entry.contains("=")) {
-                                val kv = entry.split("=", limit = 2)
-                                val k = kv[0].trim().lowercase()
-                                val v = kv[1].trim()
-                                tagMap[k] = v
-                                when (k) {
-                                    "name" -> nameDef = v
-                                    "name:uk" -> nameUk = v
-                                    "name:en" -> nameEn = v
-                                    "addr:street" -> streetTag = v
-                                    "addr:housenumber" -> houseTag = v
-                                    "addr:city", "addr:town", "addr:village", "addr:place" -> if (cityTag.isBlank()) cityTag = v
-                                }
-                            }
-                        }
+                db.beginTransaction()
+                try {
+                    chunkCursor.use { cursor ->
+                        while (cursor.moveToNext()) {
+                            if (isCancelled()) break
 
-                        val chosenName = (nameUk?.takeIf { s -> s.isNotBlank() }
-                            ?: nameDef?.takeIf { s -> s.isNotBlank() }
-                            ?: nameEn?.takeIf { s -> s.isNotBlank() })?.trim()
+                            val poiId = cursor.getLong(0)
+                            lastId = poiId
+                            chunkCount++
 
-                        if (chosenName.isNullOrBlank()) {
-                            continue
-                        }
+                            val latRaw = cursor.getDouble(1)
+                            val lonRaw = cursor.getDouble(2)
+                            val data = cursor.getString(3) ?: ""
 
-                        val catId = PoiManager.resolveCategoryId(tagMap) ?: "other"
-                        val catDef = catDefs[catId]
-                        val catTitle = if (catDef != null) "${catDef.titleUk} ${catDef.titleEn}" else catId
+                            var nameUk: String? = null
+                            var nameEn: String? = null
+                            var nameDef: String? = null
+                            var streetTag = ""
+                            var houseTag = ""
+                            var cityTag = ""
+                            val tagMap = mutableMapOf<String, String>()
 
-                        val latMicro = kotlin.math.round(latRaw * 1_000_000.0).toInt()
-                        val lonMicro = kotlin.math.round(lonRaw * 1_000_000.0).toInt()
-
-                        var matchedStreetId: Long? = null
-                        var matchedHouseNum: String? = null
-                        var matchedCityName = cityTag
-                        var matchedStreetName = streetTag
-
-                        // 1. Check address tag match
-                        if (streetTag.isNotBlank() && houseTag.isNotBlank()) {
-                            val cacheKey = Pair(streetTag.lowercase(), houseTag.lowercase())
-                            if (addrMatchCache.containsKey(cacheKey)) {
-                                val cached = addrMatchCache[cacheKey]
-                                if (cached != null) {
-                                    matchedStreetId = cached.first
-                                    matchedHouseNum = cached.second
-                                }
-                            } else {
-                                val cHouse = db.rawQuery("""
-                                    SELECT s.id, h.number 
-                                    FROM street_names sn
-                                    JOIN streets s ON s.name_id = sn.id
-                                    JOIN houses h ON h.street_id = s.id
-                                    WHERE LOWER(sn.name) = ? AND (h.number = ? OR LOWER(h.number) = ?)
-                                    LIMIT 1;
-                                """.trimIndent(), arrayOf(streetTag.lowercase(), houseTag, houseTag.lowercase()))
-                                val found = cHouse.use { ch ->
-                                    if (ch.moveToFirst()) Pair(ch.getLong(0), ch.getString(1)) else null
-                                }
-                                addrMatchCache[cacheKey] = found
-                                if (found != null) {
-                                    matchedStreetId = found.first
-                                    matchedHouseNum = found.second
-                                }
-                            }
-                        }
-
-                        // 2. Spatial proximity match (within 30 meters)
-                        if (matchedStreetId == null) {
-                            val dLat = 280 // ~30m
-                            val dLon = 450 // ~30m
-                            val cProx = db.rawQuery("""
-                                SELECT h.street_id, h.number, h.lat, h.lon, sn.name, city.name
-                                FROM houses h
-                                JOIN streets s ON s.id = h.street_id
-                                JOIN street_names sn ON sn.id = s.name_id
-                                JOIN admin_places city ON city.id = s.place_id
-                                WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
-                                LIMIT 5;
-                            """.trimIndent(), arrayOf(
-                                (latMicro - dLat).toString(),
-                                (latMicro + dLat).toString(),
-                                (lonMicro - dLon).toString(),
-                                (lonMicro + dLon).toString()
-                            ))
-                            cProx.use { cp ->
-                                var bestDist = 31.0f // max 30m
-                                while (cp.moveToNext()) {
-                                    val sId = cp.getLong(0)
-                                    val num = cp.getString(1) ?: ""
-                                    val hLat = cp.getInt(2)
-                                    val hLon = cp.getInt(3)
-                                    val dist = GeoMath.calculateDistance(latRaw, lonRaw, hLat / 1_000_000.0, hLon / 1_000_000.0)
-                                    if (dist <= 30.0f && dist < bestDist) {
-                                        bestDist = dist
-                                        matchedStreetId = sId
-                                        matchedHouseNum = num
-                                        matchedStreetName = cp.getString(4) ?: ""
-                                        matchedCityName = cp.getString(5) ?: ""
+                            for (entry in data.split("\r")) {
+                                if (entry.contains("=")) {
+                                    val kv = entry.split("=", limit = 2)
+                                    val k = kv[0].trim().lowercase()
+                                    val v = kv[1].trim()
+                                    tagMap[k] = v
+                                    when (k) {
+                                        "name" -> nameDef = v
+                                        "name:uk" -> nameUk = v
+                                        "name:en" -> nameEn = v
+                                        "addr:street" -> streetTag = v
+                                        "addr:housenumber" -> houseTag = v
+                                        "addr:city", "addr:town", "addr:village", "addr:place" -> if (cityTag.isBlank()) cityTag = v
                                     }
                                 }
                             }
-                        }
 
-                        // Insert POI place
-                        stmtInsertPoi.bindLong(1, poiId)
-                        stmtInsertPoi.bindString(2, chosenName)
-                        stmtInsertPoi.bindString(3, catId)
-                        val sId = matchedStreetId
-                        if (sId != null) {
-                            stmtInsertPoi.bindLong(4, sId)
-                        } else {
-                            stmtInsertPoi.bindNull(4)
-                        }
-                        val hNum = matchedHouseNum
-                        if (hNum != null) {
-                            stmtInsertPoi.bindString(5, hNum)
-                        } else {
-                            stmtInsertPoi.bindNull(5)
-                        }
-                        stmtInsertPoi.bindLong(6, latMicro.toLong())
-                        stmtInsertPoi.bindLong(7, lonMicro.toLong())
-                        val rowId = stmtInsertPoi.executeInsert()
+                            val chosenName = (nameUk?.takeIf { s -> s.isNotBlank() }
+                                ?: nameDef?.takeIf { s -> s.isNotBlank() }
+                                ?: nameEn?.takeIf { s -> s.isNotBlank() })?.trim()
 
-                        // Insert into poi_fts
-                        if (stmtInsertPoiFts != null && rowId > 0) {
-                            stmtInsertPoiFts.bindLong(1, rowId)
-                            stmtInsertPoiFts.bindString(2, chosenName)
-                            stmtInsertPoiFts.bindString(3, catTitle)
-                            stmtInsertPoiFts.bindString(4, matchedCityName)
-                            stmtInsertPoiFts.bindString(5, matchedStreetName)
-                            try {
-                                stmtInsertPoiFts.executeInsert()
-                            } catch (_: Exception) {}
+                            if (chosenName.isNullOrBlank()) {
+                                continue
+                            }
+
+                            val catId = PoiManager.resolveCategoryId(tagMap) ?: "other"
+                            val catDef = catDefs[catId]
+                            val catTitle = if (catDef != null) "${catDef.titleUk} ${catDef.titleEn}" else catId
+
+                            val latMicro = kotlin.math.round(latRaw * 1_000_000.0).toInt()
+                            val lonMicro = kotlin.math.round(lonRaw * 1_000_000.0).toInt()
+
+                            var matchedStreetId: Long? = null
+                            var matchedHouseNum: String? = null
+                            var matchedCityName = cityTag
+                            var matchedStreetName = streetTag
+
+                            // 1. Check address tag match
+                            if (streetTag.isNotBlank() && houseTag.isNotBlank()) {
+                                val cacheKey = Pair(streetTag.lowercase(), houseTag.lowercase())
+                                if (addrMatchCache.containsKey(cacheKey)) {
+                                    val cached = addrMatchCache[cacheKey]
+                                    if (cached != null) {
+                                        matchedStreetId = cached.first
+                                        matchedHouseNum = cached.second
+                                    }
+                                } else {
+                                    val cHouse = db.rawQuery("""
+                                        SELECT s.id, h.number 
+                                        FROM street_names sn
+                                        JOIN streets s ON s.name_id = sn.id
+                                        JOIN houses h ON h.street_id = s.id
+                                        WHERE LOWER(sn.name) = ? AND (h.number = ? OR LOWER(h.number) = ?)
+                                        LIMIT 1;
+                                    """.trimIndent(), arrayOf(streetTag.lowercase(), houseTag, houseTag.lowercase()))
+                                    val found = cHouse.use { ch ->
+                                        if (ch.moveToFirst()) Pair(ch.getLong(0), ch.getString(1)) else null
+                                    }
+                                    addrMatchCache[cacheKey] = found
+                                    if (found != null) {
+                                        matchedStreetId = found.first
+                                        matchedHouseNum = found.second
+                                    }
+                                }
+                            }
+
+                            // 2. Spatial proximity match (within 30 meters, using house coordinates 1e5 scale)
+                            if (matchedStreetId == null) {
+                                val houseLat = (latRaw * 100_000.0).toInt()
+                                val houseLon = (lonRaw * 100_000.0).toInt()
+                                val dLat = 28 // ~30m in 1e-5
+                                val dLon = 45 // ~30m in 1e-5
+                                val cProx = db.rawQuery("""
+                                    SELECT h.street_id, h.number, h.lat, h.lon, sn.name, city.name
+                                    FROM houses h
+                                    JOIN streets s ON s.id = h.street_id
+                                    JOIN street_names sn ON sn.id = s.name_id
+                                    JOIN admin_places city ON city.id = s.place_id
+                                    WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
+                                    LIMIT 5;
+                                """.trimIndent(), arrayOf(
+                                    (houseLat - dLat).toString(),
+                                    (houseLat + dLat).toString(),
+                                    (houseLon - dLon).toString(),
+                                    (houseLon + dLon).toString()
+                                ))
+                                cProx.use { cp ->
+                                    var bestDist = 31.0f // max 30m
+                                    while (cp.moveToNext()) {
+                                        val sId = cp.getLong(0)
+                                        val num = cp.getString(1) ?: ""
+                                        val hLat = cp.getInt(2)
+                                        val hLon = cp.getInt(3)
+                                        val dist = GeoMath.calculateDistance(latRaw, lonRaw, hLat / 100_000.0, hLon / 100_000.0)
+                                        if (dist <= 30.0f && dist < bestDist) {
+                                            bestDist = dist
+                                            matchedStreetId = sId
+                                            matchedHouseNum = num
+                                            matchedStreetName = cp.getString(4) ?: ""
+                                            matchedCityName = cp.getString(5) ?: ""
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Insert POI place (autoincrement ID)
+                            stmtInsertPoi.bindLong(1, poiId)
+                            stmtInsertPoi.bindString(2, chosenName)
+                            stmtInsertPoi.bindString(3, catId)
+                            val sId = matchedStreetId
+                            if (sId != null) {
+                                stmtInsertPoi.bindLong(4, sId)
+                            } else {
+                                stmtInsertPoi.bindNull(4)
+                            }
+                            val hNum = matchedHouseNum
+                            if (hNum != null) {
+                                stmtInsertPoi.bindString(5, hNum)
+                            } else {
+                                stmtInsertPoi.bindNull(5)
+                            }
+                            stmtInsertPoi.bindLong(6, latMicro.toLong())
+                            stmtInsertPoi.bindLong(7, lonMicro.toLong())
+                            val rowId = stmtInsertPoi.executeInsert()
+
+                            if (rowId > 0) {
+                                if (rowId < minInsertedId) minInsertedId = rowId
+                                if (rowId > maxInsertedId) maxInsertedId = rowId
+
+                                if (stmtInsertPoiFts != null) {
+                                    stmtInsertPoiFts.bindLong(1, rowId)
+                                    stmtInsertPoiFts.bindString(2, chosenName)
+                                    stmtInsertPoiFts.bindString(3, catTitle)
+                                    stmtInsertPoiFts.bindString(4, matchedCityName)
+                                    stmtInsertPoiFts.bindString(5, matchedStreetName)
+                                    try {
+                                        stmtInsertPoiFts.executeInsert()
+                                    } catch (_: Exception) {}
+                                }
+                                count++
+                            }
                         }
+                    }
 
-                        count++
-                        inTx++
-                        processed++
-
-                        if (inTx >= 2500) {
-                            db.setTransactionSuccessful()
+                    if (!isCancelled()) {
+                        db.setTransactionSuccessful()
+                    }
+                } finally {
+                    try {
+                        if (db.inTransaction()) {
                             db.endTransaction()
-                            db.beginTransaction()
-                            inTx = 0
-                            val ratio = if (totalNamedPois > 0) (processed.toDouble() / totalNamedPois).coerceIn(0.0, 1.0) else 0.5
-                            onProgress(ratio, "${country.nameUk}: Додано $count точок інтересу (POI)")
                         }
-                    }
+                    } catch (_: Exception) {}
                 }
-                if (!isCancelled()) {
-                    db.setTransactionSuccessful()
+
+                if (chunkCount < chunkSize) {
+                    hasMore = false
                 }
-            } finally {
-                try {
-                    if (db.inTransaction()) {
-                        db.endTransaction()
-                    }
-                } catch (_: Exception) {}
+
+                val ratio = if (totalNamedPois > 0) (count.toDouble() / totalNamedPois).coerceIn(0.0, 1.0) else 0.5
+                onProgress(ratio, "${country.nameUk}: Додано $count точок інтересу (POI)")
+            }
+
+            if (!isCancelled() && count > 0 && minInsertedId <= maxInsertedId) {
+                db.execSQL("""
+                    INSERT OR REPLACE INTO poi_country_ranges (country_code, min_id, max_id, total_count) 
+                    VALUES (?, ?, ?, ?);
+                """.trimIndent(), arrayOf(countryCode, minInsertedId, maxInsertedId, count))
             }
 
             try {
@@ -791,19 +844,15 @@ object AddressDownloadManager {
 
             onProgress(1.0, "${country.nameUk}: Завершено імпорт POI ($count точок)")
             AppLogger.log(TAG, "importPoiLocationsToAddressDb", true, "Imported $count POI points for ${country.code}")
+            return count
         } catch (e: Exception) {
             AppLogger.log(TAG, "importPoiLocationsToAddressDb", false, "Error importing POI: ${e.message}")
+            return 0
         } finally {
-            try {
-                if (db.inTransaction()) {
-                    db.endTransaction()
-                }
-            } catch (_: Exception) {}
             try { stmtInsertPoi?.close() } catch (_: Exception) {}
             try { stmtInsertPoiFts?.close() } catch (_: Exception) {}
             try { poiDb?.close() } catch (_: Exception) {}
         }
-        return count
     }
 
     fun ingestCountryAddresses(
@@ -1055,38 +1104,6 @@ object AddressDownloadManager {
                     break
                 }
             }
-
-            // === BOUNDARY: Phase 1 (Addresses) -> Phase 2 (POIs) ===
-            ingestor.close()
-            try {
-                if (db.inTransaction()) {
-                    db.endTransaction()
-                }
-                db.rawQuery("PRAGMA wal_checkpoint(PASSIVE);", null).use { it.moveToFirst() }
-            } catch (_: Exception) {}
-
-            if (isCancelled()) return false
-
-            // 2nd pass: Unified import of named POI locations
-            if (!isCancelled()) {
-                onProgress(0.90, "${country.nameUk}: Додавання точок інтересу (POI)")
-                importPoiLocationsToAddressDb(
-                    context = context,
-                    country = country,
-                    onProgress = { ratio, msg ->
-                        onProgress(0.90 + ratio * 0.05, msg)
-                    },
-                    isCancelled = isCancelled
-                )
-            }
-
-            // === BOUNDARY: Phase 2 (POIs) -> Final Optimization ===
-            try {
-                if (db.inTransaction()) {
-                    db.endTransaction()
-                }
-            } catch (_: Exception) {}
-
             if (isCancelled()) return false
 
             onProgress(0.95, "${country.nameUk}: Оптимізація індексу FTS")
@@ -1125,6 +1142,6 @@ object AddressDownloadManager {
         if (!hasLocalPoi) return false
 
         val db = AddressDb.openDatabase(context, writable = false) ?: return false
-        return !AddressDb.hasPoiData(db)
+        return !AddressDb.hasPoiDataForCountry(db, country.code)
     }
 }
