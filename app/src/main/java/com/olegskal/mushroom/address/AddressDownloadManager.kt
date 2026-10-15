@@ -206,46 +206,60 @@ object AddressDownloadManager {
 
             logFn("Швидкий запит списку регіонів (admin_level=4) для ${country.nameUk} (прохід $pass/$maxPasses)...")
 
-            // Стратегія 1: Швидкий запит за ISO3166-2 (за алгоритмом скрипта)
+            // Стратегія 1: Швидкий запит за ISO3166-2 з географічними межами (bb)
             val q1 = """
-                [out:csv(::id, "name:uk", "name", "name:en"; false; ";")][timeout:30];
+                [out:json][timeout:30];
                 relation["admin_level"="4"]["ISO3166-2"~"^$code"];
-                out tags;
+                out tags bb;
             """.trimIndent()
             var raw = client.query(q1, timeoutSec = 35, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
 
-            // Стратегія 2: Резервний запит через межі країни (за алгоритмом скрипта)
+            // Стратегія 2: Резервний запит меж країни
             if (raw.isNullOrBlank() && !isCancelled()) {
                 val q2 = """
-                    [out:csv(::id, "name:uk", "name", "name:en"; false; ";")][timeout:45];
-                    area["ISO3166-1"="$code"][admin_level=2]->.c;
-                    rel(area.c)["admin_level"="4"];
-                    out tags;
+                    [out:json][timeout:45];
+                    relation["admin_level"="2"]["ISO3166-1"="$code"];
+                    out tags bb;
                 """.trimIndent()
                 raw = client.query(q2, timeoutSec = 50, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
             }
 
             if (!raw.isNullOrBlank()) {
                 val seenNames = mutableSetOf<String>()
-                for (line in raw.lines()) {
-                    val trimmed = line.trim()
-                    if (trimmed.isBlank()) continue
-                    val parts = trimmed.split(";")
-                    val relId = parts.getOrNull(0)?.trim()?.toLongOrNull() ?: continue
-                    val nameUk = parts.getOrNull(1)?.trim() ?: ""
-                    val nameLocal = parts.getOrNull(2)?.trim() ?: ""
-                    val nameEn = parts.getOrNull(3)?.trim() ?: ""
-                    val name = nameUk.ifBlank { nameLocal.ifBlank { nameEn } }.trim()
-                    if (name.isBlank()) continue
-                    val nameLow = name.lowercase()
-                    if (code == "UA") {
-                        if (relId == 3795586L) continue
-                        if (nameLow.contains("крим") && seenNames.any { it.contains("крим") }) continue
-                        if (nameLow.contains("севастополь") && seenNames.any { it.contains("севастополь") }) continue
+                try {
+                    val json = JSONObject(raw)
+                    val elements = json.optJSONArray("elements")
+                    if (elements != null) {
+                        for (i in 0 until elements.length()) {
+                            val el = elements.optJSONObject(i) ?: continue
+                            val relId = el.optLong("id")
+                            if (relId <= 0L) continue
+                            val tags = el.optJSONObject("tags")
+                            val nameUk = tags?.optString("name:uk")?.trim() ?: ""
+                            val nameLocal = tags?.optString("name")?.trim() ?: ""
+                            val nameEn = tags?.optString("name:en")?.trim() ?: ""
+                            val name = nameUk.ifBlank { nameLocal.ifBlank { nameEn } }.trim()
+                            if (name.isBlank()) continue
+                            val nameLow = name.lowercase()
+                            if (code == "UA") {
+                                if (relId == 3795586L) continue
+                                if (nameLow.contains("крим") && seenNames.any { it.contains("крим") }) continue
+                                if (nameLow.contains("севастополь") && seenNames.any { it.contains("севастополь") }) continue
+                            }
+                            if (nameLow in seenNames) continue
+                            seenNames.add(nameLow)
+
+                            val bounds = el.optJSONObject("bounds")
+                            val minLat = bounds?.optDouble("minlat") ?: 0.0
+                            val minLon = bounds?.optDouble("minlon") ?: 0.0
+                            val maxLat = bounds?.optDouble("maxlat") ?: 0.0
+                            val maxLon = bounds?.optDouble("maxlon") ?: 0.0
+
+                            regions.add(RegionTarget(relId, name, minLat, minLon, maxLat, maxLon))
+                        }
                     }
-                    if (nameLow in seenNames) continue
-                    seenNames.add(nameLow)
-                    regions.add(RegionTarget(relId, name))
+                } catch (e: Exception) {
+                    AppLogger.log(TAG, "fetchRegions", false, "Error parsing regions JSON: ${e.message}")
                 }
             }
 
@@ -339,27 +353,34 @@ object AddressDownloadManager {
         logFn: (String) -> Unit,
         isCancelled: () -> Boolean
     ): Map<Pair<String, Long>, String> {
-        val q = if (region.isBbox) {
+        var raw: String? = null
+        val areaClause = if (region.relId > 0) {
+            "area(${3600000000L + region.relId})->.a;"
+        } else {
+            "area[\"ISO3166-1\"=\"${countryCode.uppercase()}\"][admin_level=2]->.a;"
+        }
+        val qArea = """
+            [out:json][timeout:60];
+            $areaClause
+            relation["type"="associatedStreet"](area.a);
+            out body;
+        """.trimIndent()
+        raw = client.query(qArea, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
+
+        val hasAssoc = try {
+            raw != null && (JSONObject(raw).optJSONArray("elements")?.length() ?: 0) > 0
+        } catch (_: Exception) { false }
+
+        if (!hasAssoc && region.isBbox && !isCancelled()) {
             val bboxStr = "(${region.minLat}, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
-            """
+            val qBbox = """
                 [out:json][timeout:60];
                 relation["type"="associatedStreet"]$bboxStr;
                 out body;
             """.trimIndent()
-        } else {
-            val areaClause = if (region.relId > 0) {
-                "area(${3600000000L + region.relId})->.a;"
-            } else {
-                "area[\"ISO3166-1\"=\"${countryCode.uppercase()}\"][admin_level=2]->.a;"
-            }
-            """
-                [out:json][timeout:60];
-                $areaClause
-                relation["type"="associatedStreet"](area.a);
-                out body;
-            """.trimIndent()
+            raw = client.query(qBbox, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
         }
-        val raw = client.query(q, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 2) ?: return emptyMap()
+        if (raw.isNullOrBlank()) return emptyMap()
         val assocMap = mutableMapOf<Pair<String, Long>, String>()
         try {
             val json = JSONObject(raw)
@@ -398,9 +419,27 @@ object AddressDownloadManager {
         logFn: (String) -> Unit,
         isCancelled: () -> Boolean
     ): SpatialSettlementIndex {
-        val q = if (region.isBbox) {
+        var rawCsv: String? = null
+        val areaClause = if (region.relId > 0) {
+            "area(${3600000000L + region.relId})->.a;"
+        } else {
+            "area[\"ISO3166-1\"=\"${countryCode.uppercase()}\"][admin_level=2]->.a;"
+        }
+        val qArea = """
+            [out:csv(::id, ::type, ::lat, ::lon, "name:uk", "name", "name:en", "place", "admin_level"; false; ";")][timeout:60];
+            $areaClause
+            (
+              node["place"~"city|town|village|hamlet|suburb|isolated_dwelling"](area.a);
+              relation["place"~"city|town|village|municipality"](area.a);
+            );
+            out center;
+        """.trimIndent()
+        rawCsv = client.query(qArea, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
+
+        val hasSettlements = (rawCsv?.lines()?.count { it.isNotBlank() } ?: 0) > 2
+        if (!hasSettlements && region.isBbox && !isCancelled()) {
             val bboxStr = "(${region.minLat}, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
-            """
+            val qBbox = """
                 [out:csv(::id, ::type, ::lat, ::lon, "name:uk", "name", "name:en", "place", "admin_level"; false; ";")][timeout:60];
                 (
                   node["place"~"city|town|village|hamlet|suburb|isolated_dwelling"]$bboxStr;
@@ -408,23 +447,8 @@ object AddressDownloadManager {
                 );
                 out center;
             """.trimIndent()
-        } else {
-            val areaClause = if (region.relId > 0) {
-                "area(${3600000000L + region.relId})->.a;"
-            } else {
-                "area[\"ISO3166-1\"=\"${countryCode.uppercase()}\"][admin_level=2]->.a;"
-            }
-            """
-                [out:csv(::id, ::type, ::lat, ::lon, "name:uk", "name", "name:en", "place", "admin_level"; false; ";")][timeout:60];
-                $areaClause
-                (
-                  node["place"~"city|town|village|hamlet|suburb|isolated_dwelling"](area.a);
-                  relation["place"~"city|town|village|municipality"](area.a);
-                );
-                out center;
-            """.trimIndent()
+            rawCsv = client.query(qBbox, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
         }
-        val rawCsv = client.query(q, timeoutSec = 65, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
         val settlements = mutableListOf<SettlementItem>()
         val nodeStems = mutableMapOf<String, String>()
 
@@ -946,16 +970,59 @@ object AddressDownloadManager {
                         AppLogger.log(TAG, "fetchAddressData", true, "$statusMsg • $detail")
                     }
 
-                    val assocStreets = fetchAssociatedStreets(region, country.code, logCallback, isCancelled)
+                    var curRegion = region
+                    if (!curRegion.isBbox && curRegion.relId > 0) {
+                        try {
+                            val bq = "[out:json][timeout:15]; relation(${curRegion.relId}); out bb;"
+                            val bRaw = client.query(bq, timeoutSec = 20, logFn = logCallback, isCancelled = isCancelled, maxCycles = 1)
+                            if (!bRaw.isNullOrBlank()) {
+                                val bObj = JSONObject(bRaw).optJSONArray("elements")?.optJSONObject(0)?.optJSONObject("bounds")
+                                if (bObj != null) {
+                                    curRegion = RegionTarget(
+                                        relId = curRegion.relId,
+                                        name = curRegion.name,
+                                        minLat = bObj.optDouble("minlat"),
+                                        minLon = bObj.optDouble("minlon"),
+                                        maxLat = bObj.optDouble("maxlat"),
+                                        maxLon = bObj.optDouble("maxlon")
+                                    )
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    val assocStreets = fetchAssociatedStreets(curRegion, country.code, logCallback, isCancelled)
                     if (isCancelled()) break
                     client.interruptibleSleep(1500L, isCancelled)
-                    val settlementIndex = fetchRegionSettlements(region, country.code, region.name, logCallback, isCancelled)
+                    val settlementIndex = fetchRegionSettlements(curRegion, country.code, curRegion.name, logCallback, isCancelled)
                     if (isCancelled()) break
                     client.interruptibleSleep(1500L, isCancelled)
 
-                    val q = if (region.isBbox) {
-                        val bboxStr = "(${region.minLat}, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
-                        """
+                    // Спосіб 1: Точна полігональна зона (area)
+                    var tsvData: String? = null
+                    val areaClause = if (curRegion.relId > 0) {
+                        "area(${3600000000L + curRegion.relId})->.a;"
+                    } else {
+                        "area[\"ISO3166-1\"=\"${country.code.uppercase()}\"][admin_level=2]->.a;"
+                    }
+                    val qArea = """
+                        [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality"; false; ";")][timeout:300];
+                        $areaClause
+                        (
+                          node["addr:housenumber"](area.a);
+                          way["addr:housenumber"](area.a);
+                          relation["addr:housenumber"](area.a);
+                        );
+                        out center;
+                    """.trimIndent()
+                    tsvData = client.query(qArea, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 1)
+
+                    // Спосіб 2: Якщо через area сервер нічого не повернув (відсутній шар area на цьому сервері) або помилка — резервний запит через географічну рамку (bbox)
+                    val houseCountInArea = tsvData?.lines()?.count { it.isNotBlank() } ?: 0
+                    if (houseCountInArea < 10 && curRegion.isBbox && !isCancelled()) {
+                        logCallback("Сервер не повернув будинки через area для ${curRegion.name}. Перехід на географічну рамку (bbox)...")
+                        val bboxStr = "(${curRegion.minLat}, ${curRegion.minLon}, ${curRegion.maxLat}, ${curRegion.maxLon})"
+                        val qBbox = """
                             [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality"; false; ";")][timeout:300];
                             (
                               node["addr:housenumber"]$bboxStr;
@@ -964,33 +1031,17 @@ object AddressDownloadManager {
                             );
                             out center;
                         """.trimIndent()
-                    } else {
-                        val areaClause = if (region.relId > 0) {
-                            "area(${3600000000L + region.relId})->.a;"
-                        } else {
-                            "area[\"ISO3166-1\"=\"${country.code.uppercase()}\"][admin_level=2]->.a;"
-                        }
-                        """
-                            [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality"; false; ";")][timeout:300];
-                            $areaClause
-                            (
-                              node["addr:housenumber"](area.a);
-                              way["addr:housenumber"](area.a);
-                              relation["addr:housenumber"](area.a);
-                            );
-                            out center;
-                        """.trimIndent()
+                        tsvData = client.query(qBbox, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 2)
                     }
 
-                    val tsvData = client.query(q, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 3)
                     if (tsvData.isNullOrBlank()) {
-                        failed.add(Pair(idx, region))
+                        failed.add(Pair(idx, curRegion))
                         continue
                     }
 
                     db.beginTransaction()
                     try {
-                        val regPlaceId = ingestor.getOrCreatePlace(ingestor.countryId, region.name, level = 4, osmId = if (region.relId > 0) region.relId else null)
+                        val regPlaceId = ingestor.getOrCreatePlace(ingestor.countryId, curRegion.name, level = 4, osmId = if (curRegion.relId > 0) curRegion.relId else null)
 
                         for (line in tsvData.lineSequence()) {
                             val trimmed = line.trim()
