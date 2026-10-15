@@ -264,18 +264,6 @@ object AddressDownloadManager {
             }
         }
 
-        // Резервний варіант для України: 27 перевірених регіонів OSM
-        if (code == "UA") {
-            val uaList = UKRAINE_REGIONS.map { RegionTarget(it.first, it.second) }
-            cachedRegionCounts["UA"] = uaList.size
-            cachedRegions["UA"] = uaList
-            if (db != null && countryId != null) {
-                saveRegionsToDb(db, countryId, uaList, code)
-            }
-            logFn("[+] Структура 27 регіонів України активована (резервний список)")
-            return uaList
-        }
-
         // Резервний варіант за алгоритмом скрипта: вся країна в один прохід
         val fallback = listOf(RegionTarget(0L, country.nameUk))
         cachedRegionCounts[code] = 1
@@ -344,36 +332,6 @@ object AddressDownloadManager {
             else -> 10
         }
     }
-
-    val UKRAINE_REGIONS = listOf(
-        Pair(72639L, "Автономна Республіка Крим"),
-        Pair(90726L, "Вінницька область"),
-        Pair(71064L, "Волинська область"),
-        Pair(101746L, "Дніпропетровська область"),
-        Pair(71973L, "Донецька область"),
-        Pair(71245L, "Житомирська область"),
-        Pair(72489L, "Закарпатська область"),
-        Pair(71980L, "Запорізька область"),
-        Pair(72488L, "Івано-Франківська область"),
-        Pair(421866L, "Київ"),
-        Pair(71248L, "Київська область"),
-        Pair(101859L, "Кіровоградська область"),
-        Pair(71971L, "Луганська область"),
-        Pair(72380L, "Львівська область"),
-        Pair(72635L, "Миколаївська область"),
-        Pair(72634L, "Одеська область"),
-        Pair(91294L, "Полтавська область"),
-        Pair(71236L, "Рівненська область"),
-        Pair(1574364L, "Севастополь"),
-        Pair(71250L, "Сумська область"),
-        Pair(72525L, "Тернопільська область"),
-        Pair(71254L, "Харківська область"),
-        Pair(71022L, "Херсонська область"),
-        Pair(90742L, "Хмельницька область"),
-        Pair(91278L, "Черкаська область"),
-        Pair(72526L, "Чернівецька область"),
-        Pair(71249L, "Чернігівська область")
-    )
 
     private fun fetchAssociatedStreets(
         region: RegionTarget,
