@@ -29,6 +29,7 @@ class AddressIngestor(
     )
 
     private val housesBatch = ArrayList<HouseRecord>(10000)
+    private val batchCoords = HashSet<Long>(10000)
 
     private var stmtInsertPlace: SQLiteStatement? = null
     private var stmtInsertStreetName: SQLiteStatement? = null
@@ -242,6 +243,11 @@ class AddressIngestor(
             (lon * 100_000.0).roundToInt()
         }
 
+        val coordKey = (latI.toLong() shl 32) or (lonI.toLong() and 0xFFFFFFFFL)
+        if (!batchCoords.add(coordKey)) {
+            return
+        }
+
         housesBatch.add(HouseRecord(streetId, num, latI, lonI))
         if (housesBatch.size >= 10000) {
             flush()
@@ -267,6 +273,7 @@ class AddressIngestor(
         } finally {
             if (ownTx) db.endTransaction()
             housesBatch.clear()
+            batchCoords.clear()
         }
     }
 

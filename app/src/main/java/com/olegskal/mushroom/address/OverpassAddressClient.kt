@@ -3,6 +3,9 @@ package com.olegskal.mushroom.address
 import com.olegskal.mushroom.util.AppLogger
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.io.BufferedInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -234,6 +237,149 @@ class OverpassAddressClient(
             }
         }
         return null
+    }
+
+    fun queryToFile(
+        qlQuery: String,
+        targetFile: File,
+        timeoutSec: Int = 90,
+        logFn: (String) -> Unit = {},
+        isCancelled: () -> Boolean = { false },
+        maxCycles: Int = 3
+    ): Boolean {
+        var activeQuery = qlQuery
+
+        for (cycle in 1..maxCycles) {
+            if (isCancelled()) return false
+
+            val ranked = findBestMirrors()
+            if (ranked.isEmpty()) break
+
+            val (bestMirror, minWait, avail) = ranked.first()
+            if (avail == 0 && minWait > 0) {
+                val sleepSec = minOf(minWait + 2, 60)
+                AppLogger.log(TAG, "queryToFile", true, "Всі сервери зайняті. Очікуємо ${sleepSec}с на $bestMirror...")
+                if (interruptibleSleep(sleepSec * 1000L, isCancelled)) return false
+            }
+
+            for ((mirror, _, freeSlots) in ranked) {
+                if (isCancelled()) return false
+
+                var conn: HttpURLConnection? = null
+                try {
+                    val encodedData = "data=" + URLEncoder.encode(activeQuery, "UTF-8")
+                    val postBytes = encodedData.toByteArray(Charsets.UTF_8)
+
+                    conn = (URL(mirror).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        connectTimeout = 8000
+                        readTimeout = timeoutSec * 1000
+                        doOutput = true
+                        setRequestProperty("User-Agent", USER_AGENT)
+                        setRequestProperty("Accept-Encoding", "gzip, deflate")
+                        setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                        setRequestProperty("Content-Length", postBytes.size.toString())
+                    }
+
+                    conn.outputStream.use { it.write(postBytes) }
+
+                    val responseCode = conn.responseCode
+                    val isGzip = conn.contentEncoding?.contains("gzip", ignoreCase = true) == true
+                    val stream: InputStream? = if (responseCode in 200..299) conn.inputStream else conn.errorStream
+
+                    if (stream == null) {
+                        AppLogger.log(TAG, "queryToFile", false, "$mirror: HTTP $responseCode — з'єднання скинуто. Наступне дзеркало...")
+                        interruptibleSleep(1000L, isCancelled)
+                        continue
+                    }
+
+                    if (responseCode !in 200..299) {
+                        val errBytes = readStreamToBytes(stream)
+                        val errText = String(errBytes, Charsets.UTF_8).lowercase()
+                        if (responseCode == 429 || errText.contains("waiting for slot") || errText.contains("slot available") || errText.contains("rate_limited")) {
+                            AppLogger.log(TAG, "queryToFile", true, "$mirror: HTTP $responseCode — слот зайнято. Наступне дзеркало...")
+                            interruptibleSleep(1500L, isCancelled)
+                            continue
+                        }
+                        if (responseCode == 504) {
+                            AppLogger.log(TAG, "queryToFile", false, "$mirror: HTTP 504 Gateway Timeout. Спробуємо інше...")
+                            interruptibleSleep(1500L, isCancelled)
+                            continue
+                        }
+                        AppLogger.log(TAG, "queryToFile", false, "$mirror: HTTP $responseCode помилка. Наступне дзеркало...")
+                        val sleepMs = if (responseCode == 500) 500L else 1500L
+                        interruptibleSleep(sleepMs, isCancelled)
+                        continue
+                    }
+
+                    targetFile.parentFile?.mkdirs()
+                    val bis = BufferedInputStream(stream)
+                    bis.mark(2)
+                    val b1 = bis.read()
+                    val b2 = bis.read()
+                    bis.reset()
+                    val isGz = isGzip || (b1 == 0x1f && b2 == 0x8b)
+                    val actualStream: InputStream = if (isGz) GZIPInputStream(bis) else bis
+
+                    FileOutputStream(targetFile).use { fos ->
+                        val buf = ByteArray(32768)
+                        var len: Int
+                        while (actualStream.read(buf).also { len = it } != -1) {
+                            if (isCancelled()) {
+                                targetFile.delete()
+                                return false
+                            }
+                            fos.write(buf, 0, len)
+                        }
+                    }
+
+                    if (!targetFile.exists() || targetFile.length() == 0L) {
+                        AppLogger.log(TAG, "queryToFile", false, "$mirror: HTTP $responseCode — порожня відповідь. Спробуємо інше...")
+                        targetFile.delete()
+                        interruptibleSleep(1000L, isCancelled)
+                        continue
+                    }
+
+                    if (targetFile.length() < 2048L) {
+                        val head = targetFile.readText(Charsets.UTF_8).lowercase()
+                        if (head.contains("out of memory")) {
+                            targetFile.delete()
+                            val (escalated, memStr) = escalateQueryMemory(activeQuery)
+                            if (escalated != null) {
+                                AppLogger.log(TAG, "queryToFile", true, "$mirror: Out of memory. Ескалація RAM до $memStr [maxsize]...")
+                                activeQuery = escalated
+                                interruptibleSleep(2000L, isCancelled)
+                                return queryToFile(activeQuery, targetFile, maxOf(timeoutSec, 300), logFn, isCancelled, maxCycles)
+                            }
+                            continue
+                        }
+                        if (head.contains("<html") || head.contains("runtime error")) {
+                            targetFile.delete()
+                            AppLogger.log(TAG, "queryToFile", false, "$mirror: помилка в HTML тілі. Спробуємо інше...")
+                            interruptibleSleep(1500L, isCancelled)
+                            continue
+                        }
+                    }
+
+                    AppLogger.log(TAG, "queryToFile", true, "$mirror: HTTP $responseCode OK — збережено ${targetFile.length()} байт (слотів: $freeSlots)")
+                    return true
+
+                } catch (e: Exception) {
+                    AppLogger.log(TAG, "queryToFile", false, "Connection error to $mirror: ${e.message}")
+                    targetFile.delete()
+                    interruptibleSleep(1500L, isCancelled)
+                    continue
+                } finally {
+                    conn?.disconnect()
+                }
+            }
+
+            if (cycle < maxCycles && !isCancelled()) {
+                interruptibleSleep(3000L, isCancelled)
+            }
+        }
+        targetFile.delete()
+        return false
     }
 
     fun interruptibleSleep(ms: Long, isCancelled: () -> Boolean): Boolean {

@@ -837,6 +837,7 @@ object AddressDownloadManager {
         val db = AddressDb.openDatabase(context, writable = true) ?: return false
         AddressDb.ensureTablesExist(db)
         val ingestor = AddressIngestor(db, country.code, country.nameUk)
+        var stmtCheckCoord: android.database.sqlite.SQLiteStatement? = null
 
         try {
             onProgress(0.02, "${country.nameUk}: Пошук регіонів...")
@@ -866,22 +867,14 @@ object AddressDownloadManager {
                 client.interruptibleSleep(3500L, isCancelled)
             }
 
-            // Префлайт-перевірка: миттєво за 1 швидкий SQL-запит зчитуємо всі регіони, що вже мають будинки в базі
+            // Створення тимчасового індексу для надшвидкої дедуплікації по базі без завантаження в Java Heap
+            try {
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_temp_import_coords ON houses(lat, lon);")
+            } catch (_: Exception) {}
+            stmtCheckCoord = db.compileStatement("SELECT count(*) FROM houses WHERE lat = ? AND lon = ?;")
+
             val loadedOsmIds = mutableSetOf<Long>()
             val loadedNames = mutableSetOf<String>()
-            val seenHouses = java.util.HashSet<Long>(500_000)
-            try {
-                val hCur = db.rawQuery("SELECT lat, lon, number FROM houses;", null)
-                hCur.use {
-                    while (it.moveToNext()) {
-                        val hLat = it.getInt(0)
-                        val hLon = it.getInt(1)
-                        val hNum = it.getString(2) ?: ""
-                        val hKey = ((hLat.toLong() shl 32) or (hLon.toLong() and 0xFFFFFFFFL)) xor (hNum.trim().lowercase().hashCode().toLong() * 31L)
-                        seenHouses.add(hKey)
-                    }
-                }
-            } catch (_: Exception) {}
             try {
                 val pCur = db.rawQuery("""
                     SELECT DISTINCT ap.osm_id, ap.name
@@ -978,7 +971,7 @@ object AddressDownloadManager {
                         "area[\"ISO3166-1\"=\"${country.code.uppercase()}\"][admin_level=2]->.a;"
                     }
                     val qArea = """
-                        [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality"; false; ";")][timeout:300];
+                        [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality", "addr:country", "is_in:country"; false; ";")][timeout:300];
                         $areaClause
                         (
                           node["addr:housenumber"](area.a);
@@ -987,107 +980,137 @@ object AddressDownloadManager {
                         );
                         out center;
                     """.trimIndent()
-                    var tsvData = client.query(qArea, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 1)
 
-                    // Спосіб 2: Якщо через area сервер нічого не повернув (відсутній шар area на цьому сервері) або помилка — резервний запит через географічну рамку (bbox)
-                    val houseCountInArea = tsvData?.lines()?.count { it.isNotBlank() } ?: 0
-                    if (houseCountInArea < 10 && curRegion.isBbox && !isCancelled()) {
-                        logCallback("Сервер не повернув будинки через area для ${curRegion.name}. Перехід на географічну рамку (bbox)...")
-                        val bboxStr = "(${curRegion.minLat}, ${curRegion.minLon}, ${curRegion.maxLat}, ${curRegion.maxLon})"
-                        val qBbox = """
-                            [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality"; false; ";")][timeout:300];
-                            (
-                              node["addr:housenumber"]$bboxStr;
-                              way["addr:housenumber"]$bboxStr;
-                              relation["addr:housenumber"]$bboxStr;
-                            );
-                            out center;
-                        """.trimIndent()
-                        tsvData = client.query(qBbox, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 2)
-                    }
-
-                    if (tsvData.isNullOrBlank()) {
-                        failed.add(Pair(idx, curRegion))
-                        continue
-                    }
-
-                    db.beginTransaction()
+                    val tempFile = File(context.cacheDir, "temp_houses_${curRegion.relId}_${System.currentTimeMillis()}.tsv")
                     try {
-                        val regPlaceId = ingestor.getOrCreatePlace(ingestor.countryId, curRegion.name, level = 4, osmId = if (curRegion.relId > 0) curRegion.relId else null)
+                        var hasHouses = client.queryToFile(qArea, tempFile, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 1)
 
-                        for (line in tsvData.lineSequence()) {
-                            val trimmed = line.trim()
-                            if (trimmed.isBlank()) continue
-                            val parts = if (trimmed.contains(";")) trimmed.split(";") else trimmed.split("\t")
-                            if (parts.size < 6) continue
-
-                            val osmId = parts[0].trim().toLongOrNull() ?: 0L
-                            val osmType = parts[1].trim()
-                            val lat = parts[2].trim().toDoubleOrNull() ?: continue
-                            val lon = parts[3].trim().toDoubleOrNull() ?: continue
-
-                            val rowCity = parts.getOrNull(4)?.trim() ?: ""
-                            val rowTown = parts.getOrNull(5)?.trim() ?: ""
-                            val rowVillage = parts.getOrNull(6)?.trim() ?: ""
-                            val rowHamlet = parts.getOrNull(7)?.trim() ?: ""
-                            val rowSuburb = parts.getOrNull(8)?.trim() ?: ""
-                            val rowPlace = parts.getOrNull(9)?.trim() ?: ""
-
-                            val district = (parts.getOrNull(10)?.trim() ?: "").ifBlank { parts.getOrNull(11)?.trim() ?: "" }
-                            val subdistrict = (parts.getOrNull(12)?.trim() ?: "").ifBlank { parts.getOrNull(13)?.trim() ?: "" }
-
-                            val rowStreet = parts.getOrNull(14)?.trim() ?: ""
-                            val contactStreet = parts.getOrNull(15)?.trim() ?: ""
-                            val parentStreet = parts.getOrNull(16)?.trim() ?: ""
-                            val isInStreet = parts.getOrNull(17)?.trim() ?: ""
-
-                            val houseNumber = (parts.getOrNull(18)?.trim() ?: "")
-                                .ifBlank { (parts.getOrNull(19)?.trim() ?: "")
-                                    .ifBlank { parts.getOrNull(20)?.trim() ?: "" } }
-
-                            val isInCity = parts.getOrNull(21)?.trim() ?: ""
-                            val isInTown = parts.getOrNull(22)?.trim() ?: ""
-                            val isInVillage = parts.getOrNull(23)?.trim() ?: ""
-                            val isInMuni = parts.getOrNull(24)?.trim() ?: ""
-
-                            var street = rowStreet.ifBlank { contactStreet.ifBlank { parentStreet.ifBlank { isInStreet } } }
-                            if (street.isBlank() && osmId > 0) {
-                                street = assocStreets[Pair(osmType, osmId)] ?: ""
+                        val houseCountInArea = if (hasHouses && tempFile.exists()) {
+                            var count = 0
+                            tempFile.bufferedReader(Charsets.UTF_8).use { reader ->
+                                while (count < 10) {
+                                    if (reader.readLine()?.isNotBlank() == true) count++ else break
+                                }
                             }
-                            if (street.isBlank() && rowPlace.isNotBlank() && houseNumber.isNotBlank()) {
-                                street = rowPlace
-                            }
+                            count
+                        } else 0
 
-                            if (houseNumber.isBlank() && street.isBlank()) continue
-
-                            val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
-                            val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
-                            val houseKey = ((latI.toLong() shl 32) or (lonI.toLong() and 0xFFFFFFFFL)) xor (houseNumber.trim().lowercase().hashCode().toLong() * 31L)
-                            if (!seenHouses.add(houseKey)) {
-                                continue
-                            }
-
-                            var city = rowCity.ifBlank { rowTown.ifBlank { rowVillage.ifBlank { rowHamlet.ifBlank { rowSuburb.ifBlank { isInCity.ifBlank { isInTown.ifBlank { isInVillage.ifBlank { isInMuni.ifBlank { rowPlace } } } } } } } } }
-                            if (city.isBlank()) {
-                                city = settlementIndex.resolve(lat, lon)
-                            }
-
-                            var curParent = regPlaceId
-                            if (district.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, district, level = 6)
-                            if (subdistrict.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, subdistrict, level = 7)
-
-                            val cityPlaceId = ingestor.getOrCreatePlace(curParent, city, level = 8)
-                            val streetId = ingestor.getOrCreateStreet(cityPlaceId, street, region.name, city, regPlaceId)
-
-                            ingestor.addHouse(streetId, houseNumber, lat, lon)
+                        // Спосіб 2: Якщо через area сервер нічого не повернув (відсутній шар area на цьому сервері) або помилка — резервний запит через географічну рамку (bbox)
+                        if (houseCountInArea < 10 && curRegion.isBbox && !isCancelled()) {
+                            tempFile.delete()
+                            logCallback("Сервер не повернув будинки через area для ${curRegion.name}. Перехід на географічну рамку (bbox)...")
+                            val bboxStr = "(${curRegion.minLat}, ${curRegion.minLon}, ${curRegion.maxLat}, ${curRegion.maxLon})"
+                            val qBbox = """
+                                [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality", "addr:country", "is_in:country"; false; ";")][timeout:300];
+                                (
+                                  node["addr:housenumber"]$bboxStr;
+                                  way["addr:housenumber"]$bboxStr;
+                                  relation["addr:housenumber"]$bboxStr;
+                                );
+                                out center;
+                            """.trimIndent()
+                            hasHouses = client.queryToFile(qBbox, tempFile, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 2)
                         }
 
-                        ingestor.flush()
-                        db.setTransactionSuccessful()
-                        if (region.relId > 0) loadedOsmIds.add(region.relId)
-                        loadedNames.add(region.name.trim().lowercase())
+                        if (!hasHouses || !tempFile.exists() || tempFile.length() == 0L) {
+                            failed.add(Pair(idx, curRegion))
+                            continue
+                        }
+
+                        db.beginTransaction()
+                        try {
+                            val regPlaceId = ingestor.getOrCreatePlace(ingestor.countryId, curRegion.name, level = 4, osmId = if (curRegion.relId > 0) curRegion.relId else null)
+
+                            tempFile.bufferedReader(Charsets.UTF_8).use { reader ->
+                                var line: String?
+                                while (reader.readLine().also { line = it } != null) {
+                                    val trimmed = line!!.trim()
+                                    if (trimmed.isBlank()) continue
+                                    val parts = if (trimmed.contains(";")) trimmed.split(";") else trimmed.split("\t")
+                                    if (parts.size < 6) continue
+
+                                    // Універсальний фільтр за тегом країни (якщо вказано явний чужий код ISO)
+                                    val rowCountry = (parts.getOrNull(25)?.trim() ?: "").ifBlank { parts.getOrNull(26)?.trim() ?: "" }
+                                    if (rowCountry.isNotBlank() && !rowCountry.equals(country.code, ignoreCase = true)) {
+                                        continue
+                                    }
+
+                                    val osmId = parts[0].trim().toLongOrNull() ?: 0L
+                                    val osmType = parts[1].trim()
+                                    val lat = parts[2].trim().toDoubleOrNull() ?: continue
+                                    val lon = parts[3].trim().toDoubleOrNull() ?: continue
+
+                                    val rowCity = parts.getOrNull(4)?.trim() ?: ""
+                                    val rowTown = parts.getOrNull(5)?.trim() ?: ""
+                                    val rowVillage = parts.getOrNull(6)?.trim() ?: ""
+                                    val rowHamlet = parts.getOrNull(7)?.trim() ?: ""
+                                    val rowSuburb = parts.getOrNull(8)?.trim() ?: ""
+                                    val rowPlace = parts.getOrNull(9)?.trim() ?: ""
+
+                                    val district = (parts.getOrNull(10)?.trim() ?: "").ifBlank { parts.getOrNull(11)?.trim() ?: "" }
+                                    val subdistrict = (parts.getOrNull(12)?.trim() ?: "").ifBlank { parts.getOrNull(13)?.trim() ?: "" }
+
+                                    val rowStreet = parts.getOrNull(14)?.trim() ?: ""
+                                    val contactStreet = parts.getOrNull(15)?.trim() ?: ""
+                                    val parentStreet = parts.getOrNull(16)?.trim() ?: ""
+                                    val isInStreet = parts.getOrNull(17)?.trim() ?: ""
+
+                                    val houseNumber = (parts.getOrNull(18)?.trim() ?: "")
+                                        .ifBlank { (parts.getOrNull(19)?.trim() ?: "")
+                                            .ifBlank { parts.getOrNull(20)?.trim() ?: "" } }
+
+                                    val isInCity = parts.getOrNull(21)?.trim() ?: ""
+                                    val isInTown = parts.getOrNull(22)?.trim() ?: ""
+                                    val isInVillage = parts.getOrNull(23)?.trim() ?: ""
+                                    val isInMuni = parts.getOrNull(24)?.trim() ?: ""
+
+                                    var street = rowStreet.ifBlank { contactStreet.ifBlank { parentStreet.ifBlank { isInStreet } } }
+                                    if (street.isBlank() && osmId > 0) {
+                                        street = assocStreets[Pair(osmType, osmId)] ?: ""
+                                    }
+                                    if (street.isBlank() && rowPlace.isNotBlank() && houseNumber.isNotBlank()) {
+                                        street = rowPlace
+                                    }
+
+                                    if (houseNumber.isBlank() && street.isBlank()) continue
+
+                                    val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
+                                    val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
+
+                                    // Дедуплікація через тимчасовий індекс SQLite
+                                    if (stmtCheckCoord != null) {
+                                        stmtCheckCoord.bindLong(1, latI.toLong())
+                                        stmtCheckCoord.bindLong(2, lonI.toLong())
+                                        if (stmtCheckCoord.simpleQueryForLong() > 0L) {
+                                            continue
+                                        }
+                                    }
+
+                                    var city = rowCity.ifBlank { rowTown.ifBlank { rowVillage.ifBlank { rowHamlet.ifBlank { rowSuburb.ifBlank { isInCity.ifBlank { isInTown.ifBlank { isInVillage.ifBlank { isInMuni.ifBlank { rowPlace } } } } } } } } }
+                                    if (city.isBlank()) {
+                                        city = settlementIndex.resolve(lat, lon)
+                                    }
+
+                                    var curParent = regPlaceId
+                                    if (district.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, district, level = 6)
+                                    if (subdistrict.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, subdistrict, level = 7)
+
+                                    val cityPlaceId = ingestor.getOrCreatePlace(curParent, city, level = 8)
+                                    val streetId = ingestor.getOrCreateStreet(cityPlaceId, street, region.name, city, regPlaceId)
+
+                                    ingestor.addHouse(streetId, houseNumber, lat, lon)
+                                }
+                            }
+
+                            ingestor.flush()
+                            db.setTransactionSuccessful()
+                            if (region.relId > 0) loadedOsmIds.add(region.relId)
+                            loadedNames.add(region.name.trim().lowercase())
+                        } finally {
+                            db.endTransaction()
+                        }
                     } finally {
-                        db.endTransaction()
+                        tempFile.delete()
                     }
                     onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, statusMsg)
                     if (!isCancelled()) {
@@ -1136,6 +1159,8 @@ object AddressDownloadManager {
             AppLogger.log(TAG, "ingestCountryAddresses", false, "Ingest failed: ${e.message}")
             return false
         } finally {
+            try { stmtCheckCoord?.close() } catch (_: Exception) {}
+            try { db.execSQL("DROP INDEX IF EXISTS idx_temp_import_coords;") } catch (_: Exception) {}
             ingestor.close()
             try {
                 if (db.inTransaction()) {
