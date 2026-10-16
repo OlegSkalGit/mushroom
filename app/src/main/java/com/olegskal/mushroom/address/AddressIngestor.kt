@@ -3,6 +3,7 @@ package com.olegskal.mushroom.address
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteStatement
 import com.olegskal.mushroom.util.AppLogger
+import java.util.ArrayDeque
 import kotlin.math.roundToInt
 
 class AddressIngestor(
@@ -14,12 +15,25 @@ class AddressIngestor(
         private const val TAG = "AddressIngestor"
     }
 
+    data class NearestAddress(
+        val streetName: String?,
+        val cityName: String?
+    )
+
     var countryId: Long = 1L
         private set
 
     private val placesCache = mutableMapOf<Pair<Long, String>, Long>()
     private val streetNamesCache = mutableMapOf<String, Long>()
     private val streetsCache = mutableMapOf<Pair<Long, Long>, Long>()
+
+    private data class CachedHouse(
+        val latI: Int,
+        val lonI: Int,
+        val street: String,
+        val city: String
+    )
+    private val recentHouses = ArrayDeque<CachedHouse>(512)
 
     data class HouseRecord(
         val streetId: Long,
@@ -146,7 +160,7 @@ class AddressIngestor(
         }
     }
 
-    fun getOrCreatePlace(parentId: Long, name: String, level: Int, osmId: Long? = null): Long {
+    fun getOrCreatePlace(parentId: Long, name: String, level: Int, osmId: Long? = null, code: String? = null): Long {
         if (name.isBlank()) return parentId
         val clean = name.trim()
         val key = Pair(parentId, clean.lowercase())
@@ -171,7 +185,12 @@ class AddressIngestor(
         if (parentId > 0) stmt.bindLong(2, parentId) else stmt.bindNull(2)
         stmt.bindLong(3, level.toLong())
         stmt.bindString(4, clean)
-        stmt.bindNull(5)
+        val cleanCode = code?.trim()
+        if (!cleanCode.isNullOrBlank()) {
+            stmt.bindString(5, cleanCode)
+        } else {
+            stmt.bindNull(5)
+        }
         val id = stmt.executeInsert()
         placesCache[key] = id
         return id
@@ -202,7 +221,9 @@ class AddressIngestor(
         cityName: String,
         regionId: Long? = null
     ): Long {
-        val clean = AddressNormalizer.canonicalStreetNameUniversal(streetName).ifBlank { streetName.trim() }
+        val clean = AddressNormalizer.canonicalStreetNameUniversal(streetName)
+            .ifBlank { streetName.trim() }
+            .ifBlank { cityName.trim() }
         val nameId = getOrCreateStreetName(clean)
         val key = Pair(placeId, nameId)
         streetsCache[key]?.let { return it }
@@ -226,6 +247,99 @@ class AddressIngestor(
         }
 
         return sid
+    }
+
+    fun registerKnownAddress(lat: Double, lon: Double, street: String, city: String) {
+        val s = street.trim()
+        val c = city.trim()
+        if (s.isBlank() || c.isBlank() || s.equals(c, ignoreCase = true)) return
+        val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
+        val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
+        if (recentHouses.size >= 500) {
+            recentHouses.pollFirst()
+        }
+        recentHouses.addLast(CachedHouse(latI, lonI, s, c))
+    }
+
+    fun findNearestAddress(lat: Double, lon: Double, maxDistMeters: Double = 1000.0): NearestAddress? {
+        val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
+        val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
+        val latDeg = latI / 100_000.0
+        val cosLat = kotlin.math.cos(Math.toRadians(latDeg))
+        val maxDistSq = maxDistMeters * maxDistMeters
+
+        var bestStreet: String? = null
+        var bestCity: String? = null
+        var minDistSq = maxDistSq
+
+        // 1. Пошук у буфері останніх будинків (O(N), N<=500, пам'ять, ~0.005 мс)
+        val iter = recentHouses.descendingIterator()
+        while (iter.hasNext()) {
+            val h = iter.next()
+            val dy = (latI - h.latI) * 1.1132
+            if (kotlin.math.abs(dy) > maxDistMeters) continue
+            val dx = (lonI - h.lonI) * 1.1132 * cosLat
+            val d2 = dy * dy + dx * dx
+            if (d2 < minDistSq) {
+                minDistSq = d2
+                bestStreet = h.street
+                bestCity = h.city
+                if (d2 < 625.0) break
+            }
+        }
+
+        if (bestStreet != null || bestCity != null) {
+            return NearestAddress(bestStreet, bestCity)
+        }
+
+        // 2. Пошук у SQLite через просторовий індекс idx_houses_coords
+        val dLatI = (maxDistMeters / 1.1132).roundToInt() + 1
+        val dLonI = (maxDistMeters / (1.1132 * kotlin.math.max(0.1, cosLat))).roundToInt() + 1
+
+        val minLatI = latI - dLatI
+        val maxLatI = latI + dLatI
+        val minLonI = lonI - dLonI
+        val maxLonI = lonI + dLonI
+
+        try {
+            val cursor = db.rawQuery("""
+                SELECT sn.name, ap.name, h.lat, h.lon
+                FROM houses h
+                JOIN streets s ON s.id = h.street_id
+                JOIN street_names sn ON sn.id = s.name_id
+                JOIN admin_places ap ON ap.id = s.place_id
+                WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
+                LIMIT 25;
+            """.trimIndent(), arrayOf(minLatI.toString(), maxLatI.toString(), minLonI.toString(), maxLonI.toString()))
+
+            cursor.use { c ->
+                while (c.moveToNext()) {
+                    val sName = c.getString(0) ?: ""
+                    val cName = c.getString(1) ?: ""
+                    val hLat = c.getInt(2)
+                    val hLon = c.getInt(3)
+
+                    val dy = (latI - hLat) * 1.1132
+                    val dx = (lonI - hLon) * 1.1132 * cosLat
+                    val d2 = dy * dy + dx * dx
+                    if (d2 < minDistSq) {
+                        minDistSq = d2
+                        val realStreet = if (sName.isNotBlank() && !sName.equals(cName, ignoreCase = true)) sName else null
+                        val realCity = cName.ifBlank { null }
+                        if (realStreet != null) bestStreet = realStreet
+                        if (realCity != null) bestCity = realCity
+                        if (d2 < 625.0) break
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "findNearestAddress", false, "DB nearest search error: ${e.message}")
+        }
+
+        if (bestStreet != null || bestCity != null) {
+            return NearestAddress(bestStreet, bestCity)
+        }
+        return null
     }
 
     fun addHouse(streetId: Long, houseNumber: String, lat: Double, lon: Double) {
@@ -279,6 +393,7 @@ class AddressIngestor(
 
     fun close() {
         flush()
+        recentHouses.clear()
         try { stmtInsertPlace?.close() } catch (_: Exception) {}
         try { stmtInsertStreetName?.close() } catch (_: Exception) {}
         try { stmtInsertStreet?.close() } catch (_: Exception) {}

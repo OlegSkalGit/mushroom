@@ -17,7 +17,8 @@ data class RegionTarget(
     val minLat: Double = 0.0,
     val minLon: Double = 0.0,
     val maxLat: Double = 0.0,
-    val maxLon: Double = 0.0
+    val maxLon: Double = 0.0,
+    val code: String = ""
 ) {
     val isBbox: Boolean
         get() = minLat != 0.0 || maxLat != 0.0
@@ -106,7 +107,7 @@ object AddressDownloadManager {
                 } catch (_: Exception) {}
             }
             val cursor = db.rawQuery("""
-                SELECT osm_id, name FROM admin_places 
+                SELECT osm_id, name, code FROM admin_places 
                 WHERE parent_id = ? AND level = 4 
                 ORDER BY name ASC;
             """.trimIndent(), arrayOf(countryId.toString()))
@@ -116,6 +117,7 @@ object AddressDownloadManager {
                 while (it.moveToNext()) {
                     val osmId = it.getLong(0)
                     val name = it.getString(1) ?: ""
+                    val code = if (it.columnCount > 2) it.getString(2) ?: "" else ""
                     if (name.isBlank()) continue
                     val nameLow = name.lowercase().trim()
                     if (isUa) {
@@ -125,7 +127,7 @@ object AddressDownloadManager {
                     }
                     if (nameLow in seenNames) continue
                     seenNames.add(nameLow)
-                    list.add(RegionTarget(osmId, name))
+                    list.add(RegionTarget(osmId, name, code = code))
                 }
             }
             list
@@ -150,7 +152,7 @@ object AddressDownloadManager {
             db.beginTransaction()
             try {
                 val stmt = db.compileStatement(
-                    "INSERT INTO admin_places (osm_id, parent_id, level, name) VALUES (?, ?, 4, ?);"
+                    "INSERT INTO admin_places (osm_id, parent_id, level, name, code) VALUES (?, ?, 4, ?, ?);"
                 )
                 for (r in regions) {
                     val clean = r.name.lowercase().trim()
@@ -163,6 +165,11 @@ object AddressDownloadManager {
                     stmt.bindLong(1, if (r.relId > 0) r.relId else 0L)
                     stmt.bindLong(2, countryId)
                     stmt.bindString(3, r.name)
+                    if (r.code.isNotBlank()) {
+                        stmt.bindString(4, r.code)
+                    } else {
+                        stmt.bindNull(4)
+                    }
                     stmt.executeInsert()
                     existingNames.add(clean)
                 }
@@ -255,8 +262,9 @@ object AddressDownloadManager {
                             val minLon = bounds?.optDouble("minlon") ?: 0.0
                             val maxLat = bounds?.optDouble("maxlat") ?: 0.0
                             val maxLon = bounds?.optDouble("maxlon") ?: 0.0
+                            val isoCode = tags?.optString("ISO3166-2")?.trim() ?: ""
 
-                            regions.add(RegionTarget(relId, name, minLat, minLon, maxLat, maxLon))
+                            regions.add(RegionTarget(relId, name, minLat, minLon, maxLat, maxLon, code = isoCode))
                         }
                     }
                 } catch (e: Exception) {
@@ -484,6 +492,9 @@ object AddressDownloadManager {
         poiFile: File,
         country: MapCountry,
         ingestor: AddressIngestor,
+        regionByCode: Map<String, RegionTarget> = emptyMap(),
+        boundaryMatcher: RegionBoundaryMatcher? = null,
+        regionPlaceIdResolver: ((RegionTarget) -> Long)? = null,
         isCancelled: () -> Boolean = { false }
     ): Int {
         if (!poiFile.exists() || poiFile.length() < 1024L || isCancelled()) return 0
@@ -525,10 +536,40 @@ object AddressDownloadManager {
                             }
                         }
 
-                        if (city.isBlank()) city = country.nameUk
+                        if (city.isBlank() || street.isBlank()) {
+                            val nearest = ingestor.findNearestAddress(latRaw, lonRaw)
+                            if (city.isBlank() && nearest?.cityName != null) {
+                                city = nearest.cityName
+                            }
+                            if (street.isBlank() && nearest?.streetName != null) {
+                                street = nearest.streetName
+                            }
+                        }
+
+                        // Пропускаємо точки без населеного пункту (не створюємо фейкове місто під назвою країни)
+                        if (city.isBlank()) continue
+
                         if (street.isNotBlank() || house.isNotBlank()) {
-                            val cityId = ingestor.getOrCreatePlace(ingestor.countryId, city, level = 8)
-                            val streetId = ingestor.getOrCreateStreet(cityId, street, country.nameUk, city)
+                            if (street.isNotBlank() && city.isNotBlank() && !street.equals(city, ignoreCase = true)) {
+                                ingestor.registerKnownAddress(latRaw, lonRaw, street, city)
+                            }
+                            var parentPlaceId = ingestor.countryId
+                            var regionName = country.nameUk
+                            var regionId: Long? = null
+
+                            if (boundaryMatcher != null) {
+                                val regCode = boundaryMatcher.findRegionCode(latRaw, lonRaw)
+                                val regTarget = if (regCode != null) regionByCode[regCode] else null
+                                if (regTarget != null) {
+                                    val rId = regionPlaceIdResolver?.invoke(regTarget) ?: ingestor.countryId
+                                    parentPlaceId = rId
+                                    regionName = regTarget.name
+                                    regionId = rId
+                                }
+                            }
+
+                            val cityId = ingestor.getOrCreatePlace(parentPlaceId, city, level = 8)
+                            val streetId = ingestor.getOrCreateStreet(cityId, street, regionName, city, regionId)
                             ingestor.addHouse(streetId, house, latRaw, lonRaw)
                             count++
                             inTx++
@@ -845,6 +886,7 @@ object AddressDownloadManager {
         val db = AddressDb.openDatabase(context, writable = true) ?: return false
         AddressDb.ensureTablesExist(db)
         val ingestor = AddressIngestor(db, country.code, country.nameUk)
+        var downloadedAnyBbox = false
 
         try {
             onProgress(0.02, "${country.nameUk}: Пошук регіонів...")
@@ -868,6 +910,21 @@ object AddressDownloadManager {
             val totalRegions = regions.size
             var pending = regions.mapIndexed { idx, reg -> Pair(idx + 1, reg) }
             val maxPasses = 5
+
+            var boundaryMatcher: RegionBoundaryMatcher? = null
+            val regionByCode = regions.filter { it.code.isNotBlank() }.associateBy { it.code }
+            val regionPlaceIdCache = mutableMapOf<String, Long>()
+            fun getRegionPlaceId(reg: RegionTarget): Long {
+                return regionPlaceIdCache.getOrPut(reg.name) {
+                    ingestor.getOrCreatePlace(
+                        ingestor.countryId,
+                        reg.name,
+                        level = 4,
+                        osmId = if (reg.relId > 0) reg.relId else null,
+                        code = reg.code
+                    )
+                }
+            }
 
             // Пауза 3.5 сек, щоб сервер звільнив слот після запиту регіонів перед стартом завантаження
             if (!isCancelled()) {
@@ -951,7 +1008,8 @@ object AddressDownloadManager {
                                         minLat = bObj.optDouble("minlat"),
                                         minLon = bObj.optDouble("minlon"),
                                         maxLat = bObj.optDouble("maxlat"),
-                                        maxLon = bObj.optDouble("maxlon")
+                                        maxLon = bObj.optDouble("maxlon"),
+                                        code = curRegion.code
                                     )
                                 }
                             }
@@ -984,7 +1042,11 @@ object AddressDownloadManager {
 
                     val tempFile = File(context.cacheDir, "temp_houses_${curRegion.relId}_${System.currentTimeMillis()}.tsv")
                     try {
-                        var hasHouses = client.queryToFile(qArea, tempFile, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 1)
+                        var hasHouses = false
+                        var usedBbox = curRegion.relId <= 0L
+                        if (curRegion.relId > 0L) {
+                            hasHouses = client.queryToFile(qArea, tempFile, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 1)
+                        }
 
                         val houseCountInArea = if (hasHouses && tempFile.exists()) {
                             var count = 0
@@ -999,7 +1061,11 @@ object AddressDownloadManager {
                         // Спосіб 2: Якщо через area сервер нічого не повернув (відсутній шар area на цьому сервері) або помилка — резервний запит через географічну рамку (bbox)
                         if (houseCountInArea < 10 && curRegion.isBbox && !isCancelled()) {
                             tempFile.delete()
+                            usedBbox = true
                             logCallback("Сервер не повернув будинки через area для ${curRegion.name}. Перехід на географічну рамку (bbox)...")
+                            if (boundaryMatcher == null) {
+                                boundaryMatcher = RegionBoundaryMatcher.downloadAndLoad(country.code, logCallback)
+                            }
                             val bboxStr = "(${curRegion.minLat}, ${curRegion.minLon}, ${curRegion.maxLat}, ${curRegion.maxLon})"
                             val qBbox = """
                                 [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality", "addr:country", "is_in:country"; false; ";")][timeout:300];
@@ -1018,9 +1084,13 @@ object AddressDownloadManager {
                             continue
                         }
 
+                        if (usedBbox) {
+                            downloadedAnyBbox = true
+                        }
+
                         db.beginTransaction()
                         try {
-                            val regPlaceId = ingestor.getOrCreatePlace(ingestor.countryId, curRegion.name, level = 4, osmId = if (curRegion.relId > 0) curRegion.relId else null)
+                            val defaultRegPlaceId = getRegionPlaceId(curRegion)
 
                             tempFile.bufferedReader(Charsets.UTF_8).use { reader ->
                                 var line: String?
@@ -1075,9 +1145,36 @@ object AddressDownloadManager {
 
                                     if (houseNumber.isBlank() && street.isBlank()) continue
 
+                                    var targetRegion = curRegion
+                                    if (usedBbox) {
+                                        val ptCode = boundaryMatcher?.findRegionCode(lat, lon)
+                                        if (ptCode != null) {
+                                            val matchedReg = regionByCode[ptCode]
+                                            if (matchedReg != null) {
+                                                targetRegion = matchedReg
+                                            }
+                                        }
+                                    }
+
+                                    val regPlaceId = if (targetRegion.name == curRegion.name) defaultRegPlaceId else getRegionPlaceId(targetRegion)
+
                                     var city = rowCity.ifBlank { rowTown.ifBlank { rowVillage.ifBlank { rowHamlet.ifBlank { rowSuburb.ifBlank { isInCity.ifBlank { isInTown.ifBlank { isInVillage.ifBlank { isInMuni.ifBlank { rowPlace } } } } } } } } }
                                     if (city.isBlank()) {
                                         city = settlementIndex.resolve(lat, lon)
+                                    }
+
+                                    if (street.isBlank() || city.isBlank()) {
+                                        val nearest = ingestor.findNearestAddress(lat, lon)
+                                        if (street.isBlank() && nearest?.streetName != null) {
+                                            street = nearest.streetName
+                                        }
+                                        if (city.isBlank() && nearest?.cityName != null) {
+                                            city = nearest.cityName
+                                        }
+                                    }
+
+                                    if (street.isNotBlank() && city.isNotBlank() && !street.equals(city, ignoreCase = true)) {
+                                        ingestor.registerKnownAddress(lat, lon, street, city)
                                     }
 
                                     var curParent = regPlaceId
@@ -1085,7 +1182,7 @@ object AddressDownloadManager {
                                     if (subdistrict.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, subdistrict, level = 7)
 
                                     val cityPlaceId = ingestor.getOrCreatePlace(curParent, city, level = 8)
-                                    val streetId = ingestor.getOrCreateStreet(cityPlaceId, street, region.name, city, regPlaceId)
+                                    val streetId = ingestor.getOrCreateStreet(cityPlaceId, street, targetRegion.name, city, regPlaceId)
 
                                     ingestor.addHouse(streetId, houseNumber, lat, lon)
                                 }
@@ -1129,7 +1226,18 @@ object AddressDownloadManager {
             for (pFil in candidatePoiFiles) {
                 if (pFil.exists() && pFil.length() > 1024L && !isCancelled()) {
                     onProgress(0.88, "${country.nameUk}: Експорт POI адрес (${pFil.name})")
-                    extractAddressesFromPoiFile(pFil, country, ingestor, isCancelled)
+                    if (boundaryMatcher == null) {
+                        boundaryMatcher = RegionBoundaryMatcher.downloadAndLoad(country.code)
+                    }
+                    extractAddressesFromPoiFile(
+                        poiFile = pFil,
+                        country = country,
+                        ingestor = ingestor,
+                        regionByCode = regionByCode,
+                        boundaryMatcher = boundaryMatcher,
+                        regionPlaceIdResolver = ::getRegionPlaceId,
+                        isCancelled = isCancelled
+                    )
                     break
                 }
             }
@@ -1138,7 +1246,19 @@ object AddressDownloadManager {
 
             ingestor.close()
 
+            if (downloadedAnyBbox) {
+                boundaryMatcher = null
+                RegionBoundaryMatcher.deleteBoundaryFile(country.code)
+                AppLogger.log(TAG, "ingestCountryAddresses", true, "Видалено файл меж geoBoundaries для ${country.code} після завантаження через прямокутник")
+            }
+
             onProgress(0.96, "${country.nameUk}: Оптимізація індексу FTS та стиснення бази")
+
+            try {
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "ingestCountryAddresses", false, "Failed to create idx_houses_coords: ${e.message}")
+            }
 
             // Final FTS optimize, WAL checkpoint and VACUUM
             AddressDb.optimizeAndVacuum(db)
@@ -1150,6 +1270,9 @@ object AddressDownloadManager {
             AppLogger.log(TAG, "ingestCountryAddresses", false, "Ingest failed: ${e.message}")
             return false
         } finally {
+            if (downloadedAnyBbox) {
+                RegionBoundaryMatcher.deleteBoundaryFile(country.code)
+            }
             ingestor.close()
             try {
                 if (db.inTransaction()) {
