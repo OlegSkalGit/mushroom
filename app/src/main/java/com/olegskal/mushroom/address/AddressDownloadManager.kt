@@ -582,7 +582,6 @@ object AddressDownloadManager {
         var count = 0
         var poiDb: SQLiteDatabase? = null
         var stmtInsertPoi: android.database.sqlite.SQLiteStatement? = null
-        var stmtInsertPoiFts: android.database.sqlite.SQLiteStatement? = null
 
         try {
             poiDb = SQLiteDatabase.openDatabase(poiFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
@@ -614,21 +613,17 @@ object AddressDownloadManager {
                 AppLogger.log(TAG, "importPoiLocationsToAddressDb", false, "Country cleanup error: ${e.message}")
             }
 
+            try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_street;") } catch (_: Exception) {}
+            try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_cat;") } catch (_: Exception) {}
+            try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_coords;") } catch (_: Exception) {}
+            try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_country;") } catch (_: Exception) {}
+            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);") } catch (_: Exception) {}
+
             stmtInsertPoi = db.compileStatement("""
                 INSERT INTO poi_places (poi_id, name, category_id, street_id, house_number, lat, lon, country_code) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """.trimIndent())
 
-            stmtInsertPoiFts = try {
-                db.compileStatement("""
-                    INSERT INTO poi_fts (rowid, poi_name, category_name, city_name, street_name) 
-                    VALUES (?, ?, ?, ?, ?);
-                """.trimIndent())
-            } catch (_: Exception) {
-                null
-            }
-
-            val catDefs = PoiManager.DEFAULT_CATEGORIES.associateBy { it.id }
             val addrMatchCache = mutableMapOf<Pair<String, String>, Pair<Long, String>?>()
 
             val chunkSize = 5000
@@ -670,7 +665,6 @@ object AddressDownloadManager {
                             var nameDef: String? = null
                             var streetTag = ""
                             var houseTag = ""
-                            var cityTag = ""
                             val tagMap = mutableMapOf<String, String>()
 
                             for (entry in data.split("\r")) {
@@ -685,7 +679,6 @@ object AddressDownloadManager {
                                         "name:en" -> nameEn = v
                                         "addr:street" -> streetTag = v
                                         "addr:housenumber" -> houseTag = v
-                                        "addr:city", "addr:town", "addr:village", "addr:place" -> if (cityTag.isBlank()) cityTag = v
                                     }
                                 }
                             }
@@ -699,20 +692,17 @@ object AddressDownloadManager {
                             }
 
                             val catId = PoiManager.resolveCategoryId(tagMap) ?: "other"
-                            val catDef = catDefs[catId]
-                            val catTitle = if (catDef != null) "${catDef.titleUk} ${catDef.titleEn}" else catId
 
                             val latMicro = kotlin.math.round(latRaw * 1_000_000.0).toInt()
                             val lonMicro = kotlin.math.round(lonRaw * 1_000_000.0).toInt()
 
                             var matchedStreetId: Long? = null
                             var matchedHouseNum: String? = null
-                            var matchedCityName = cityTag
-                            var matchedStreetName = streetTag
 
                             // 1. Check address tag match
                             if (streetTag.isNotBlank() && houseTag.isNotBlank()) {
-                                val cacheKey = Pair(streetTag.lowercase(), houseTag.lowercase())
+                                val cleanStreet = AddressNormalizer.canonicalStreetNameUniversal(streetTag).ifBlank { streetTag.trim() }
+                                val cacheKey = Pair(cleanStreet.lowercase(), houseTag.lowercase())
                                 if (addrMatchCache.containsKey(cacheKey)) {
                                     val cached = addrMatchCache[cacheKey]
                                     if (cached != null) {
@@ -725,9 +715,9 @@ object AddressDownloadManager {
                                         FROM street_names sn
                                         JOIN streets s ON s.name_id = sn.id
                                         JOIN houses h ON h.street_id = s.id
-                                        WHERE LOWER(sn.name) = ? AND (h.number = ? OR LOWER(h.number) = ?)
+                                        WHERE sn.name = ? AND (h.number = ? OR LOWER(h.number) = ?)
                                         LIMIT 1;
-                                    """.trimIndent(), arrayOf(streetTag.lowercase(), houseTag, houseTag.lowercase()))
+                                    """.trimIndent(), arrayOf(cleanStreet, houseTag, houseTag.lowercase()))
                                     val found = cHouse.use { ch ->
                                         if (ch.moveToFirst()) Pair(ch.getLong(0), ch.getString(1)) else null
                                     }
@@ -766,17 +756,6 @@ object AddressDownloadManager {
                             if (rowId > 0) {
                                 if (rowId < minInsertedId) minInsertedId = rowId
                                 if (rowId > maxInsertedId) maxInsertedId = rowId
-
-                                if (stmtInsertPoiFts != null) {
-                                    stmtInsertPoiFts.bindLong(1, rowId)
-                                    stmtInsertPoiFts.bindString(2, chosenName)
-                                    stmtInsertPoiFts.bindString(3, catTitle)
-                                    stmtInsertPoiFts.bindString(4, matchedCityName)
-                                    stmtInsertPoiFts.bindString(5, matchedStreetName)
-                                    try {
-                                        stmtInsertPoiFts.executeInsert()
-                                    } catch (_: Exception) {}
-                                }
                                 count++
                             }
                         }
@@ -808,11 +787,40 @@ object AddressDownloadManager {
                 """.trimIndent(), arrayOf(countryCode, minInsertedId, maxInsertedId, count))
             }
 
+            // Оптове відновлення індексів
+            onProgress(0.92, "${country.nameUk}: Побудова індексів POI...")
+            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);") } catch (_: Exception) {}
+            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_cat ON poi_places(category_id);") } catch (_: Exception) {}
+            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);") } catch (_: Exception) {}
+            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);") } catch (_: Exception) {}
+
+            // Оптове заповнення poi_fts
+            onProgress(0.96, "${country.nameUk}: Побудова пошукового індексу POI...")
+            try {
+                db.beginTransaction()
+                try {
+                    db.execSQL("""
+                        INSERT INTO poi_fts (rowid, poi_name, category_name, city_name, street_name)
+                        SELECT p.id, p.name, p.category_id, COALESCE(city.name, ''), COALESCE(sn.name, '')
+                        FROM poi_places p
+                        LEFT JOIN streets s ON s.id = p.street_id
+                        LEFT JOIN street_names sn ON sn.id = s.name_id
+                        LEFT JOIN admin_places city ON city.id = s.place_id
+                        WHERE p.country_code = ?;
+                    """.trimIndent(), arrayOf(countryCode))
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "importPoiLocationsToAddressDb", false, "Error bulk populating poi_fts: ${e.message}")
+            }
+
             try {
                 db.execSQL("INSERT INTO poi_fts(poi_fts) VALUES('optimize');")
             } catch (_: Exception) {}
             try {
-                db.rawQuery("PRAGMA wal_checkpoint(PASSIVE);", null).use { it.moveToFirst() }
+                db.rawQuery("PRAGMA wal_checkpoint(FULL);", null).use { it.moveToFirst() }
             } catch (_: Exception) {}
 
             onProgress(1.0, "${country.nameUk}: Завершено імпорт POI ($count точок)")
@@ -823,8 +831,8 @@ object AddressDownloadManager {
             return 0
         } finally {
             try { stmtInsertPoi?.close() } catch (_: Exception) {}
-            try { stmtInsertPoiFts?.close() } catch (_: Exception) {}
             try { poiDb?.close() } catch (_: Exception) {}
+            AddressDb.closeDatabase()
         }
     }
 
@@ -1078,10 +1086,11 @@ object AddressDownloadManager {
                                     val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
 
                                     // Дедуплікація через тимчасовий індекс SQLite
-                                    if (stmtCheckCoord != null) {
-                                        stmtCheckCoord.bindLong(1, latI.toLong())
-                                        stmtCheckCoord.bindLong(2, lonI.toLong())
-                                        if (stmtCheckCoord.simpleQueryForLong() > 0L) {
+                                    val checkStmt = stmtCheckCoord
+                                    if (checkStmt != null) {
+                                        checkStmt.bindLong(1, latI.toLong())
+                                        checkStmt.bindLong(2, lonI.toLong())
+                                        if (checkStmt.simpleQueryForLong() > 0L) {
                                             continue
                                         }
                                     }
@@ -1147,7 +1156,12 @@ object AddressDownloadManager {
 
             if (isCancelled()) return false
 
-            onProgress(0.95, "${country.nameUk}: Оптимізація індексу FTS")
+            onProgress(0.93, "${country.nameUk}: Очищення тимчасових індексів...")
+            try { stmtCheckCoord?.close(); stmtCheckCoord = null } catch (_: Exception) {}
+            try { db.execSQL("DROP INDEX IF EXISTS idx_temp_import_coords;") } catch (_: Exception) {}
+            ingestor.close()
+
+            onProgress(0.96, "${country.nameUk}: Оптимізація індексу FTS та стиснення бази")
 
             // Final FTS optimize, WAL checkpoint and VACUUM
             AddressDb.optimizeAndVacuum(db)

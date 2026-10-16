@@ -49,6 +49,9 @@ object AddressDb {
                     SQLiteDatabase.OPEN_READONLY
                 }
                 val db = SQLiteDatabase.openDatabase(file.absolutePath, null, flags)
+                try {
+                    db.enableWriteAheadLogging()
+                } catch (_: Exception) {}
                 if (writable) {
                     initSchema(db)
                     ensureTablesExist(db)
@@ -191,6 +194,9 @@ object AddressDb {
         try {
             db.execSQL("DROP INDEX IF EXISTS idx_houses_coords;")
         } catch (_: Exception) {}
+        try {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);")
+        } catch (_: Exception) {}
         checkAndMigratePoiPlaces(db)
         if (hasTable(db, "search_fts_content") || isFtsUpgradeNeeded(db)) {
             rebuildFtsIndex(db)
@@ -261,6 +267,7 @@ object AddressDb {
 
         try {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_place_id ON streets(place_id);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);")
         } catch (_: Exception) {}
 
         try {

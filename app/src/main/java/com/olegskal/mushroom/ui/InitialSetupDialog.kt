@@ -613,7 +613,13 @@ object InitialSetupDialog {
                 }
             )
         }
-        if (AddressDownloadManager.needsPoiUpdate(context, country)) {
+        val candidatePoiFiles = listOf(
+            File(MushroomStorageManager.poiDir, country.poiFileName),
+            File(File(context.filesDir, "poi"), country.poiFileName)
+        )
+        val hasLocalPoi = candidatePoiFiles.any { it.exists() && it.length() > 1024L }
+
+        if (AddressDownloadManager.needsPoiUpdate(context, country) || (!addressReady && hasLocalPoi)) {
             val isUk = AppPrefs.isUk(context)
             list.add(
                 UpdateItem(
@@ -949,6 +955,7 @@ object InitialSetupDialog {
                         item.id.startsWith("rd5_") -> "${if (isUk) "Маршрутизація" else "Routing"} (${item.title})"
                         item.id.startsWith("db_") -> "${if (isUk) "Енциклопедія" else "Encyclopedia"} (${item.title})"
                         item.id.startsWith("model_") -> "${if (isUk) "Визначник" else "Classifier"} (${item.title})"
+                        item.id.startsWith("addr_poi_") -> "${if (isUk) "Точки POI (адреси)" else "POI (Addresses)"} (${item.title})"
                         item.id.startsWith("addr_") -> "${if (isUk) "База адрес" else "Addresses"} (${item.title})"
                         else -> item.title
                     }
@@ -1072,9 +1079,17 @@ object InitialSetupDialog {
             item.id.startsWith("rd5_") -> {
                 // Segment ready
             }
-            item.id.startsWith("addr_") -> {
+            item.id.startsWith("addr_poi_") -> {
                 activity.runOnUiThread {
                     AddressDb.openDatabase(activity, writable = false)
+                }
+            }
+            item.id.startsWith("addr_") -> {
+                val hasPendingPoi = pendingQueue.any { it.id.startsWith("addr_poi_") }
+                if (!hasPendingPoi) {
+                    activity.runOnUiThread {
+                        AddressDb.openDatabase(activity, writable = false)
+                    }
                 }
             }
             item.id.startsWith("db_") -> {

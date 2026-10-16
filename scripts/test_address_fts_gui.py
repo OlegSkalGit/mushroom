@@ -244,6 +244,7 @@ def init_db(db_path):
         );
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_streets_place_id ON streets(place_id);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);")
     cur.execute("DROP INDEX IF EXISTS idx_streets_region_id;")
 
     # 4. Будинки з координатами (Варіант А: точність 1м (1e5) + динамічний number, WITHOUT ROWID)
