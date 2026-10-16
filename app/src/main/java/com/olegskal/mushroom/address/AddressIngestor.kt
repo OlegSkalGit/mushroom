@@ -27,13 +27,6 @@ class AddressIngestor(
     private val streetNamesCache = mutableMapOf<String, Long>()
     private val streetsCache = mutableMapOf<Pair<Long, Long>, Long>()
 
-    private data class CachedHouse(
-        val latI: Int,
-        val lonI: Int,
-        val street: String,
-        val city: String
-    )
-    private val recentHouses = ArrayDeque<CachedHouse>(512)
 
     data class HouseRecord(
         val streetId: Long,
@@ -249,19 +242,7 @@ class AddressIngestor(
         return sid
     }
 
-    fun registerKnownAddress(lat: Double, lon: Double, street: String, city: String) {
-        val s = street.trim()
-        val c = city.trim()
-        if (s.isBlank() || c.isBlank() || s.equals(c, ignoreCase = true)) return
-        val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
-        val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
-        if (recentHouses.size >= 500) {
-            recentHouses.pollFirst()
-        }
-        recentHouses.addLast(CachedHouse(latI, lonI, s, c))
-    }
-
-    fun findNearestAddress(lat: Double, lon: Double, maxDistMeters: Double = 1000.0): NearestAddress? {
+    fun findNearestAddress(lat: Double, lon: Double, maxDistMeters: Double = 500.0): NearestAddress? {
         val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
         val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
         val latDeg = latI / 100_000.0
@@ -272,27 +253,7 @@ class AddressIngestor(
         var bestCity: String? = null
         var minDistSq = maxDistSq
 
-        // 1. Пошук у буфері останніх будинків (O(N), N<=500, пам'ять, ~0.005 мс)
-        val iter = recentHouses.descendingIterator()
-        while (iter.hasNext()) {
-            val h = iter.next()
-            val dy = (latI - h.latI) * 1.1132
-            if (kotlin.math.abs(dy) > maxDistMeters) continue
-            val dx = (lonI - h.lonI) * 1.1132 * cosLat
-            val d2 = dy * dy + dx * dx
-            if (d2 < minDistSq) {
-                minDistSq = d2
-                bestStreet = h.street
-                bestCity = h.city
-                if (d2 < 625.0) break
-            }
-        }
-
-        if (bestStreet != null || bestCity != null) {
-            return NearestAddress(bestStreet, bestCity)
-        }
-
-        // 2. Пошук у SQLite через просторовий індекс idx_houses_coords
+        // Пошук НАЙБЛИЖЧОГО у SQLite: обмежуємо прямокутник і сортуємо за точною евклідовою відстанню
         val dLatI = (maxDistMeters / 1.1132).roundToInt() + 1
         val dLonI = (maxDistMeters / (1.1132 * kotlin.math.max(0.1, cosLat))).roundToInt() + 1
 
@@ -303,14 +264,19 @@ class AddressIngestor(
 
         try {
             val cursor = db.rawQuery("""
-                SELECT sn.name, ap.name, h.lat, h.lon
+                SELECT sn.name, ap.name, h.lat, h.lon,
+                       ((h.lat - ?) * (h.lat - ?) + (h.lon - ?) * (h.lon - ?)) AS dist_units_sq
                 FROM houses h
                 JOIN streets s ON s.id = h.street_id
                 JOIN street_names sn ON sn.id = s.name_id
                 JOIN admin_places ap ON ap.id = s.place_id
                 WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
-                LIMIT 25;
-            """.trimIndent(), arrayOf(minLatI.toString(), maxLatI.toString(), minLonI.toString(), maxLonI.toString()))
+                ORDER BY dist_units_sq ASC
+                LIMIT 5;
+            """.trimIndent(), arrayOf(
+                latI.toString(), latI.toString(), lonI.toString(), lonI.toString(),
+                minLatI.toString(), maxLatI.toString(), minLonI.toString(), maxLonI.toString()
+            ))
 
             cursor.use { c ->
                 while (c.moveToNext()) {
@@ -323,12 +289,16 @@ class AddressIngestor(
                     val dx = (lonI - hLon) * 1.1132 * cosLat
                     val d2 = dy * dy + dx * dx
                     if (d2 < minDistSq) {
-                        minDistSq = d2
                         val realStreet = if (sName.isNotBlank() && !sName.equals(cName, ignoreCase = true)) sName else null
                         val realCity = cName.ifBlank { null }
-                        if (realStreet != null) bestStreet = realStreet
-                        if (realCity != null) bestCity = realCity
-                        if (d2 < 625.0) break
+                        if (realStreet != null && bestStreet == null) {
+                            bestStreet = realStreet
+                            minDistSq = d2
+                        }
+                        if (realCity != null && bestCity == null) {
+                            bestCity = realCity
+                        }
+                        if (bestStreet != null && bestCity != null) break
                     }
                 }
             }
@@ -343,9 +313,6 @@ class AddressIngestor(
     }
 
     fun addHouse(streetId: Long, houseNumber: String, lat: Double, lon: Double) {
-        val num = houseNumber.trim()
-        if (num.isBlank()) return
-
         val latI = if (kotlin.math.abs(lat) > 1000.0) {
             (lat / 10.0).roundToInt()
         } else {
@@ -356,9 +323,16 @@ class AddressIngestor(
         } else {
             (lon * 100_000.0).roundToInt()
         }
+        addHouse(streetId, houseNumber, latI, lonI)
+    }
+
+    fun addHouse(streetId: Long, houseNumber: String, latI: Int, lonI: Int) {
+        val num = houseNumber.trim()
+        if (num.isBlank()) return
 
         val coordKey = (latI.toLong() shl 32) or (lonI.toLong() and 0xFFFFFFFFL)
-        if (!batchCoords.add(coordKey)) {
+        val batchKey = coordKey xor (streetId shl 16)
+        if (!batchCoords.add(batchKey)) {
             return
         }
 
@@ -393,7 +367,6 @@ class AddressIngestor(
 
     fun close() {
         flush()
-        recentHouses.clear()
         try { stmtInsertPlace?.close() } catch (_: Exception) {}
         try { stmtInsertStreetName?.close() } catch (_: Exception) {}
         try { stmtInsertStreet?.close() } catch (_: Exception) {}

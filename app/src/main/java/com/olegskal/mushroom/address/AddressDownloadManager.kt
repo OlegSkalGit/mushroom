@@ -31,6 +31,15 @@ object AddressDownloadManager {
     val cachedRegionCounts = java.util.concurrent.ConcurrentHashMap<String, Int>()
     val cachedRegions = java.util.concurrent.ConcurrentHashMap<String, List<RegionTarget>>()
 
+    private data class PreparedHouse(
+        var streetId: Long,
+        var number: String,
+        val latI: Int,
+        val lonI: Int,
+        val coordKey: Long,
+        var rank: Byte
+    )
+
     fun getLoadedRegionCount(context: Context, countryCode: String): Int {
         val db = AddressDb.openDatabase(context, writable = false) ?: return 0
         return try {
@@ -550,9 +559,6 @@ object AddressDownloadManager {
                         if (city.isBlank()) continue
 
                         if (street.isNotBlank() || house.isNotBlank()) {
-                            if (street.isNotBlank() && city.isNotBlank() && !street.equals(city, ignoreCase = true)) {
-                                ingestor.registerKnownAddress(latRaw, lonRaw, street, city)
-                            }
                             var parentPlaceId = ingestor.countryId
                             var regionName = country.nameUk
                             var regionId: Long? = null
@@ -1091,6 +1097,7 @@ object AddressDownloadManager {
                         db.beginTransaction()
                         try {
                             val defaultRegPlaceId = getRegionPlaceId(curRegion)
+                            val regionHouses = ArrayList<PreparedHouse>(50000)
 
                             tempFile.bufferedReader(Charsets.UTF_8).use { reader ->
                                 var line: String?
@@ -1136,14 +1143,26 @@ object AddressDownloadManager {
                                     val isInMuni = parts.getOrNull(24)?.trim() ?: ""
 
                                     var street = rowStreet.ifBlank { contactStreet.ifBlank { parentStreet.ifBlank { isInStreet } } }
+                                    var rank: Byte = when {
+                                        rowStreet.isNotBlank() -> 1.toByte()
+                                        street.isNotBlank() -> 2.toByte()
+                                        else -> 0.toByte()
+                                    }
+
                                     if (street.isBlank() && osmId > 0) {
-                                        street = assocStreets[Pair(osmType, osmId)] ?: ""
+                                        val assoc = assocStreets[Pair(osmType, osmId)] ?: ""
+                                        if (assoc.isNotBlank()) {
+                                            street = assoc
+                                            rank = 2.toByte()
+                                        }
                                     }
                                     if (street.isBlank() && rowPlace.isNotBlank() && houseNumber.isNotBlank()) {
                                         street = rowPlace
+                                        rank = 2.toByte()
                                     }
 
-                                    if (houseNumber.isBlank() && street.isBlank()) continue
+                                    val cleanNum = houseNumber.trim()
+                                    if (cleanNum.isBlank() && street.isBlank()) continue
 
                                     var targetRegion = curRegion
                                     if (usedBbox) {
@@ -1163,19 +1182,11 @@ object AddressDownloadManager {
                                         city = settlementIndex.resolve(lat, lon)
                                     }
 
-                                    if (street.isBlank() || city.isBlank()) {
-                                        val nearest = ingestor.findNearestAddress(lat, lon)
-                                        if (street.isBlank() && nearest?.streetName != null) {
-                                            street = nearest.streetName
-                                        }
-                                        if (city.isBlank() && nearest?.cityName != null) {
-                                            city = nearest.cityName
-                                        }
+                                    if (rank == 0.toByte()) {
+                                        rank = 4.toByte()
                                     }
 
-                                    if (street.isNotBlank() && city.isNotBlank() && !street.equals(city, ignoreCase = true)) {
-                                        ingestor.registerKnownAddress(lat, lon, street, city)
-                                    }
+                                    if (cleanNum.isBlank()) continue
 
                                     var curParent = regPlaceId
                                     if (district.isNotBlank()) curParent = ingestor.getOrCreatePlace(curParent, district, level = 6)
@@ -1184,8 +1195,125 @@ object AddressDownloadManager {
                                     val cityPlaceId = ingestor.getOrCreatePlace(curParent, city, level = 8)
                                     val streetId = ingestor.getOrCreateStreet(cityPlaceId, street, targetRegion.name, city, regPlaceId)
 
-                                    ingestor.addHouse(streetId, houseNumber, lat, lon)
+                                    val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
+                                    val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
+                                    val coordKey = (latI.toLong() shl 32) or (lonI.toLong() and 0xFFFFFFFFL)
+
+                                    regionHouses.add(PreparedHouse(streetId, cleanNum, latI, lonI, coordKey, rank))
                                 }
+                            }
+
+                            // Сортування, просторовий резолв адрес та дедуплікація (Контур 1)
+                            if (regionHouses.isNotEmpty()) {
+                                regionHouses.sortWith(Comparator { a, b -> a.coordKey.compareTo(b.coordKey) })
+
+                                // 1. Прив'язка безіменних будинків (ранг 4) до найближчого сусіда з відомою вулицею (ранг <= 2) у RAM
+                                val total = regionHouses.size
+                                val maxDistMeters = 250.0
+                                val maxDistSq = maxDistMeters * maxDistMeters
+                                val dLatLimit = (maxDistMeters / 1.1132).toInt() + 1
+
+                                for (hIdx in 0 until total) {
+                                    val h = regionHouses[hIdx]
+                                    if (h.rank > 2) {
+                                        val latDeg = h.latI / 100_000.0
+                                        val cosLat = kotlin.math.cos(Math.toRadians(latDeg))
+                                        val dLonLimit = (maxDistMeters / (1.1132 * kotlin.math.max(0.1, cosLat))).toInt() + 1
+
+                                        var bestDistSq = maxDistSq
+                                        var bestStreetId = 0L
+
+                                        var prev = hIdx - 1
+                                        while (prev >= 0) {
+                                            val cand = regionHouses[prev]
+                                            val dLat = h.latI - cand.latI
+                                            if (dLat > dLatLimit) break
+                                            if (cand.rank <= 2) {
+                                                val dLon = kotlin.math.abs(h.lonI - cand.lonI)
+                                                if (dLon <= dLonLimit) {
+                                                    val dy = dLat * 1.1132
+                                                    val dx = (h.lonI - cand.lonI) * 1.1132 * cosLat
+                                                    val d2 = dy * dy + dx * dx
+                                                    if (d2 < bestDistSq) {
+                                                        bestDistSq = d2
+                                                        bestStreetId = cand.streetId
+                                                    }
+                                                }
+                                            }
+                                            prev--
+                                        }
+
+                                        var next = hIdx + 1
+                                        while (next < total) {
+                                            val cand = regionHouses[next]
+                                            val dLat = cand.latI - h.latI
+                                            if (dLat > dLatLimit) break
+                                            if (cand.rank <= 2) {
+                                                val dLon = kotlin.math.abs(h.lonI - cand.lonI)
+                                                if (dLon <= dLonLimit) {
+                                                    val dy = dLat * 1.1132
+                                                    val dx = (cand.lonI - h.lonI) * 1.1132 * cosLat
+                                                    val d2 = dy * dy + dx * dx
+                                                    if (d2 < bestDistSq) {
+                                                        bestDistSq = d2
+                                                        bestStreetId = cand.streetId
+                                                    }
+                                                }
+                                            }
+                                            next++
+                                        }
+
+                                        if (bestStreetId != 0L) {
+                                            h.streetId = bestStreetId
+                                            h.rank = 3.toByte()
+                                        }
+                                    }
+                                }
+
+                                // 2. Дедуплікація за координатами
+                                var i = 0
+                                while (i < total) {
+                                    val first = regionHouses[i]
+                                    var j = i + 1
+                                    while (j < total && regionHouses[j].coordKey == first.coordKey) {
+                                        j++
+                                    }
+
+                                    if (j == i + 1) {
+                                        ingestor.addHouse(first.streetId, first.number, first.latI, first.lonI)
+                                    } else {
+                                        // 1. Знаходимо найкращий ранг якості серед претендентів у цій точці
+                                        var minRank = first.rank
+                                        for (k in i + 1 until j) {
+                                            if (regionHouses[k].rank < minRank) minRank = regionHouses[k].rank
+                                        }
+
+                                        // 2. Зберігаємо унікальні адреси за парою [streetId + number],
+                                        // відсіюючи дублікати однакового номера та безіменні заглушки
+                                        val kept = ArrayList<PreparedHouse>(j - i)
+                                        for (k in i until j) {
+                                            val cand = regionHouses[k]
+                                            if (minRank <= 2 && cand.rank > 2) continue
+
+                                            val existingIdx = kept.indexOfFirst {
+                                                it.streetId == cand.streetId && it.number.equals(cand.number, ignoreCase = true)
+                                            }
+                                            if (existingIdx >= 0) {
+                                                if (cand.rank < kept[existingIdx].rank) {
+                                                    kept[existingIdx] = cand
+                                                }
+                                            } else {
+                                                kept.add(cand)
+                                            }
+                                        }
+
+                                        for (h in kept) {
+                                            ingestor.addHouse(h.streetId, h.number, h.latI, h.lonI)
+                                        }
+                                    }
+                                    i = j
+                                }
+                                regionHouses.clear()
                             }
 
                             ingestor.flush()
