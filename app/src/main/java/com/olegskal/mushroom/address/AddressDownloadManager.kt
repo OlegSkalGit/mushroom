@@ -845,7 +845,6 @@ object AddressDownloadManager {
         val db = AddressDb.openDatabase(context, writable = true) ?: return false
         AddressDb.ensureTablesExist(db)
         val ingestor = AddressIngestor(db, country.code, country.nameUk)
-        var stmtCheckCoord: android.database.sqlite.SQLiteStatement? = null
 
         try {
             onProgress(0.02, "${country.nameUk}: Пошук регіонів...")
@@ -874,12 +873,6 @@ object AddressDownloadManager {
             if (!isCancelled()) {
                 client.interruptibleSleep(3500L, isCancelled)
             }
-
-            // Створення тимчасового індексу для надшвидкої дедуплікації по базі без завантаження в Java Heap
-            try {
-                db.execSQL("CREATE INDEX IF NOT EXISTS idx_temp_import_coords ON houses(lat, lon);")
-            } catch (_: Exception) {}
-            stmtCheckCoord = db.compileStatement("SELECT count(*) FROM houses WHERE lat = ? AND lon = ?;")
 
             val loadedOsmIds = mutableSetOf<Long>()
             val loadedNames = mutableSetOf<String>()
@@ -1082,19 +1075,6 @@ object AddressDownloadManager {
 
                                     if (houseNumber.isBlank() && street.isBlank()) continue
 
-                                    val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
-                                    val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
-
-                                    // Дедуплікація через тимчасовий індекс SQLite
-                                    val checkStmt = stmtCheckCoord
-                                    if (checkStmt != null) {
-                                        checkStmt.bindLong(1, latI.toLong())
-                                        checkStmt.bindLong(2, lonI.toLong())
-                                        if (checkStmt.simpleQueryForLong() > 0L) {
-                                            continue
-                                        }
-                                    }
-
                                     var city = rowCity.ifBlank { rowTown.ifBlank { rowVillage.ifBlank { rowHamlet.ifBlank { rowSuburb.ifBlank { isInCity.ifBlank { isInTown.ifBlank { isInVillage.ifBlank { isInMuni.ifBlank { rowPlace } } } } } } } } }
                                     if (city.isBlank()) {
                                         city = settlementIndex.resolve(lat, lon)
@@ -1156,9 +1136,6 @@ object AddressDownloadManager {
 
             if (isCancelled()) return false
 
-            onProgress(0.93, "${country.nameUk}: Очищення тимчасових індексів...")
-            try { stmtCheckCoord?.close(); stmtCheckCoord = null } catch (_: Exception) {}
-            try { db.execSQL("DROP INDEX IF EXISTS idx_temp_import_coords;") } catch (_: Exception) {}
             ingestor.close()
 
             onProgress(0.96, "${country.nameUk}: Оптимізація індексу FTS та стиснення бази")
@@ -1173,8 +1150,6 @@ object AddressDownloadManager {
             AppLogger.log(TAG, "ingestCountryAddresses", false, "Ingest failed: ${e.message}")
             return false
         } finally {
-            try { stmtCheckCoord?.close() } catch (_: Exception) {}
-            try { db.execSQL("DROP INDEX IF EXISTS idx_temp_import_coords;") } catch (_: Exception) {}
             ingestor.close()
             try {
                 if (db.inTransaction()) {

@@ -2037,7 +2037,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
-        MushroomTrackingService.instance?.registerGpsUpdates()
+        val cachedMetrics = MushroomTrackingService.lastMetrics
+        if (cachedMetrics != null) {
+            currentMetrics = cachedMetrics
+            mapView.updateLocationMetrics(cachedMetrics)
+        } else {
+            MushroomTrackingService.instance?.requestSingleNetworkLocation()
+        }
+
         uiHandler.post(periodicRefreshRunnable)
     }
 
@@ -2046,7 +2053,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         if (hasFocus) {
             MushroomTrackingService.isAppInForeground = true
             MushroomTrackingService.ensureServiceAndNotification(this)
-            MushroomTrackingService.instance?.registerGpsUpdates()
         }
     }
 
@@ -3330,8 +3336,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
 
         fun centerOnCurrentLocation() {
-            currentLocation?.let {
-                animateCenterTo(it.latitude, it.longitude, durationMs = 320L, saveOnEnd = true, useDecelerate = true)
+            val loc = currentLocation ?: LocationUtils.getLastKnownLocationCascade(context)
+            if (loc != null) {
+                currentLocation = loc
+                animateCenterTo(loc.latitude, loc.longitude, durationMs = 320L, saveOnEnd = true, useDecelerate = true)
             }
         }
 
@@ -4011,9 +4019,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
 
         private fun drawUserLocation(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float) {
-            val loc = currentLocation
-            val targetLat = loc?.latitude ?: mapCenterLat
-            val targetLon = loc?.longitude ?: mapCenterLon
+            val loc = currentLocation ?: return
+            val targetLat = loc.latitude
+            val targetLon = loc.longitude
 
             val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
             val wp = OsmTileEngine.latLonToWorldPixel(targetLat, targetLon, baseZoom)
@@ -4021,7 +4029,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             val sy = (wp.second - centerWorld.second + cy).toFloat()
 
             // Accuracy circle (scales with geographic terrain)
-            if (loc != null && loc.hasAccuracy()) {
+            if (loc.hasAccuracy()) {
                 val metersPerPx = (156543.03392 * cos(Math.toRadians(loc.latitude))) / (1 shl baseZoom)
                 val accPx = (loc.accuracy / metersPerPx).toFloat()
                 canvas.drawCircle(sx, sy, accPx, accuracyPaint)
