@@ -87,6 +87,7 @@ object AddressSearchManager {
 
         "зарядка" to listOf("зарядк*", "зарядн*", "charging*"),
         "зарядки" to listOf("зарядк*", "зарядн*", "charging*"),
+        "зарядна" to listOf("зарядк*", "зарядн*", "charging*"),
         "електрозарядка" to listOf("зарядк*", "зарядн*", "charging*"),
         "charging" to listOf("charging*", "зарядн*", "зарядк*"),
 
@@ -135,7 +136,7 @@ object AddressSearchManager {
         "банк" to listOf("банк*", "bank*"),
         "банки" to listOf("банк*", "bank*"),
         "bank" to listOf("bank*", "банк*"),
-        "обмін" to listOf("обмін*", "bureau_de_change*"),
+        "обмін" to listOf("обмін*", "exchange*"),
 
         // Проживання
         "готель" to listOf("готел*", "отел*", "гостиниц*", "hotel*"),
@@ -146,26 +147,30 @@ object AddressSearchManager {
         // Вода та природа
         "джерело" to listOf("джерел*", "родник*", "spring*"),
         "джерела" to listOf("джерел*", "родник*", "spring*"),
-        "криниця" to listOf("криниц*", "колодец*", "water_well*"),
-        "колодязь" to listOf("колодяз*", "колодец*", "water_well*"),
-        "вода" to listOf("вод*", "drinking_water*"),
+        "криниця" to listOf("криниц*", "колодец*", "well*"),
+        "колодязь" to listOf("колодяз*", "колодец*", "well*"),
+        "вода" to listOf("вод*", "water*", "spring*"),
+        "води" to listOf("вод*", "water*", "spring*"),
         "водоспад" to listOf("водоспад*", "waterfall*"),
         "гора" to listOf("гор*", "вершин*", "peak*"),
         "вершина" to listOf("вершин*", "гор*", "peak*"),
         "печера" to listOf("печер*", "cave*"),
         "пляж" to listOf("пляж*", "beach*"),
+        "ліс" to listOf("ліс*", "wood*", "forest*"),
+        "ліси" to listOf("ліс*", "wood*", "forest*"),
 
         // Послуги
-        "паркінг" to listOf("паркінг*", "парковк*", "parking*"),
-        "парковка" to listOf("парковк*", "паркінг*", "parking*"),
-        "автомийка" to listOf("автомийк*", "мийк*", "car_wash*"),
-        "мийка" to listOf("мийк*", "автомийк*", "car_wash*"),
-        "сто" to listOf("сто*", "автомайстерн*", "car_repair*"),
-        "пошта" to listOf("пошт*", "post_office*"),
+        "паркінг" to listOf("паркінг*", "парковк*", "автостоянк*", "parking*"),
+        "парковка" to listOf("парковк*", "паркінг*", "автостоянк*", "parking*"),
+        "автостоянка" to listOf("автостоянк*", "парковк*", "паркінг*", "parking*"),
+        "автомийка" to listOf("автомийк*", "мийк*", "wash*"),
+        "мийка" to listOf("мийк*", "автомийк*", "wash*"),
+        "сто" to listOf("сто*", "автомайстерн*", "repair*"),
+        "пошта" to listOf("пошт*", "post*"),
         "туалет" to listOf("туалет*", "вбиральн*", "toilets*"),
 
         // Транспорт
-        "зупинка" to listOf("зупинк*", "bus_stop*"),
+        "зупинка" to listOf("зупинк*", "stop*"),
         "вокзал" to listOf("вокзал*", "станці*", "station*"),
         "метро" to listOf("метро*", "subway*"),
         "пором" to listOf("пором*", "ferry*"),
@@ -173,16 +178,15 @@ object AddressSearchManager {
         // Додаткові сервіси, розваги, природа
         "піцерія" to listOf("піцері*", "pizza*"),
         "пекарня" to listOf("пекарн*", "bakery*"),
-        "пляж" to listOf("пляж*", "beach*"),
         "замок" to listOf("замок*", "castle*", "fort*"),
         "фортеця" to listOf("фортец*", "fort*", "castle*"),
-        "парк" to listOf("парк*", "park*"),
+        "парк" to listOf("парк*"),
         "дитячий майданчик" to listOf("майданчик*", "playground*"),
         "майданчик" to listOf("майданчик*", "playground*", "pitch*"),
         "стадіон" to listOf("стадіон*", "stadium*"),
         "спортзал" to listOf("спортзал*", "фітнес*", "fitness*"),
         "фітнес" to listOf("фітнес*", "fitness*"),
-        "басейн" to listOf("басейн*", "swimming_pool*"),
+        "басейн" to listOf("басейн*", "pool*"),
         "сауна" to listOf("саун*", "лазн*", "sauna*"),
         "лазня" to listOf("лазн*", "саун*", "sauna*"),
         "кіно" to listOf("кіно*", "cinema*"),
@@ -195,9 +199,9 @@ object AddressSearchManager {
         "барбершоп" to listOf("барбер*", "hairdresser*"),
         "ательє" to listOf("ательє*", "кравець*", "tailor*"),
         "поліція" to listOf("поліці*", "police*"),
-        "пожежна" to listOf("пожежн*", "fire_station*"),
+        "пожежна" to listOf("пожежн*", "fire*"),
         "швидка" to listOf("швидк*", "ambulance*"),
-        "лісництво" to listOf("лісництв*", "ranger_station*")
+        "лісництво" to listOf("лісництв*", "ranger*")
     )
 
     fun search(
