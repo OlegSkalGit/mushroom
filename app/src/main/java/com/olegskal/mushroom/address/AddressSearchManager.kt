@@ -166,6 +166,13 @@ object AddressSearchManager {
         "автомийка" to listOf("автомийк*", "мийк*", "wash*"),
         "мийка" to listOf("мийк*", "автомийк*", "wash*"),
         "сто" to listOf("сто*", "автомайстерн*", "repair*"),
+        "шиномонтаж" to listOf("шиномонтаж*", "шин*", "вулканізац*", "tyres*"),
+        "шини" to listOf("шин*", "шиномонтаж*", "tyres*"),
+        "вулканізація" to listOf("вулканізац*", "шиномонтаж*", "tyres*"),
+        "автомайстерня" to listOf("автомайстерн*", "сто*", "repair*"),
+        "автосервіс" to listOf("автосервіс*", "сто*", "repair*"),
+        "автозапчастини" to listOf("автозапчастин*", "запчастин*", "parts*"),
+        "запчастини" to listOf("запчастин*", "автозапчастин*", "parts*"),
         "пошта" to listOf("пошт*", "post*"),
         "туалет" to listOf("туалет*", "вбиральн*", "toilets*"),
 
@@ -271,7 +278,16 @@ object AddressSearchManager {
                             low
                         }
 
-                        val syns = tagSynonyms[low] ?: (if (stem.length >= 3) tagSynonyms[stem] else null)
+                        val syns = tagSynonyms[low]
+                            ?: (if (stem.length >= 3) tagSynonyms[stem] else null)
+                            ?: (if (low.length >= 3) {
+                                val matching = tagSynonyms.entries.filter { entry ->
+                                    entry.key.startsWith(low) || (stem.length >= 3 && entry.key.startsWith(stem))
+                                }
+                                if (matching.isNotEmpty()) {
+                                    matching.flatMap { it.value }.distinct()
+                                } else null
+                            } else null)
 
                         val tok = if (stem.length >= 3) "$stem*" else "$low*"
                         addressTokens.add(tok)
