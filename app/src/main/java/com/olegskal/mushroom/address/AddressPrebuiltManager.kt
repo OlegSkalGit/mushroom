@@ -610,12 +610,43 @@ object AddressPrebuiltManager {
                             name,
                             category_id,
                             CASE WHEN street_id IS NOT NULL THEN street_id + $streetOffset ELSE NULL END,
-                            house_number,
+                            NULL,
                             lat,
                             lon,
                             country_code
                         FROM src.poi_places;
                     """.trimIndent())
+
+                    // Перевіряємо чи є POI без прив'язаної вулиці, і прив'язуємо до найближчого будинку в RAM
+                    val unlinkedPois = targetDb.rawQuery(
+                        "SELECT count(1) FROM poi_places WHERE street_id IS NULL AND id > $poiOffset;", null
+                    ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+
+                    if (unlinkedPois > 0) {
+                        onProgress(0.97f, "Прив'язка точок до найближчих будинків...")
+                        val prebuiltGrid = SpatialHouseGrid.buildFromDatabase(targetDb, inCountryCode)
+                        if (prebuiltGrid.size > 0) {
+                            val stmtUpd = targetDb.compileStatement("UPDATE poi_places SET street_id = ?, house_number = NULL WHERE id = ?;")
+                            val curUnlinked = targetDb.rawQuery(
+                                "SELECT id, lat, lon FROM poi_places WHERE street_id IS NULL AND id > $poiOffset;", null
+                            )
+                            curUnlinked.use { cu ->
+                                while (cu.moveToNext()) {
+                                    val pId = cu.getLong(0)
+                                    val pLat = cu.getInt(1)
+                                    val pLon = cu.getInt(2)
+                                    val sId = prebuiltGrid.findNearestStreetId(pLat, pLon)
+                                    if (sId != null) {
+                                        stmtUpd.bindLong(1, sId)
+                                        stmtUpd.bindLong(2, pId)
+                                        stmtUpd.executeUpdateDelete()
+                                    }
+                                }
+                            }
+                            stmtUpd.close()
+                            prebuiltGrid.clear()
+                        }
+                    }
                 }
 
                 // Е. search_fts (поповнюємо повнотекстовий індекс для нових вулиць)

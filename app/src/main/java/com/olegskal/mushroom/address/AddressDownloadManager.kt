@@ -617,6 +617,7 @@ object AddressDownloadManager {
         var count = 0
         var poiDb: SQLiteDatabase? = null
         var stmtInsertPoi: android.database.sqlite.SQLiteStatement? = null
+        var houseGrid: SpatialHouseGrid? = null
 
         try {
             poiDb = SQLiteDatabase.openDatabase(poiFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
@@ -656,13 +657,18 @@ object AddressDownloadManager {
                 VALUES (?, ?, ?, ?, ?, ?, ?);
             """.trimIndent())
 
-            val addrMatchCache = mutableMapOf<Pair<String, String>, Pair<Long, String>?>()
+            val addrMatchCache = mutableMapOf<Pair<String, String>, Long?>()
+
+            onProgress(0.02, "${country.nameUk}: Завантаження будинків у пам'ять для геоприв'язки POI...")
+            val grid = SpatialHouseGrid.buildFromDatabase(db, countryCode)
+            houseGrid = grid
+            AppLogger.log(TAG, "importPoiLocationsToAddressDb", true, "Завантажено ${grid.size} будинків у RAM для прив'язки POI")
 
             val chunkSize = 5000
             var lastId = -1L
             var hasMore = true
 
-            onProgress(0.01, "${country.nameUk}: Початок імпорту точок інтересу (0/$totalNamedPois)")
+            onProgress(0.04, "${country.nameUk}: Початок імпорту точок інтересу (0/$totalNamedPois)")
 
             while (hasMore && !isCancelled()) {
                 val chunkCursor = poiDb.rawQuery("""
@@ -727,21 +733,16 @@ object AddressDownloadManager {
                             val lonMicro = kotlin.math.round(lonRaw * 1_000_000.0).toInt()
 
                             var matchedStreetId: Long? = null
-                            var matchedHouseNum: String? = null
 
-                            // 1. Check address tag match
+                            // 1. Якщо є точна адреса на точці - перевіряємо прямий збіг вулиці
                             if (streetTag.isNotBlank() && houseTag.isNotBlank()) {
                                 val cleanStreet = AddressNormalizer.canonicalStreetNameUniversal(streetTag).ifBlank { streetTag.trim() }
                                 val cacheKey = Pair(cleanStreet.lowercase(), houseTag.lowercase())
                                 if (addrMatchCache.containsKey(cacheKey)) {
-                                    val cached = addrMatchCache[cacheKey]
-                                    if (cached != null) {
-                                        matchedStreetId = cached.first
-                                        matchedHouseNum = cached.second
-                                    }
+                                    matchedStreetId = addrMatchCache[cacheKey]
                                 } else {
                                     val cHouse = db.rawQuery("""
-                                        SELECT s.id, h.number 
+                                        SELECT s.id 
                                         FROM street_names sn
                                         JOIN streets s ON s.name_id = sn.id
                                         JOIN houses h ON h.street_id = s.id
@@ -749,34 +750,30 @@ object AddressDownloadManager {
                                         LIMIT 1;
                                     """.trimIndent(), arrayOf(cleanStreet, houseTag, houseTag.lowercase()))
                                     val found = cHouse.use { ch ->
-                                        if (ch.moveToFirst()) Pair(ch.getLong(0), ch.getString(1)) else null
+                                        if (ch.moveToFirst()) ch.getLong(0) else null
                                     }
                                     if (addrMatchCache.size > 5000) {
                                         addrMatchCache.clear()
                                     }
                                     addrMatchCache[cacheKey] = found
-                                    if (found != null) {
-                                        matchedStreetId = found.first
-                                        matchedHouseNum = found.second
-                                    }
+                                    matchedStreetId = found
                                 }
                             }
 
-                            // Insert POI place (autoincrement ID)
+                            // 2. Якщо адреса відсутня або не знайдена - шукаємо найближчий будинок у RAM!
+                            if (matchedStreetId == null && houseGrid.size > 0) {
+                                matchedStreetId = houseGrid.findNearestStreetId(latMicro, lonMicro)
+                            }
+
+                            // Номер будинку для точки НЕ записуємо (лише вулиця та населений пункт)
                             stmtInsertPoi.bindString(1, chosenName)
                             stmtInsertPoi.bindString(2, catId)
-                            val sId = matchedStreetId
-                            if (sId != null) {
-                                stmtInsertPoi.bindLong(3, sId)
+                            if (matchedStreetId != null) {
+                                stmtInsertPoi.bindLong(3, matchedStreetId)
                             } else {
                                 stmtInsertPoi.bindNull(3)
                             }
-                            val hNum = matchedHouseNum
-                            if (hNum != null) {
-                                stmtInsertPoi.bindString(4, hNum)
-                            } else {
-                                stmtInsertPoi.bindNull(4)
-                            }
+                            stmtInsertPoi.bindNull(4) // house_number is null for POI
                             stmtInsertPoi.bindLong(5, latMicro.toLong())
                             stmtInsertPoi.bindLong(6, lonMicro.toLong())
                             stmtInsertPoi.bindString(7, countryCode)
@@ -850,6 +847,7 @@ object AddressDownloadManager {
         } finally {
             try { stmtInsertPoi?.close() } catch (_: Exception) {}
             try { poiDb?.close() } catch (_: Exception) {}
+            try { houseGrid?.clear() } catch (_: Exception) {}
             AddressDb.closeDatabase()
         }
     }
