@@ -355,10 +355,10 @@ object AddressSearchManager {
 
         if (addressFtsQuery.isBlank() && poiFtsQuery.isBlank()) return emptyList()
 
-        val results = mutableListOf<AddressSearchResult>()
+        val addressResults = mutableListOf<AddressSearchResult>()
+        val poiResults = mutableListOf<AddressSearchResult>()
         val hasPoi = AddressDb.hasPoiTables(db)
         val hasPoiFts = hasPoi && AddressDb.hasTable(db, "poi_fts")
-        val seenCoords = mutableSetOf<Pair<Int, Int>>()
 
         val hVarsList: List<String>
         val inPlaceholders: String
@@ -467,7 +467,7 @@ object AddressSearchManager {
                         val dLat = latRaw / div
                         val dLon = lonRaw / div
 
-                        results.add(
+                        addressResults.add(
                             AddressSearchResult(
                                 countryCode = cCode,
                                 regionName = rName,
@@ -482,7 +482,6 @@ object AddressSearchManager {
                                 isPoiOnly = false
                             )
                         )
-                        seenCoords.add(Pair(kotlin.math.round(dLat * 1000.0).toInt(), kotlin.math.round(dLon * 1000.0).toInt()))
                     }
                 }
             } else {
@@ -544,7 +543,7 @@ object AddressSearchManager {
                             val dLat = latRaw / div
                             val dLon = lonRaw / div
 
-                            results.add(
+                            addressResults.add(
                                 AddressSearchResult(
                                     countryCode = cCode,
                                     regionName = rName,
@@ -559,16 +558,14 @@ object AddressSearchManager {
                                     isPoiOnly = false
                                 )
                             )
-                            seenCoords.add(Pair(kotlin.math.round(dLat * 1000.0).toInt(), kotlin.math.round(dLon * 1000.0).toInt()))
                         }
                     }
                 }
             }
 
             // 2. POI SEARCH (standalone or query by POI name/category, filtered by house number if present)
-            if (hasPoiFts && results.size < limit && poiFtsQuery.isNotBlank()) {
+            if (hasPoiFts && poiFtsQuery.isNotBlank()) {
                 try {
-                    val remainingLimit = limit - results.size
                     val houseFilterClause = if (houseNum != null) {
                         "AND (pp.house_number IS NULL OR pp.house_number IN ($inPlaceholders))"
                     } else ""
@@ -605,7 +602,18 @@ object AddressSearchManager {
                     if (houseNum != null) {
                         poiArgs.addAll(hVarsList)
                     }
-                    poiArgs.add(remainingLimit.toString())
+                    poiArgs.add(limit.toString())
+
+                    val addressPoiKeys = addressResults.mapNotNull { addr ->
+                        val name = addr.poiName?.trim()?.lowercase()
+                        if (!name.isNullOrBlank()) {
+                            val latK = kotlin.math.round(addr.lat * 10_000.0).toInt()
+                            val lonK = kotlin.math.round(addr.lon * 10_000.0).toInt()
+                            "$name|$latK|$lonK"
+                        } else null
+                    }.toSet()
+
+                    val seenPoiCoords = mutableSetOf<Pair<Long, Long>>()
 
                     val poiCursor = db.rawQuery(poiSql, poiArgs.toTypedArray())
                     poiCursor.use {
@@ -625,25 +633,34 @@ object AddressSearchManager {
                             val pIcon = getPoiIcon(pTag, pGroupCat)
                             val pCat = pDescLocal.ifBlank { pTag }
 
-                            val coordKey = Pair(kotlin.math.round(pLat * 1000.0).toInt(), kotlin.math.round(pLon * 1000.0).toInt())
-                            if (!seenCoords.contains(coordKey)) {
-                                seenCoords.add(coordKey)
-                                results.add(
-                                    AddressSearchResult(
-                                        countryCode = pCountry,
-                                        regionName = pReg,
-                                        cityName = pCity,
-                                        streetName = pStreet,
-                                        houseNumber = pHouse,
-                                        lat = pLat,
-                                        lon = pLon,
-                                        poiName = pName,
-                                        poiCategory = pCat,
-                                        poiIcon = pIcon,
-                                        isPoiOnly = true
-                                    )
-                                )
+                            val coordKey = Pair(kotlin.math.round(pLat * 100_000.0).toLong(), kotlin.math.round(pLon * 100_000.0).toLong())
+                            if (seenPoiCoords.contains(coordKey)) {
+                                continue
                             }
+                            seenPoiCoords.add(coordKey)
+
+                            val latK = kotlin.math.round(pLat * 10_000.0).toInt()
+                            val lonK = kotlin.math.round(pLon * 10_000.0).toInt()
+                            val poiKey = "${pName.trim().lowercase()}|$latK|$lonK"
+                            if (pName.isNotBlank() && addressPoiKeys.contains(poiKey)) {
+                                continue
+                            }
+
+                            poiResults.add(
+                                AddressSearchResult(
+                                    countryCode = pCountry,
+                                    regionName = pReg,
+                                    cityName = pCity,
+                                    streetName = pStreet,
+                                    houseNumber = pHouse,
+                                    lat = pLat,
+                                    lon = pLon,
+                                    poiName = pName,
+                                    poiCategory = pCat,
+                                    poiIcon = pIcon,
+                                    isPoiOnly = true
+                                )
+                            )
                         }
                     }
                 } catch (pe: Exception) {
@@ -656,6 +673,55 @@ object AddressSearchManager {
             throw e
         }
 
-        return results
+        // 3. Dynamic Quota Allocation (up to limit total: target 20 addresses / 10 POIs when limit = 30)
+        val targetAddrQuota = (limit * 2) / 3
+        val targetPoiQuota = limit - targetAddrQuota
+
+        val finalAddresses: List<AddressSearchResult>
+        val finalPois: List<AddressSearchResult>
+
+        if (addressResults.isEmpty()) {
+            finalAddresses = emptyList()
+            finalPois = poiResults.take(limit)
+        } else if (poiResults.isEmpty()) {
+            finalAddresses = addressResults.take(limit)
+            finalPois = emptyList()
+        } else {
+            val takeAddr: Int
+            val takePoi: Int
+            if (addressResults.size < targetAddrQuota) {
+                takeAddr = addressResults.size
+                takePoi = minOf(poiResults.size, limit - takeAddr)
+            } else if (poiResults.size < targetPoiQuota) {
+                takePoi = poiResults.size
+                takeAddr = minOf(addressResults.size, limit - takePoi)
+            } else {
+                takeAddr = targetAddrQuota
+                takePoi = targetPoiQuota
+            }
+            finalAddresses = addressResults.take(takeAddr)
+            finalPois = poiResults.take(takePoi)
+        }
+
+        val combined = finalAddresses + finalPois
+
+        val sortedResults = if (userLoc != null) {
+            val uLatDeg = userLoc.latitude
+            val uLonDeg = userLoc.longitude
+            val cosLat = Math.cos(Math.toRadians(uLatDeg))
+            combined.sortedWith(
+                compareBy<AddressSearchResult> { res ->
+                    if (res.lat == 0.0 && res.lon == 0.0) 1 else 0
+                }.thenBy { res ->
+                    val dLat = res.lat - uLatDeg
+                    val dLon = (res.lon - uLonDeg) * cosLat
+                    dLat * dLat + dLon * dLon
+                }
+            )
+        } else {
+            combined
+        }
+
+        return sortedResults
     }
 }
