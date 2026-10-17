@@ -72,6 +72,49 @@ object AddressSearchManager {
     private val houseNumberPattern = Pattern.compile("^\\d+[\\w\\dа-яА-ЯіІїЇєЄґҐ/-]*$")
     private val wordPattern = Pattern.compile("[\\w\\dа-яА-ЯіІїЇєЄґҐ]+")
 
+    private val categorySearchMap: Map<String, Set<String>> by lazy {
+        val map = mutableMapOf<String, MutableSet<String>>()
+        val wordRegex = Pattern.compile("[\\w\\dа-яА-ЯіІїЇєЄґҐ]+")
+        val stopWords = setOf("при", "для", "під", "над", "від", "and", "the", "for", "are")
+
+        for (cat in PoiManager.DEFAULT_CATEGORIES) {
+            val catId = cat.id.lowercase()
+            val allText = "${cat.titleUk} ${cat.titleEn} ${cat.keywords.joinToString(" ")} $catId"
+
+            val relatedCodes = mutableSetOf<String>()
+            relatedCodes.add(catId)
+            for (kw in cat.keywords) {
+                val m = wordRegex.matcher(kw.lowercase())
+                while (m.find()) {
+                    val part = m.group()
+                    if (part.length >= 3 && part !in stopWords) {
+                        relatedCodes.add(part)
+                    }
+                }
+            }
+
+            val matcher = wordRegex.matcher(allText.lowercase())
+            while (matcher.find()) {
+                val w = matcher.group()
+                if (w.length < 3 || w in stopWords) continue
+                val stem = if (w.length >= 4) {
+                    w.replace(Regex("[аеиіоуєюяьй]+$"), "")
+                } else w
+
+                val s1 = map.getOrPut(w) { mutableSetOf() }
+                s1.addAll(relatedCodes)
+                s1.add(w)
+
+                if (stem.length >= 3 && stem !in stopWords) {
+                    val s2 = map.getOrPut(stem) { mutableSetOf() }
+                    s2.addAll(relatedCodes)
+                    s2.add(stem)
+                }
+            }
+        }
+        map
+    }
+
     fun search(
         context: Context,
         rawQuery: String,
@@ -132,14 +175,21 @@ object AddressSearchManager {
                     if (w.isNotBlank()) {
                         val low = w.lowercase()
                         val stem = if (low.length >= 4) {
-                            low.replace(Regex("[аеиіоуєюя]+$"), "")
+                            low.replace(Regex("[аеиіоуєюяьй]+$"), "")
                         } else {
                             low
                         }
-                        if (stem.length >= 3) {
-                            textTokens.add("$stem*")
+
+                        val syns = categorySearchMap[low] ?: (if (stem.length >= 3) categorySearchMap[stem] else null)
+                        if (syns != null && syns.isNotEmpty()) {
+                            val orClause = "(" + syns.sorted().joinToString(" OR ") { "$it*" } + ")"
+                            textTokens.add(orClause)
                         } else {
-                            textTokens.add("$low*")
+                            if (stem.length >= 3) {
+                                textTokens.add("$stem*")
+                            } else {
+                                textTokens.add("$low*")
+                            }
                         }
                     }
                 }
