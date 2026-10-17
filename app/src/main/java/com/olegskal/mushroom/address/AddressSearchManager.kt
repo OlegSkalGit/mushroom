@@ -273,12 +273,13 @@ object AddressSearchManager {
 
                         val syns = tagSynonyms[low] ?: (if (stem.length >= 3) tagSynonyms[stem] else null)
 
+                        val tok = if (stem.length >= 3) "$stem*" else "$low*"
+                        addressTokens.add(tok)
+
                         if (syns != null && syns.isNotEmpty()) {
                             val orClause = "(" + syns.sorted().joinToString(" OR ") + ")"
                             poiTokens.add(orClause)
                         } else {
-                            val tok = if (stem.length >= 3) "$stem*" else "$low*"
-                            addressTokens.add(tok)
                             poiTokens.add(tok)
                         }
                     }
@@ -572,29 +573,32 @@ object AddressSearchManager {
 
                     val poiSql = """
                         SELECT 
-                            pp.name, 
+                            tp.name, 
                             COALESCE(pt.desc_local, pt.desc_en, ''),
                             COALESCE(pt.group_category, ''),
                             COALESCE(pt.tag, ''),
-                            COALESCE(pp.house_number, ''), 
-                            pp.lat, 
-                            pp.lon,
+                            COALESCE(tp.house_number, ''), 
+                            tp.lat, 
+                            tp.lon,
                             COALESCE(sn.name, ''),
                             COALESCE(city.name, ''),
                             COALESCE(reg.name, ''),
-                            COALESCE(country.code, pp.country_code, '')
-                        FROM poi_fts pf
-                        JOIN poi_places pp ON pp.id = pf.rowid
-                        LEFT JOIN poi_types pt ON pt.id = pp.category_id
-                        LEFT JOIN streets s ON s.id = pp.street_id
+                            COALESCE(country.code, tp.country_code, '')
+                        FROM (
+                            SELECT pp.id, pp.street_id, pp.category_id, pp.house_number, pp.lat, pp.lon, pp.country_code, pp.name
+                            FROM poi_fts pf
+                            JOIN poi_places pp ON pp.id = pf.rowid
+                            WHERE poi_fts MATCH ?
+                            $houseFilterClause
+                            $poiOrderByClause
+                            LIMIT ?
+                        ) tp
+                        LEFT JOIN poi_types pt ON pt.id = tp.category_id
+                        LEFT JOIN streets s ON s.id = tp.street_id
                         LEFT JOIN street_names sn ON sn.id = s.name_id
                         LEFT JOIN admin_places city ON city.id = s.place_id
                         LEFT JOIN admin_places reg ON reg.id = s.region_id
-                        LEFT JOIN admin_places country ON country.id = s.country_id
-                        WHERE poi_fts MATCH ?
-                        $houseFilterClause
-                        $poiOrderByClause
-                        LIMIT ?;
+                        LEFT JOIN admin_places country ON country.id = s.country_id;
                     """.trimIndent()
 
                     val poiArgs = mutableListOf<String>()

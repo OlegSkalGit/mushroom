@@ -34,6 +34,7 @@ local.properties
 
 # Offline Maps & Navigation Backup
 scripts/data/
+scripts/mushrooms/
 data/
 *.map
 *.poi
