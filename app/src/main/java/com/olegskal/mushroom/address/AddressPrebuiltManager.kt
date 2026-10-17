@@ -530,6 +530,7 @@ object AddressPrebuiltManager {
             val hasSrcStreets = hasTableInSchema(targetDb, "src", "streets")
             val hasSrcHouses = hasTableInSchema(targetDb, "src", "houses")
             val hasSrcPoi = hasTableInSchema(targetDb, "src", "poi_places")
+            val hasSrcPoiTypes = hasTableInSchema(targetDb, "src", "poi_types")
 
             if (!hasSrcPlaces || !hasSrcStreets || !hasSrcHouses) {
                 targetDb.execSQL("DETACH DATABASE src;")
@@ -601,21 +602,51 @@ object AddressPrebuiltManager {
                     FROM src.houses;
                 """.trimIndent())
 
-                // Д. poi_places (переливаємо точки POI зі зміщеними ID)
-                if (hasSrcPoi) {
+                // Д. poi_types (переливаємо типи точок та мапимо ID)
+                if (hasSrcPoiTypes) {
+                    targetDb.execSQL("INSERT OR IGNORE INTO poi_types (group_category, tag, desc_en, desc_local, country_code) SELECT group_category, tag, desc_en, desc_local, country_code FROM src.poi_types;")
+                    targetDb.execSQL("CREATE TEMP TABLE temp_poi_type_map (src_id INTEGER PRIMARY KEY, dst_id INTEGER);")
                     targetDb.execSQL("""
-                        INSERT INTO poi_places (id, name, category_id, street_id, house_number, lat, lon, country_code)
-                        SELECT 
-                            id + $poiOffset,
-                            name,
-                            category_id,
-                            CASE WHEN street_id IS NOT NULL THEN street_id + $streetOffset ELSE NULL END,
-                            NULL,
-                            lat,
-                            lon,
-                            country_code
-                        FROM src.poi_places;
+                        INSERT INTO temp_poi_type_map (src_id, dst_id)
+                        SELECT s.id, t.id
+                        FROM src.poi_types s
+                        JOIN poi_types t ON s.tag = t.tag AND s.country_code = t.country_code;
                     """.trimIndent())
+                }
+
+                // Е. poi_places (переливаємо точки POI зі зміщеними ID)
+                if (hasSrcPoi) {
+                    if (hasSrcPoiTypes) {
+                        targetDb.execSQL("""
+                            INSERT INTO poi_places (id, name, category_id, street_id, house_number, lat, lon, country_code)
+                            SELECT 
+                                p.id + $poiOffset,
+                                p.name,
+                                COALESCE(m.dst_id, p.category_id),
+                                CASE WHEN p.street_id IS NOT NULL THEN p.street_id + $streetOffset ELSE NULL END,
+                                NULL,
+                                p.lat,
+                                p.lon,
+                                p.country_code
+                            FROM src.poi_places p
+                            LEFT JOIN temp_poi_type_map m ON p.category_id = m.src_id;
+                        """.trimIndent())
+                        targetDb.execSQL("DROP TABLE IF EXISTS temp_poi_type_map;")
+                    } else {
+                        targetDb.execSQL("""
+                            INSERT INTO poi_places (id, name, category_id, street_id, house_number, lat, lon, country_code)
+                            SELECT 
+                                id + $poiOffset,
+                                name,
+                                category_id,
+                                CASE WHEN street_id IS NOT NULL THEN street_id + $streetOffset ELSE NULL END,
+                                NULL,
+                                lat,
+                                lon,
+                                country_code
+                            FROM src.poi_places;
+                        """.trimIndent())
+                    }
 
                     // Перевіряємо чи є POI без прив'язаної вулиці, і прив'язуємо до найближчого будинку в RAM
                     val unlinkedPois = targetDb.rawQuery(
@@ -649,7 +680,7 @@ object AddressPrebuiltManager {
                     }
                 }
 
-                // Е. search_fts (поповнюємо повнотекстовий індекс для нових вулиць)
+                // Є. search_fts (поповнюємо повнотекстовий індекс для нових вулиць)
                 targetDb.execSQL("""
                     INSERT INTO search_fts (rowid, region_name, city_name, street_name)
                     SELECT s.id, LOWER(COALESCE(reg.name, '')), LOWER(city.name), LOWER(sn.name)
@@ -663,9 +694,10 @@ object AddressPrebuiltManager {
                 // Ж. poi_fts (поповнюємо індекс для нових POI)
                 if (hasSrcPoi) {
                     targetDb.execSQL("""
-                        INSERT INTO poi_fts (rowid, poi_name, category_name, city_name, street_name)
-                        SELECT pp.id, pp.name, COALESCE(pp.category_id, ''), COALESCE(city.name, ''), COALESCE(sn.name, '')
+                        INSERT INTO poi_fts (rowid, poi_name, type_name, type_tag, city_name, street_name)
+                        SELECT pp.id, pp.name, COALESCE(pt.desc_local, pt.desc_en, ''), COALESCE(pt.tag, ''), COALESCE(city.name, ''), COALESCE(sn.name, '')
                         FROM poi_places pp
+                        LEFT JOIN poi_types pt ON pt.id = pp.category_id
                         LEFT JOIN streets s ON s.id = pp.street_id
                         LEFT JOIN street_names sn ON sn.id = s.name_id
                         LEFT JOIN admin_places city ON city.id = s.place_id
@@ -704,6 +736,8 @@ object AddressPrebuiltManager {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_parent ON admin_places(parent_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_types_country ON poi_types(country_code);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_types_tag ON poi_types(tag);")
         } catch (e: Exception) {
             AppLogger.log(TAG, "restoreIndices", false, "Помилка створення індексів: ${e.message}")
         }

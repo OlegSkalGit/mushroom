@@ -72,61 +72,103 @@ object AddressSearchManager {
     private val houseNumberPattern = Pattern.compile("^\\d+[\\w\\dа-яА-ЯіІїЇєЄґҐ/-]*$")
     private val wordPattern = Pattern.compile("[\\w\\dа-яА-ЯіІїЇєЄґҐ]+")
 
-    private val categorySearchMap: Map<String, Set<String>> by lazy {
-        val map = mutableMapOf<String, MutableSet<String>>()
-        val wordRegex = Pattern.compile("[a-zA-Z0-9а-яА-ЯіІїЇєЄґҐ]+")
-        val stopWords = setOf("при", "для", "під", "над", "від", "and", "the", "for", "are", "station", "stations")
-        val allCategoryIds = PoiManager.DEFAULT_CATEGORIES.map { it.id.lowercase() }.toSet()
+    private val tagSynonyms: Map<String, List<String>> = mapOf(
+        // Паливо vs зарядка
+        "азс" to listOf("азс*", "заправк*", "fuel*", "gas*"),
+        "заправка" to listOf("заправк*", "азс*", "fuel*", "gas*"),
+        "заправки" to listOf("заправк*", "азс*", "fuel*", "gas*"),
+        "автозаправка" to listOf("автозаправк*", "азс*", "fuel*"),
+        "паливо" to listOf("палив*", "fuel*"),
+        "бензин" to listOf("бензин*", "fuel*"),
+        "дизель" to listOf("дизел*", "fuel*"),
+        "газ" to listOf("газ*", "gas*", "fuel*"),
+        "fuel" to listOf("fuel*", "азс*", "заправк*"),
+        "gas" to listOf("gas*", "fuel*", "азс*"),
 
-        for (cat in PoiManager.DEFAULT_CATEGORIES) {
-            val catId = cat.id.lowercase().replace("_", " ")
-            val allText = "${cat.titleUk} ${cat.titleEn} ${cat.keywords.joinToString(" ")} $catId"
+        "зарядка" to listOf("зарядк*", "зарядн*", "charging*"),
+        "зарядки" to listOf("зарядк*", "зарядн*", "charging*"),
+        "електрозарядка" to listOf("зарядк*", "зарядн*", "charging*"),
+        "charging" to listOf("charging*", "зарядн*", "зарядк*"),
 
-            val relatedCodes = mutableSetOf<String>()
-            val idMatcher = wordRegex.matcher(catId)
-            while (idMatcher.find()) {
-                val p = idMatcher.group()
-                if (p.length >= 3 && p !in stopWords) relatedCodes.add(p)
-            }
+        // Медицина (розділено!)
+        "лікарня" to listOf("лікарн*", "госпітал*", "больниц*", "hospital*"),
+        "лікарні" to listOf("лікарн*", "госпітал*", "больниц*", "hospital*"),
+        "госпіталь" to listOf("госпітал*", "лікарн*", "hospital*"),
+        "больница" to listOf("больниц*", "лікарн*", "hospital*"),
+        "поліклініка" to listOf("поліклінік*", "clinic*"),
+        "клініка" to listOf("клінік*", "clinic*"),
+        "стоматолог" to listOf("стоматолог*", "dentist*"),
+        "стоматологія" to listOf("стоматолог*", "dentist*"),
+        "ветеринар" to listOf("ветеринар*", "veterinary*"),
+        "ветклініка" to listOf("ветеринар*", "veterinary*"),
+        "аптека" to listOf("аптек*", "pharmacy*"),
+        "аптеки" to listOf("аптек*", "pharmacy*"),
+        "pharmacy" to listOf("pharmacy*", "аптек*"),
+        "hospital" to listOf("hospital*", "лікарн*"),
 
-            for (kw in cat.keywords) {
-                val cleanKw = kw.lowercase().replace("_", " ").replace(":", " ")
-                val m = wordRegex.matcher(cleanKw)
-                while (m.find()) {
-                    val part = m.group()
-                    // Захист: ніколи не додаємо ID іншої категорії як код поточної
-                    // (наприклад, "fuel" з "fuel:electricity" не повинен потрапляти до "charging")
-                    if (part in allCategoryIds && part != cat.id.lowercase()) {
-                        continue
-                    }
-                    if (part.length >= 3 && part !in stopWords) {
-                        relatedCodes.add(part)
-                    }
-                }
-            }
+        // Їжа та напої
+        "кафе" to listOf("кафе*", "кав ярн*", "cafe*", "coffee*"),
+        "кав'ярня" to listOf("кав ярн*", "кафе*", "cafe*", "coffee*"),
+        "кавярня" to listOf("кав ярн*", "кафе*", "cafe*", "coffee*"),
+        "ресторан" to listOf("ресторан*", "restaurant*"),
+        "ресторани" to listOf("ресторан*", "restaurant*"),
+        "піцерія" to listOf("піцері*", "pizza*"),
+        "бар" to listOf("бар*", "bar*"),
+        "паб" to listOf("паб*", "pub*"),
+        "їдальня" to listOf("їдальн*", "canteen*"),
 
-            val matcher = wordRegex.matcher(allText.lowercase())
-            while (matcher.find()) {
-                val w = matcher.group()
-                if (w.length < 3 || w in stopWords) continue
-                if (w in allCategoryIds && w != cat.id.lowercase()) continue
-                val stem = if (w.length >= 4) {
-                    w.replace(Regex("[аеиіоуєюяьй]+$"), "")
-                } else w
+        // Магазини
+        "магазин" to listOf("магазин*", "маркет*", "supermarket*", "shop*"),
+        "магазини" to listOf("магазин*", "маркет*", "supermarket*", "shop*"),
+        "супермаркет" to listOf("супермаркет*", "supermarket*"),
+        "маркет" to listOf("маркет*", "supermarket*"),
+        "продукти" to listOf("продукт*", "convenience*", "grocery*"),
+        "пекарня" to listOf("пекарн*", "bakery*"),
+        "м'ясо" to listOf("м яс*", "butcher*"),
+        "одяг" to listOf("одяг*", "clothes*"),
+        "взуття" to listOf("взутт*", "shoes*"),
 
-                val s1 = map.getOrPut(w) { mutableSetOf() }
-                s1.addAll(relatedCodes)
-                s1.add(w)
+        // Фінанси
+        "банкомат" to listOf("банкомат*", "atm*"),
+        "банкомати" to listOf("банкомат*", "atm*"),
+        "atm" to listOf("atm*", "банкомат*"),
+        "банк" to listOf("банк*", "bank*"),
+        "банки" to listOf("банк*", "bank*"),
+        "bank" to listOf("bank*", "банк*"),
+        "обмін" to listOf("обмін*", "bureau_de_change*"),
 
-                if (stem.length >= 3 && stem !in stopWords) {
-                    val s2 = map.getOrPut(stem) { mutableSetOf() }
-                    s2.addAll(relatedCodes)
-                    s2.add(stem)
-                }
-            }
-        }
-        map
-    }
+        // Проживання
+        "готель" to listOf("готел*", "отел*", "гостиниц*", "hotel*"),
+        "готелі" to listOf("готел*", "отел*", "гостиниц*", "hotel*"),
+        "хостел" to listOf("хостел*", "hostel*"),
+        "мотель" to listOf("мотел*", "motel*"),
+
+        // Вода та природа
+        "джерело" to listOf("джерел*", "родник*", "spring*"),
+        "джерела" to listOf("джерел*", "родник*", "spring*"),
+        "криниця" to listOf("криниц*", "колодец*", "water_well*"),
+        "колодязь" to listOf("колодяз*", "колодец*", "water_well*"),
+        "вода" to listOf("вод*", "drinking_water*"),
+        "водоспад" to listOf("водоспад*", "waterfall*"),
+        "гора" to listOf("гор*", "вершин*", "peak*"),
+        "вершина" to listOf("вершин*", "гор*", "peak*"),
+        "печера" to listOf("печер*", "cave*"),
+        "пляж" to listOf("пляж*", "beach*"),
+
+        // Послуги
+        "паркінг" to listOf("паркінг*", "парковк*", "parking*"),
+        "парковка" to listOf("парковк*", "паркінг*", "parking*"),
+        "автомийка" to listOf("автомийк*", "мийк*", "car_wash*"),
+        "мийка" to listOf("мийк*", "автомийк*", "car_wash*"),
+        "сто" to listOf("сто*", "автомайстерн*", "car_repair*"),
+        "пошта" to listOf("пошт*", "post_office*"),
+        "туалет" to listOf("туалет*", "вбиральн*", "toilets*"),
+
+        // Транспорт
+        "зупинка" to listOf("зупинк*", "bus_stop*"),
+        "вокзал" to listOf("вокзал*", "станці*", "station*"),
+        "метро" to listOf("метро*", "subway*")
+    )
 
     fun search(
         context: Context,
@@ -178,7 +220,6 @@ object AddressSearchManager {
         var houseNum: String? = null
         val addressTokens = mutableListOf<String>()
         val poiTokens = mutableListOf<String>()
-        var hasCategoryFilter = false
 
         for (t in tokens) {
             if (houseNumberPattern.matcher(t).matches()) {
@@ -196,20 +237,10 @@ object AddressSearchManager {
                             low
                         }
 
-                        // 1. Прямий або стемінговий збіг
-                        var syns = categorySearchMap[low] ?: (if (stem.length >= 3) categorySearchMap[stem] else null)
-
-                        // 2. Частковий збіг (префікс, наприклад "запр" від "заправка", "апт" від "аптека")
-                        if (syns == null && low.length >= 3) {
-                            syns = categorySearchMap.entries.firstOrNull { (k, _) ->
-                                k.startsWith(low) || (stem.length >= 3 && k.startsWith(stem))
-                            }?.value
-                        }
+                        val syns = tagSynonyms[low] ?: (if (stem.length >= 3) tagSynonyms[stem] else null)
 
                         if (syns != null && syns.isNotEmpty()) {
-                            hasCategoryFilter = true
-                            val terms = (syns + low).filter { it.isNotBlank() && !it.contains("_") }
-                            val orClause = "(" + terms.sorted().joinToString(" OR ") { "$it*" } + ")"
+                            val orClause = "(" + syns.sorted().joinToString(" OR ") + ")"
                             poiTokens.add(orClause)
                         } else {
                             val tok = if (stem.length >= 3) "$stem*" else "$low*"
@@ -223,18 +254,37 @@ object AddressSearchManager {
 
         val addressFtsQuery = addressTokens.joinToString(" ")
         val poiFtsQuery = poiTokens.joinToString(" ")
-        val isUk = AppPrefs.isUk(context)
         val catDefs = PoiManager.DEFAULT_CATEGORIES.associateBy { it.id }
 
-        fun getCategoryTitle(catId: String?): String? {
-            if (catId.isNullOrBlank()) return null
-            val def = catDefs[catId] ?: return catId
-            return if (isUk) def.titleUk else def.titleEn
-        }
-
-        fun getCategoryIcon(catId: String?): String {
-            if (catId.isNullOrBlank()) return "📍"
-            return catDefs[catId]?.icon ?: "📍"
+        fun getPoiIcon(tag: String, groupCat: String): String {
+            return when (tag) {
+                "pharmacy" -> "💊"
+                "hospital", "clinic" -> "🏥"
+                "dentist" -> "🦷"
+                "charging_station" -> "⚡"
+                "fuel" -> "⛽"
+                "cafe" -> "☕"
+                "restaurant", "fast_food" -> "🍽️"
+                "bar", "pub" -> "🍺"
+                "supermarket", "convenience", "grocery" -> "🛒"
+                "hotel", "hostel", "motel" -> "🏨"
+                "bank" -> "🏦"
+                "atm" -> "🏧"
+                "school", "university", "college" -> "🏫"
+                "kindergarten" -> "🧒"
+                "park" -> "🌳"
+                "spring", "drinking_water", "water_well" -> "💧"
+                "viewpoint" -> "🔭"
+                "peak" -> "⛰️"
+                "church", "place_of_worship" -> "⛪"
+                "museum" -> "🏛️"
+                "cinema" -> "🎬"
+                "theatre" -> "🎭"
+                "bus_stop", "station" -> "🚏"
+                "car_wash" -> "🚿"
+                "car_repair" -> "🔧"
+                else -> catDefs[groupCat]?.icon ?: "📍"
+            }
         }
 
         if (addressFtsQuery.isBlank() && poiFtsQuery.isBlank()) return emptyList()
@@ -279,16 +329,18 @@ object AddressSearchManager {
             inPlaceholders = ""
         }
 
-        val searchAddresses = {
-            if (addressFtsQuery.isNotBlank() && results.size < limit) {
-                val remainingLimit = limit - results.size
+        try {
+            // 1. ADDRESS SEARCH (with optional linked POI info)
+            if (addressFtsQuery.isNotBlank()) {
                 if (houseNum != null) {
 
                     val sql = if (hasPoi) {
                         """
                             SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon,
                                    COALESCE(GROUP_CONCAT(DISTINCT pp.name), ''),
-                                   COALESCE(MAX(pp.category_id), '')
+                                   COALESCE(MAX(pt.desc_local), MAX(pt.desc_en), ''),
+                                   COALESCE(MAX(pt.group_category), ''),
+                                   COALESCE(MAX(pt.tag), '')
                             FROM search_fts f
                             JOIN streets s ON s.id = f.rowid
                             JOIN street_names sn ON sn.id = s.name_id
@@ -297,6 +349,7 @@ object AddressSearchManager {
                             LEFT JOIN admin_places country ON country.id = s.country_id
                             JOIN houses h ON h.street_id = s.id
                             LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
+                            LEFT JOIN poi_types pt ON pt.id = pp.category_id
                             WHERE search_fts MATCH ?
                               AND (h.number IN ($inPlaceholders) OR h.number LIKE ? OR h.number LIKE ?)
                             GROUP BY h.street_id, h.number
@@ -325,81 +378,86 @@ object AddressSearchManager {
                     args.addAll(hVarsList)
                     args.add("$hUp%")
                     args.add("$hLow%")
-                    args.add(remainingLimit.toString())
+                    args.add(limit.toString())
 
                     val cursor = db.rawQuery(sql, args.toTypedArray())
-                    cursor.use {
-                        while (it.moveToNext()) {
-                            val cCode = it.getString(0) ?: ""
-                            val rName = it.getString(1) ?: ""
-                            val cName = it.getString(2) ?: ""
-                            val sName = it.getString(3) ?: ""
-                            val hNum = it.getString(4) ?: ""
-                            val latRaw = it.getInt(5)
-                            val lonRaw = it.getInt(6)
-                            val pName = if (hasPoi) it.getString(7)?.takeIf { s -> s.isNotBlank() } else null
-                            val pCatId = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
-                            val pCat = getCategoryTitle(pCatId)
-                            val pIcon = if (pCatId != null) getCategoryIcon(pCatId) else null
+                cursor.use {
+                    while (it.moveToNext()) {
+                        val cCode = it.getString(0) ?: ""
+                        val rName = it.getString(1) ?: ""
+                        val cName = it.getString(2) ?: ""
+                        val sName = it.getString(3) ?: ""
+                        val hNum = it.getString(4) ?: ""
+                        val latRaw = it.getInt(5)
+                        val lonRaw = it.getInt(6)
+                        val pName = if (hasPoi) it.getString(7)?.takeIf { s -> s.isNotBlank() } else null
+                        val pDescLocal = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
+                        val pGroupCat = if (hasPoi) it.getString(9) ?: "" else ""
+                        val pTag = if (hasPoi) it.getString(10) ?: "" else ""
+                        val pCat = pDescLocal ?: pTag.takeIf { s -> s.isNotBlank() }
+                        val pIcon = if (pTag.isNotBlank() || pGroupCat.isNotBlank()) getPoiIcon(pTag, pGroupCat) else null
 
-                            val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
-                            val dLat = latRaw / div
-                            val dLon = lonRaw / div
+                        val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
+                        val dLat = latRaw / div
+                        val dLon = lonRaw / div
 
-                            results.add(
-                                AddressSearchResult(
-                                    countryCode = cCode,
-                                    regionName = rName,
-                                    cityName = cName,
-                                    streetName = sName,
-                                    houseNumber = hNum,
-                                    lat = dLat,
-                                    lon = dLon,
-                                    poiName = pName,
-                                    poiCategory = pCat,
-                                    poiIcon = pIcon,
-                                    isPoiOnly = false
-                                )
+                        results.add(
+                            AddressSearchResult(
+                                countryCode = cCode,
+                                regionName = rName,
+                                cityName = cName,
+                                streetName = sName,
+                                houseNumber = hNum,
+                                lat = dLat,
+                                lon = dLon,
+                                poiName = pName,
+                                poiCategory = pCat,
+                                poiIcon = pIcon,
+                                isPoiOnly = false
                             )
-                            seenCoords.add(Pair(kotlin.math.round(dLat * 1000.0).toInt(), kotlin.math.round(dLon * 1000.0).toInt()))
-                        }
+                        )
+                        seenCoords.add(Pair(kotlin.math.round(dLat * 1000.0).toInt(), kotlin.math.round(dLon * 1000.0).toInt()))
                     }
+                }
+            } else {
+                val sql = if (hasPoi) {
+                    """
+                        SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon,
+                               COALESCE(GROUP_CONCAT(DISTINCT pp.name), ''),
+                               COALESCE(MAX(pt.desc_local), MAX(pt.desc_en), ''),
+                               COALESCE(MAX(pt.group_category), ''),
+                               COALESCE(MAX(pt.tag), '')
+                        FROM search_fts f
+                        JOIN streets s ON s.id = f.rowid
+                        JOIN street_names sn ON sn.id = s.name_id
+                        JOIN admin_places city ON city.id = s.place_id
+                        LEFT JOIN admin_places reg ON reg.id = s.region_id
+                        LEFT JOIN admin_places country ON country.id = s.country_id
+                        JOIN houses h ON h.street_id = s.id
+                        LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
+                        LEFT JOIN poi_types pt ON pt.id = pp.category_id
+                        WHERE search_fts MATCH ?
+                        GROUP BY h.street_id, h.number
+                        $orderByClause
+                        LIMIT ?;
+                    """.trimIndent()
                 } else {
-                    val sql = if (hasPoi) {
-                        """
-                            SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon,
-                                   COALESCE(GROUP_CONCAT(DISTINCT pp.name), ''),
-                                   COALESCE(MAX(pp.category_id), '')
-                            FROM search_fts f
-                            JOIN streets s ON s.id = f.rowid
-                            JOIN street_names sn ON sn.id = s.name_id
-                            JOIN admin_places city ON city.id = s.place_id
-                            LEFT JOIN admin_places reg ON reg.id = s.region_id
-                            LEFT JOIN admin_places country ON country.id = s.country_id
-                            JOIN houses h ON h.street_id = s.id
-                            LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
-                            WHERE search_fts MATCH ?
-                            GROUP BY h.street_id, h.number
-                            $orderByClause
-                            LIMIT ?;
-                        """.trimIndent()
-                    } else {
-                        """
-                            SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon
-                            FROM search_fts f
-                            JOIN streets s ON s.id = f.rowid
-                            JOIN street_names sn ON sn.id = s.name_id
-                            JOIN admin_places city ON city.id = s.place_id
-                            LEFT JOIN admin_places reg ON reg.id = s.region_id
-                            LEFT JOIN admin_places country ON country.id = s.country_id
-                            JOIN houses h ON h.street_id = s.id
-                            WHERE search_fts MATCH ?
-                            $orderByClause
-                            LIMIT ?;
-                        """.trimIndent()
-                    }
+                    """
+                        SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon
+                        FROM search_fts f
+                        JOIN streets s ON s.id = f.rowid
+                        JOIN street_names sn ON sn.id = s.name_id
+                        JOIN admin_places city ON city.id = s.place_id
+                        LEFT JOIN admin_places reg ON reg.id = s.region_id
+                        LEFT JOIN admin_places country ON country.id = s.country_id
+                        JOIN houses h ON h.street_id = s.id
+                        WHERE search_fts MATCH ?
+                        $orderByClause
+                        LIMIT ?;
+                    """.trimIndent()
+                }
 
-                    val cursor = db.rawQuery(sql, arrayOf(addressFtsQuery, remainingLimit.toString()))
+                    val cursor = db.rawQuery(sql, arrayOf(addressFtsQuery, limit.toString()))
                     cursor.use {
                         while (it.moveToNext()) {
                             val cCode = it.getString(0) ?: ""
@@ -410,9 +468,11 @@ object AddressSearchManager {
                             val latRaw = it.getInt(5)
                             val lonRaw = it.getInt(6)
                             val pName = if (hasPoi) it.getString(7)?.takeIf { s -> s.isNotBlank() } else null
-                            val pCatId = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
-                            val pCat = getCategoryTitle(pCatId)
-                            val pIcon = if (pCatId != null) getCategoryIcon(pCatId) else null
+                            val pDescLocal = if (hasPoi) it.getString(8)?.takeIf { s -> s.isNotBlank() } else null
+                            val pGroupCat = if (hasPoi) it.getString(9) ?: "" else ""
+                            val pTag = if (hasPoi) it.getString(10) ?: "" else ""
+                            val pCat = pDescLocal ?: pTag.takeIf { s -> s.isNotBlank() }
+                            val pIcon = if (pTag.isNotBlank() || pGroupCat.isNotBlank()) getPoiIcon(pTag, pGroupCat) else null
 
                             val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
                             val dLat = latRaw / div
@@ -438,9 +498,8 @@ object AddressSearchManager {
                     }
                 }
             }
-        }
 
-        val searchPois = {
+            // 2. POI SEARCH (standalone or query by POI name/category, filtered by house number if present)
             if (hasPoiFts && results.size < limit && poiFtsQuery.isNotBlank()) {
                 try {
                     val remainingLimit = limit - results.size
@@ -451,7 +510,9 @@ object AddressSearchManager {
                     val poiSql = """
                         SELECT 
                             pp.name, 
-                            pp.category_id, 
+                            COALESCE(pt.desc_local, pt.desc_en, ''),
+                            COALESCE(pt.group_category, ''),
+                            COALESCE(pt.tag, ''),
                             COALESCE(pp.house_number, ''), 
                             pp.lat, 
                             pp.lon,
@@ -461,6 +522,7 @@ object AddressSearchManager {
                             COALESCE(country.code, pp.country_code, '')
                         FROM poi_fts pf
                         JOIN poi_places pp ON pp.id = pf.rowid
+                        LEFT JOIN poi_types pt ON pt.id = pp.category_id
                         LEFT JOIN streets s ON s.id = pp.street_id
                         LEFT JOIN street_names sn ON sn.id = s.name_id
                         LEFT JOIN admin_places city ON city.id = s.place_id
@@ -483,16 +545,19 @@ object AddressSearchManager {
                     poiCursor.use {
                         while (it.moveToNext()) {
                             val pName = it.getString(0) ?: ""
-                            val pCatId = it.getString(1) ?: ""
-                            val pCat = getCategoryTitle(pCatId) ?: pCatId
-                            val pIcon = getCategoryIcon(pCatId)
-                            val pHouse = it.getString(2) ?: ""
-                            val pLat = it.getInt(3) / 1_000_000.0
-                            val pLon = it.getInt(4) / 1_000_000.0
-                            val pStreet = it.getString(5) ?: ""
-                            val pCity = it.getString(6) ?: ""
-                            val pReg = it.getString(7) ?: ""
-                            val pCountry = it.getString(8) ?: ""
+                            val pDescLocal = it.getString(1) ?: ""
+                            val pGroupCat = it.getString(2) ?: ""
+                            val pTag = it.getString(3) ?: ""
+                            val pHouse = it.getString(4) ?: ""
+                            val pLat = it.getInt(5) / 1_000_000.0
+                            val pLon = it.getInt(6) / 1_000_000.0
+                            val pStreet = it.getString(7) ?: ""
+                            val pCity = it.getString(8) ?: ""
+                            val pReg = it.getString(9) ?: ""
+                            val pCountry = it.getString(10) ?: ""
+
+                            val pIcon = getPoiIcon(pTag, pGroupCat)
+                            val pCat = pDescLocal.ifBlank { pTag }
 
                             val coordKey = Pair(kotlin.math.round(pLat * 1000.0).toInt(), kotlin.math.round(pLon * 1000.0).toInt())
                             if (!seenCoords.contains(coordKey)) {
@@ -519,23 +584,7 @@ object AddressSearchManager {
                     AppLogger.log(TAG, "search", false, "POI FTS search warning: ${pe.message}")
                 }
             }
-        }
 
-        try {
-            if (hasCategoryFilter) {
-                // Користувач шукає конкретну категорію об'єктів (наприклад: АЗС, аптека, кафе тощо).
-                // Першочергово виконуємо пошук POI відповідної категорії!
-                searchPois()
-                // Якщо за цією категорією нічого не знайдено (наприклад, ще немає POI в базі),
-                // робимо запасний адресний пошук
-                if (results.isEmpty()) {
-                    searchAddresses()
-                }
-            } else {
-                // Стандартний адресний пошук: спочатку вулиці/будинки, потім доповнюємо знайденими POI
-                searchAddresses()
-                searchPois()
-            }
         } catch (e: Exception) {
             AppLogger.log(TAG, "search", false, "Address search query failed: ${e.message}")
             throw e

@@ -68,7 +68,7 @@ object PoiManager {
             listOf("fuel", "fuel stations", "gas_station", "petrol")),
         PoiCategoryDef("charging", "🔌 Зарядки електромобілів", "🔌 EV charging stations", "🔌",
             Color.parseColor("#10B981"),
-            listOf("charging_station", "charging", "electric vehicle", "ev_charging")),
+            listOf("charging_station", "charging", "electric vehicle", "fuel:electricity")),
         PoiCategoryDef("highway", "🛣️ Дорожня інфраструктура, паркінги", "🛣️ Highway & parking", "🛣️",
             Color.parseColor("#6B7280"),
             listOf("highway", "parking", "car_park", "rest_area", "services", "motorway_junction")),

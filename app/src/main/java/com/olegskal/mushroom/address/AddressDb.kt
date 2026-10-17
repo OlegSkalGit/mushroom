@@ -55,8 +55,13 @@ object AddressDb {
                 if (writable) {
                     initSchema(db)
                     ensureTablesExist(db)
-                } else if (canWrite && isFtsUpgradeNeeded(db)) {
-                    rebuildFtsIndex(db)
+                } else if (canWrite) {
+                    if (isFtsUpgradeNeeded(db)) {
+                        rebuildFtsIndex(db)
+                    }
+                    if (isPoiFtsUpgradeNeeded(db)) {
+                        rebuildPoiFtsIndex(db)
+                    }
                 }
                 openDb = db
                 db
@@ -125,6 +130,66 @@ object AddressDb {
         }
     }
 
+    fun isPoiFtsUpgradeNeeded(db: SQLiteDatabase): Boolean {
+        return try {
+            val cursor = db.rawQuery(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='poi_fts' LIMIT 1;",
+                null
+            )
+            cursor.use {
+                if (it.moveToFirst()) {
+                    val sql = it.getString(0) ?: ""
+                    !sql.contains("type_name", ignoreCase = true)
+                } else {
+                    hasTable(db, "poi_places")
+                }
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun rebuildPoiFtsIndex(db: SQLiteDatabase) {
+        try {
+            db.beginTransaction()
+            try {
+                db.execSQL("DROP TABLE IF EXISTS poi_fts;")
+                db.execSQL("DROP TABLE IF EXISTS poi_fts_content;")
+                createPoiFtsTableWithFallback(db)
+                if (hasTable(db, "poi_places")) {
+                    val hasPoiTypes = hasTable(db, "poi_types")
+                    val sql = if (hasPoiTypes) {
+                        """
+                            INSERT INTO poi_fts (rowid, poi_name, type_name, type_tag, city_name, street_name)
+                            SELECT pp.id, pp.name, COALESCE(pt.desc_local, pt.desc_en, ''), COALESCE(pt.tag, ''), COALESCE(city.name, ''), COALESCE(sn.name, '')
+                            FROM poi_places pp
+                            LEFT JOIN poi_types pt ON pt.id = pp.category_id
+                            LEFT JOIN streets s ON s.id = pp.street_id
+                            LEFT JOIN street_names sn ON sn.id = s.name_id
+                            LEFT JOIN admin_places city ON city.id = s.place_id;
+                        """.trimIndent()
+                    } else {
+                        """
+                            INSERT INTO poi_fts (rowid, poi_name, type_name, type_tag, city_name, street_name)
+                            SELECT pp.id, pp.name, pp.category_id, pp.category_id, COALESCE(city.name, ''), COALESCE(sn.name, '')
+                            FROM poi_places pp
+                            LEFT JOIN streets s ON s.id = pp.street_id
+                            LEFT JOIN street_names sn ON sn.id = s.name_id
+                            LEFT JOIN admin_places city ON city.id = s.place_id;
+                        """.trimIndent()
+                    }
+                    db.execSQL(sql)
+                }
+                db.setTransactionSuccessful()
+                AppLogger.log(TAG, "rebuildPoiFtsIndex", true, "POI FTS index successfully rebuilt")
+            } finally {
+                db.endTransaction()
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "rebuildPoiFtsIndex", false, "Error rebuilding POI FTS index: ${e.message}")
+        }
+    }
+
     fun hasPoiTables(db: SQLiteDatabase): Boolean {
         return hasTable(db, "poi_places")
     }
@@ -144,11 +209,14 @@ object AddressDb {
     }
 
     fun ensureTablesExist(db: SQLiteDatabase) {
-        if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses") || !hasTable(db, "poi_places")) {
+        if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses") || !hasTable(db, "poi_places") || !hasTable(db, "poi_types")) {
             initSchema(db)
         }
         if (hasTable(db, "search_fts_content") || isFtsUpgradeNeeded(db)) {
             rebuildFtsIndex(db)
+        }
+        if (hasTable(db, "poi_fts_content") || isPoiFtsUpgradeNeeded(db)) {
+            rebuildPoiFtsIndex(db)
         }
     }
 
@@ -250,10 +318,28 @@ object AddressDb {
 
         try {
             db.execSQL("""
+                CREATE TABLE IF NOT EXISTS poi_types (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_category TEXT NOT NULL,
+                    tag TEXT NOT NULL,
+                    desc_en TEXT NOT NULL,
+                    desc_local TEXT NOT NULL,
+                    country_code TEXT NOT NULL,
+                    UNIQUE(tag, country_code)
+                );
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_types_country ON poi_types(country_code);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_types_tag ON poi_types(tag);")
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "initSchema", false, "Error creating poi_types: ${e.message}")
+        }
+
+        try {
+            db.execSQL("""
                 CREATE TABLE IF NOT EXISTS poi_places (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
-                    category_id TEXT NOT NULL,
+                    category_id INTEGER NOT NULL,
                     street_id INTEGER,
                     house_number TEXT,
                     lat INTEGER NOT NULL,
@@ -298,14 +384,14 @@ object AddressDb {
 
     private fun createPoiFtsTableWithFallback(db: SQLiteDatabase) {
         val statements = listOf(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, category_name, city_name, street_name, tokenize='unicode61', content='', detail=column, columnsize=0);",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, category_name, city_name, street_name, tokenize='unicode61', content='');",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, category_name, city_name, street_name, content='', detail=column, columnsize=0);",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, category_name, city_name, street_name, content='');",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, tokenize=unicode61, content='', matchinfo=fts3);",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, tokenize=unicode61, matchinfo=fts3);",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, content='', matchinfo=fts3);",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, matchinfo=fts3);"
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, type_name, type_tag, city_name, street_name, tokenize='unicode61', content='', detail=column, columnsize=0);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, type_name, type_tag, city_name, street_name, tokenize='unicode61', content='');",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, type_name, type_tag, city_name, street_name, content='', detail=column, columnsize=0);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, type_name, type_tag, city_name, street_name, content='');",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, type_name, type_tag, city_name, street_name, tokenize=unicode61, content='', matchinfo=fts3);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, type_name, type_tag, city_name, street_name, tokenize=unicode61, matchinfo=fts3);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, type_name, type_tag, city_name, street_name, content='', matchinfo=fts3);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, type_name, type_tag, city_name, street_name, matchinfo=fts3);"
         )
         for (sql in statements) {
             try {

@@ -659,7 +659,12 @@ object AddressDownloadManager {
 
             val addrMatchCache = mutableMapOf<Pair<String, String>, Long?>()
 
-            onProgress(0.02, "${country.nameUk}: Завантаження будинків у пам'ять для геоприв'язки POI...")
+            onProgress(0.01, "${country.nameUk}: Отримання перекладів типів точок...")
+            val typeIdMap = PoiTranslationService.ensureTranslationsForCountry(db, countryCode) { msg ->
+                onProgress(0.02, "${country.nameUk}: $msg")
+            }
+
+            onProgress(0.03, "${country.nameUk}: Завантаження будинків у пам'ять для геоприв'язки POI...")
             val grid = SpatialHouseGrid.buildFromDatabase(db, countryCode)
             houseGrid = grid
             AppLogger.log(TAG, "importPoiLocationsToAddressDb", true, "Завантажено ${grid.size} будинків у RAM для прив'язки POI")
@@ -719,15 +724,16 @@ object AddressDownloadManager {
                                 }
                             }
 
-                            val chosenName = (nameUk?.takeIf { s -> s.isNotBlank() }
-                                ?: nameDef?.takeIf { s -> s.isNotBlank() }
+                            val chosenName = (nameDef?.takeIf { s -> s.isNotBlank() }
+                                ?: nameUk?.takeIf { s -> s.isNotBlank() }
                                 ?: nameEn?.takeIf { s -> s.isNotBlank() })?.trim()
 
                             if (chosenName.isNullOrBlank()) {
                                 continue
                             }
 
-                            val catId = PoiManager.resolveCategoryId(tagMap) ?: "other"
+                            val primaryTag = PoiTagCatalog.extractPrimaryTag(tagMap)
+                            val typeId = typeIdMap[primaryTag] ?: typeIdMap["other"] ?: 1L
 
                             val latMicro = kotlin.math.round(latRaw * 1_000_000.0).toInt()
                             val lonMicro = kotlin.math.round(lonRaw * 1_000_000.0).toInt()
@@ -767,7 +773,7 @@ object AddressDownloadManager {
 
                             // Номер будинку для точки НЕ записуємо (лише вулиця та населений пункт)
                             stmtInsertPoi.bindString(1, chosenName)
-                            stmtInsertPoi.bindString(2, catId)
+                            stmtInsertPoi.bindLong(2, typeId)
                             if (matchedStreetId != null) {
                                 stmtInsertPoi.bindLong(3, matchedStreetId)
                             } else {
@@ -815,9 +821,10 @@ object AddressDownloadManager {
                 db.beginTransaction()
                 try {
                     db.execSQL("""
-                        INSERT INTO poi_fts (rowid, poi_name, category_name, city_name, street_name)
-                        SELECT p.id, p.name, p.category_id, COALESCE(city.name, ''), COALESCE(sn.name, '')
+                        INSERT INTO poi_fts (rowid, poi_name, type_name, type_tag, city_name, street_name)
+                        SELECT p.id, p.name, COALESCE(pt.desc_local, pt.desc_en, ''), COALESCE(pt.tag, ''), COALESCE(city.name, ''), COALESCE(sn.name, '')
                         FROM poi_places p
+                        LEFT JOIN poi_types pt ON pt.id = p.category_id
                         LEFT JOIN streets s ON s.id = p.street_id
                         LEFT JOIN street_names sn ON sn.id = s.name_id
                         LEFT JOIN admin_places city ON city.id = s.place_id
