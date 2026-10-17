@@ -423,11 +423,24 @@ object AddressPrebuiltManager {
         }
     }
 
+    private fun hasAnyCountriesInDatabase(dbFile: File): Boolean {
+        if (!dbFile.exists() || dbFile.length() < 1024L) return false
+        return try {
+            val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+            db.use {
+                val c = it.rawQuery("SELECT 1 FROM admin_places WHERE level = 2 LIMIT 1;", null)
+                c.use { cur -> cur.moveToFirst() }
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /**
      * Консолідація (злиття) розпакованої готової бази країни з основною addr.db.
      *
-     * 1. Якщо addr.db відсутня -> пряме перейменування/ініціалізація (миттєво).
-     * 2. Якщо addr.db вже існує -> підключення через SQLite ATTACH, тимчасовий дроп індексів,
+     * 1. Якщо addr.db відсутня або в ній немає жодної країни -> пряме перейменування/заміна (миттєво).
+     * 2. Якщо addr.db вже існує з іншими країнами -> підключення через SQLite ATTACH, тимчасовий дроп індексів,
      *    зміщення ID (Shift Offset) первинних та зовнішніх ключів, усунення дублікатів назв вулиць,
      *    переливання даних у єдиній транзакції та відновлення індексів.
      */
@@ -438,16 +451,19 @@ object AddressPrebuiltManager {
         onProgress: (Float, String) -> Unit = { _, _ -> }
     ): Boolean {
         val targetFile = AddressDb.getDatabaseFile(context)
-        val targetExists = targetFile.exists() && targetFile.length() >= 1024L
+        val hasExistingCountries = hasAnyCountriesInDatabase(targetFile)
 
-        // СЦЕНАРІЙ А: Основної бази ще немає — просте перейменування
-        if (!targetExists) {
+        // СЦЕНАРІЙ А: Бази немає або в ній немає жодної країни — просте перейменування
+        if (!hasExistingCountries) {
             onProgress(0.92f, "Ініціалізація нової бази адрес...")
             AddressDb.closeDatabase()
             targetFile.parentFile?.mkdirs()
 
             File(targetFile.parentFile, "${targetFile.name}-wal").delete()
             File(targetFile.parentFile, "${targetFile.name}-shm").delete()
+            if (targetFile.exists()) {
+                targetFile.delete()
+            }
 
             val moved = if (sourceDbFile.renameTo(targetFile)) {
                 true

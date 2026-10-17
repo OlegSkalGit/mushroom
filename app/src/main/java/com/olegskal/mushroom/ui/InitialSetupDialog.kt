@@ -619,6 +619,9 @@ object InitialSetupDialog {
 
                     // 2. Якщо готової бази немає на сервері — працює незмінний основний алгоритм
                     if (prebuiltInstalled) {
+                        // Новий алгоритм успішно завершив роботу (готова база вже містить адреси і всі POI).
+                        // Видаляємо старий крок обробки локацій з черги, щоб він не запускався:
+                        pendingQueue.removeAll { it.id == "addr_poi_${country.code}" }
                         true
                     } else if (!isCancel()) {
                         AddressDownloadManager.ingestCountryAddresses(
@@ -650,6 +653,11 @@ object InitialSetupDialog {
                     "${if (isUk) country.nameUk else country.name} (${if (isUk) "оновити POI з локального файлу, addr.db" else "update POI from local file, addr.db"})",
                     5_000_000L
                 ) { onBytes, _, isCancel ->
+                    // Якщо в базі вже є локації для цієї країни (наприклад, щойно встановлено готову базу), повтор не потрібен
+                    val existingDb = AddressDb.openDatabase(context, writable = false)
+                    if (existingDb != null && AddressDb.hasPoiDataForCountry(existingDb, country.code)) {
+                        return@UpdateItem true
+                    }
                     var lastReported = 0L
                     AddressDownloadManager.importPoiLocationsToAddressDb(
                         context = context,
