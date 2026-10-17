@@ -98,14 +98,12 @@ object AddressPrebuiltManager {
                 )
 
                 if (!success || isCancelled()) {
-                    cleanupFiles(downloadedParts + partFile)
                     return false
                 }
                 downloadedParts.add(partFile)
             }
 
             if (isCancelled()) {
-                cleanupFiles(downloadedParts)
                 return false
             }
 
@@ -137,8 +135,14 @@ object AddressPrebuiltManager {
             return false
         } catch (e: Exception) {
             AppLogger.log(TAG, "tryInstallPrebuiltCountry", false, "Помилка встановлення готової бази: ${e.message}")
-            cleanupFiles(downloadedParts)
             return false
+        } finally {
+            cleanupFiles(downloadedParts)
+            try {
+                if (tmpDir.exists()) {
+                    tmpDir.deleteRecursively()
+                }
+            } catch (_: Exception) {}
         }
     }
 
@@ -174,12 +178,20 @@ object AddressPrebuiltManager {
             val unpackedDb = File(tmpDir, "${country.code.lowercase()}_prebuilt.db")
             if (unpackedDb.exists()) unpackedDb.delete()
 
-            val unpacked = unpackArchive(listOf(file), unpackedDb, onProgress, isCancelled)
-            if (unpacked && unpackedDb.exists() && unpackedDb.length() > 1024L) {
-                onProgress(0.90f, "Консолідація бази ${file.name}...")
-                val res = consolidatePrebuiltDatabase(context, unpackedDb, country, onProgress)
-                if (unpackedDb.exists()) unpackedDb.delete()
-                return res
+            return try {
+                val unpacked = unpackArchive(listOf(file), unpackedDb, onProgress, isCancelled)
+                if (unpacked && unpackedDb.exists() && unpackedDb.length() > 1024L) {
+                    onProgress(0.90f, "Консолідація бази ${file.name}...")
+                    consolidatePrebuiltDatabase(context, unpackedDb, country, onProgress)
+                } else {
+                    false
+                }
+            } finally {
+                try {
+                    if (tmpDir.exists()) {
+                        tmpDir.deleteRecursively()
+                    }
+                } catch (_: Exception) {}
             }
         }
         return false
