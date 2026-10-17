@@ -3,7 +3,6 @@ package com.olegskal.mushroom.address
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteStatement
 import com.olegskal.mushroom.util.AppLogger
-import java.util.ArrayDeque
 import kotlin.math.roundToInt
 
 class AddressIngestor(
@@ -14,11 +13,6 @@ class AddressIngestor(
     companion object {
         private const val TAG = "AddressIngestor"
     }
-
-    data class NearestAddress(
-        val streetName: String?,
-        val cityName: String?
-    )
 
     var countryId: Long = 1L
         private set
@@ -240,76 +234,6 @@ class AddressIngestor(
         }
 
         return sid
-    }
-
-    fun findNearestAddress(lat: Double, lon: Double, maxDistMeters: Double = 500.0): NearestAddress? {
-        val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
-        val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
-        val latDeg = latI / 100_000.0
-        val cosLat = kotlin.math.cos(Math.toRadians(latDeg))
-        val maxDistSq = maxDistMeters * maxDistMeters
-
-        var bestStreet: String? = null
-        var bestCity: String? = null
-        var minDistSq = maxDistSq
-
-        // Пошук НАЙБЛИЖЧОГО у SQLite: обмежуємо прямокутник і сортуємо за точною евклідовою відстанню
-        val dLatI = (maxDistMeters / 1.1132).roundToInt() + 1
-        val dLonI = (maxDistMeters / (1.1132 * kotlin.math.max(0.1, cosLat))).roundToInt() + 1
-
-        val minLatI = latI - dLatI
-        val maxLatI = latI + dLatI
-        val minLonI = lonI - dLonI
-        val maxLonI = lonI + dLonI
-
-        try {
-            val cursor = db.rawQuery("""
-                SELECT sn.name, ap.name, h.lat, h.lon,
-                       ((h.lat - ?) * (h.lat - ?) + (h.lon - ?) * (h.lon - ?)) AS dist_units_sq
-                FROM houses h
-                JOIN streets s ON s.id = h.street_id
-                JOIN street_names sn ON sn.id = s.name_id
-                JOIN admin_places ap ON ap.id = s.place_id
-                WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
-                ORDER BY dist_units_sq ASC
-                LIMIT 5;
-            """.trimIndent(), arrayOf(
-                latI.toString(), latI.toString(), lonI.toString(), lonI.toString(),
-                minLatI.toString(), maxLatI.toString(), minLonI.toString(), maxLonI.toString()
-            ))
-
-            cursor.use { c ->
-                while (c.moveToNext()) {
-                    val sName = c.getString(0) ?: ""
-                    val cName = c.getString(1) ?: ""
-                    val hLat = c.getInt(2)
-                    val hLon = c.getInt(3)
-
-                    val dy = (latI - hLat) * 1.1132
-                    val dx = (lonI - hLon) * 1.1132 * cosLat
-                    val d2 = dy * dy + dx * dx
-                    if (d2 < minDistSq) {
-                        val realStreet = if (sName.isNotBlank() && !sName.equals(cName, ignoreCase = true)) sName else null
-                        val realCity = cName.ifBlank { null }
-                        if (realStreet != null && bestStreet == null) {
-                            bestStreet = realStreet
-                            minDistSq = d2
-                        }
-                        if (realCity != null && bestCity == null) {
-                            bestCity = realCity
-                        }
-                        if (bestStreet != null && bestCity != null) break
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            AppLogger.log(TAG, "findNearestAddress", false, "DB nearest search error: ${e.message}")
-        }
-
-        if (bestStreet != null || bestCity != null) {
-            return NearestAddress(bestStreet, bestCity)
-        }
-        return null
     }
 
     fun addHouse(streetId: Long, houseNumber: String, lat: Double, lon: Double) {

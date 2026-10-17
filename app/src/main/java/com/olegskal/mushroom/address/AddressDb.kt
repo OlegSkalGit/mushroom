@@ -126,35 +126,15 @@ object AddressDb {
     }
 
     fun hasPoiTables(db: SQLiteDatabase): Boolean {
-        return hasTable(db, "poi_places") && hasTable(db, "poi_country_ranges")
-    }
-
-    fun hasPoiData(db: SQLiteDatabase): Boolean {
-        if (!hasTable(db, "poi_places")) return false
-        return try {
-            val cursor = db.rawQuery("SELECT 1 FROM poi_places LIMIT 1;", null)
-            cursor.use { it.moveToFirst() }
-        } catch (_: Exception) {
-            false
-        }
+        return hasTable(db, "poi_places")
     }
 
     fun hasPoiDataForCountry(db: SQLiteDatabase, countryCode: String): Boolean {
         val code = countryCode.uppercase()
-        if (hasTable(db, "poi_places")) {
-            try {
-                val cursor = db.rawQuery(
-                    "SELECT 1 FROM poi_places WHERE country_code = ? LIMIT 1;",
-                    arrayOf(code)
-                )
-                val hasData = cursor.use { it.moveToFirst() }
-                if (hasData) return true
-            } catch (_: Exception) {}
-        }
-        if (!hasTable(db, "poi_country_ranges")) return false
+        if (!hasTable(db, "poi_places")) return false
         return try {
             val cursor = db.rawQuery(
-                "SELECT 1 FROM poi_country_ranges WHERE country_code = ? AND total_count > 0 LIMIT 1;",
+                "SELECT 1 FROM poi_places WHERE country_code = ? LIMIT 1;",
                 arrayOf(code)
             )
             cursor.use { it.moveToFirst() }
@@ -163,41 +143,10 @@ object AddressDb {
         }
     }
 
-    fun getCountryPoiCount(db: SQLiteDatabase, countryCode: String): Int {
-        val code = countryCode.uppercase()
-        if (hasTable(db, "poi_places")) {
-            try {
-                val cursor = db.rawQuery(
-                    "SELECT count(*) FROM poi_places WHERE country_code = ?;",
-                    arrayOf(code)
-                )
-                val count = cursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
-                if (count > 0) return count
-            } catch (_: Exception) {}
-        }
-        if (!hasTable(db, "poi_country_ranges")) return 0
-        return try {
-            val cursor = db.rawQuery(
-                "SELECT total_count FROM poi_country_ranges WHERE country_code = ? LIMIT 1;",
-                arrayOf(code)
-            )
-            cursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
-        } catch (_: Exception) {
-            0
-        }
-    }
-
     fun ensureTablesExist(db: SQLiteDatabase) {
-        if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses") || !hasTable(db, "poi_places") || !hasTable(db, "poi_country_ranges")) {
+        if (!hasTable(db, "admin_places") || !hasTable(db, "streets") || !hasTable(db, "houses") || !hasTable(db, "poi_places")) {
             initSchema(db)
         }
-        try {
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);")
-        } catch (_: Exception) {}
-        try {
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")
-        } catch (_: Exception) {}
-        checkAndMigratePoiPlaces(db)
         if (hasTable(db, "search_fts_content") || isFtsUpgradeNeeded(db)) {
             rebuildFtsIndex(db)
         }
@@ -298,15 +247,11 @@ object AddressDb {
             }
         }
 
-        try {
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")
-        } catch (_: Exception) {}
 
         try {
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS poi_places (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    poi_id INTEGER,
                     name TEXT NOT NULL,
                     category_id TEXT NOT NULL,
                     street_id INTEGER,
@@ -321,156 +266,14 @@ object AddressDb {
             AppLogger.log(TAG, "initSchema", false, "Error creating poi_places: ${e.message}")
         }
 
-        try {
-            if (hasTable(db, "poi_places")) {
-                val cInfo = db.rawQuery("PRAGMA table_info(poi_places);", null)
-                var hasCountryCode = false
-                cInfo.use {
-                    while (it.moveToNext()) {
-                        if ("country_code".equals(it.getString(1), ignoreCase = true)) {
-                            hasCountryCode = true
-                            break
-                        }
-                    }
-                }
-                if (!hasCountryCode) {
-                    db.execSQL("ALTER TABLE poi_places ADD COLUMN country_code TEXT NOT NULL DEFAULT 'UA';")
-                }
-            }
-        } catch (_: Exception) {}
 
         try {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);")
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_cat ON poi_places(category_id);")
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);")
         } catch (_: Exception) {}
 
-        try {
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS poi_country_ranges (
-                    country_code TEXT PRIMARY KEY,
-                    min_id INTEGER NOT NULL,
-                    max_id INTEGER NOT NULL,
-                    total_count INTEGER NOT NULL
-                );
-            """.trimIndent())
-        } catch (e: Exception) {
-            AppLogger.log(TAG, "initSchema", false, "Error creating poi_country_ranges: ${e.message}")
-        }
-
         createFtsTableWithFallback(db)
         createPoiFtsTableWithFallback(db)
-    }
-
-    fun checkAndMigratePoiPlaces(db: SQLiteDatabase) {
-        try {
-            if (!hasTable(db, "poi_places")) return
-            val cursor = db.rawQuery("SELECT sql FROM sqlite_master WHERE type='table' AND name='poi_places' LIMIT 1;", null)
-            val sql = cursor.use { if (it.moveToFirst()) it.getString(0) ?: "" else "" }
-            if (sql.contains("poi_id INTEGER UNIQUE", ignoreCase = true)) {
-                val ownTx = !db.inTransaction()
-                if (ownTx) db.beginTransaction()
-                try {
-                    db.execSQL("""
-                        CREATE TABLE poi_places_new (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            poi_id INTEGER,
-                            name TEXT NOT NULL,
-                            category_id TEXT NOT NULL,
-                            street_id INTEGER,
-                            house_number TEXT,
-                            lat INTEGER NOT NULL,
-                            lon INTEGER NOT NULL,
-                            country_code TEXT NOT NULL DEFAULT 'UA',
-                            FOREIGN KEY (street_id) REFERENCES streets(id)
-                        );
-                    """.trimIndent())
-                    db.execSQL("""
-                        INSERT INTO poi_places_new (id, poi_id, name, category_id, street_id, house_number, lat, lon, country_code) 
-                        SELECT id, poi_id, name, category_id, street_id, house_number, lat, lon, 'UA' 
-                        FROM poi_places;
-                    """.trimIndent())
-                    db.execSQL("DROP TABLE poi_places;")
-                    db.execSQL("ALTER TABLE poi_places_new RENAME TO poi_places;")
-                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);")
-                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_cat ON poi_places(category_id);")
-                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);")
-                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);")
-
-                    // Ребілд poi_fts для усунення розсинхрону
-                    if (hasTable(db, "poi_fts")) {
-                        db.execSQL("DELETE FROM poi_fts;")
-                        db.execSQL("""
-                            INSERT INTO poi_fts (rowid, poi_name, category_name, city_name, street_name)
-                            SELECT p.id, p.name, p.category_id, COALESCE(city.name, ''), COALESCE(sn.name, '')
-                            FROM poi_places p
-                            LEFT JOIN streets s ON s.id = p.street_id
-                            LEFT JOIN street_names sn ON sn.id = s.name_id
-                            LEFT JOIN admin_places city ON city.id = s.place_id;
-                        """.trimIndent())
-                        db.execSQL("INSERT INTO poi_fts(poi_fts) VALUES('optimize');")
-                    }
-
-                    if (ownTx) db.setTransactionSuccessful()
-                    AppLogger.log(TAG, "checkAndMigratePoiPlaces", true, "Migrated poi_places to non-unique poi_id with country_code")
-                } finally {
-                    if (ownTx && db.inTransaction()) {
-                        db.endTransaction()
-                    }
-                }
-            }
-
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS poi_country_ranges (
-                    country_code TEXT PRIMARY KEY,
-                    min_id INTEGER NOT NULL,
-                    max_id INTEGER NOT NULL,
-                    total_count INTEGER NOT NULL
-                );
-            """.trimIndent())
-
-            // Визначення реального коду країни з admin_places (level = 2)
-            var detectedCountryCode = "UA"
-            try {
-                val curCode = db.rawQuery(
-                    "SELECT code FROM admin_places WHERE level = 2 AND code IS NOT NULL AND length(trim(code)) = 2 LIMIT 1;",
-                    null
-                )
-                curCode.use {
-                    if (it.moveToFirst()) {
-                        val c = it.getString(0)?.trim()?.uppercase()
-                        if (!c.isNullOrBlank()) detectedCountryCode = c
-                    }
-                }
-            } catch (_: Exception) {}
-
-            try {
-                db.execSQL("UPDATE poi_places SET country_code = ? WHERE country_code IS NULL OR country_code = '';", arrayOf(detectedCountryCode))
-            } catch (_: Exception) {}
-
-            val cntCursor = db.rawQuery("SELECT count(1) FROM poi_country_ranges;", null)
-            val rangeCount = cntCursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
-            if (rangeCount == 0 && hasTable(db, "poi_places")) {
-                val pCursor = db.rawQuery("SELECT min(id), max(id), count(id) FROM poi_places WHERE country_code = ?;", arrayOf(detectedCountryCode))
-                pCursor.use {
-                    if (it.moveToFirst()) {
-                        val count = it.getInt(2)
-                        if (count > 0) {
-                            val minId = it.getLong(0)
-                            val maxId = it.getLong(1)
-                            db.execSQL(
-                                "INSERT OR REPLACE INTO poi_country_ranges (country_code, min_id, max_id, total_count) VALUES (?, ?, ?, ?);",
-                                arrayOf(detectedCountryCode, minId, maxId, count)
-                            )
-                            AppLogger.log(TAG, "checkAndMigratePoiPlaces", true, "Backfilled existing POI range for $detectedCountryCode: $count points")
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            AppLogger.log(TAG, "checkAndMigratePoiPlaces", false, "Migration error: ${e.message}")
-        }
     }
 
     private fun createFtsTableWithFallback(db: SQLiteDatabase) {
@@ -479,10 +282,10 @@ object AddressDb {
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(region_name, city_name, street_name, tokenize='unicode61', content='');",
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(region_name, city_name, street_name, content='', detail=column, columnsize=0);",
             "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(region_name, city_name, street_name, content='');",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, tokenize=unicode61, content='');",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, tokenize=unicode61);",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, content='');",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name);"
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, tokenize=unicode61, content='', matchinfo=fts3);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, tokenize=unicode61, matchinfo=fts3);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, content='', matchinfo=fts3);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts4(region_name, city_name, street_name, matchinfo=fts3);"
         )
         for (sql in statements) {
             try {
@@ -499,10 +302,10 @@ object AddressDb {
             "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, category_name, city_name, street_name, tokenize='unicode61', content='');",
             "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, category_name, city_name, street_name, content='', detail=column, columnsize=0);",
             "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts5(poi_name, category_name, city_name, street_name, content='');",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, tokenize=unicode61, content='');",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, tokenize=unicode61);",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, content='');",
-            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name);"
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, tokenize=unicode61, content='', matchinfo=fts3);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, tokenize=unicode61, matchinfo=fts3);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, content='', matchinfo=fts3);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS poi_fts USING fts4(poi_name, category_name, city_name, street_name, matchinfo=fts3);"
         )
         for (sql in statements) {
             try {

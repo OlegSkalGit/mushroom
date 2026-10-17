@@ -44,8 +44,7 @@ object AddressDownloadManager {
         val db = AddressDb.openDatabase(context, writable = false) ?: return 0
         return try {
             val cursor = db.rawQuery("""
-                SELECT count(DISTINCT s.region_id) FROM houses h
-                JOIN streets s ON h.street_id = s.id
+                SELECT count(DISTINCT s.region_id) FROM streets s
                 JOIN admin_places ap ON s.country_id = ap.id
                 WHERE ap.level = 2 AND ap.code = ? AND s.region_id IS NOT NULL;
             """.trimIndent(), arrayOf(countryCode.uppercase()))
@@ -57,18 +56,32 @@ object AddressDownloadManager {
         }
     }
 
+    private fun hasAnyHousesForCountry(db: SQLiteDatabase, countryCode: String): Boolean {
+        return try {
+            val cursor = db.rawQuery("""
+                SELECT 1 FROM houses h
+                JOIN streets s ON h.street_id = s.id
+                JOIN admin_places ap ON s.country_id = ap.id
+                WHERE ap.level = 2 AND (ap.code = ? OR ap.code IS NULL OR ap.code = '')
+                LIMIT 1;
+            """.trimIndent(), arrayOf(countryCode.uppercase()))
+            cursor.use { it.moveToFirst() }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun hasAddressesForCountry(context: Context, countryCode: String): Boolean {
-        if (AddressDb.openDatabase(context, writable = false) == null) return false
+        val db = AddressDb.openDatabase(context, writable = false) ?: return false
         val code = countryCode.uppercase()
         val expected = getCountryRegionCount(context, code)
         val loaded = getLoadedRegionCount(context, code)
         if (expected <= 1) {
-            return getCountryHouseCount(context, code) > 100L
+            return hasAnyHousesForCountry(db, code)
         }
-        val houseCount = getCountryHouseCount(context, code)
-        if (houseCount < 100L) return false
         val minRequired = if (expected >= 20) (expected - 2).coerceAtLeast(1) else (expected - 1).coerceAtLeast(1)
-        return loaded >= minRequired
+        if (loaded < minRequired) return false
+        return hasAnyHousesForCountry(db, code)
     }
 
     fun getCountryHouseCount(context: Context, countryCode: String): Long {
@@ -80,21 +93,6 @@ object AddressDownloadManager {
                 JOIN admin_places ap ON s.country_id = ap.id
                 WHERE ap.level = 2 AND (ap.code = ? OR ap.code IS NULL OR ap.code = '');
             """.trimIndent(), arrayOf(countryCode.uppercase()))
-            cursor.use {
-                if (it.moveToFirst()) it.getLong(0) else 0L
-            }
-        } catch (_: Exception) {
-            0L
-        }
-    }
-
-    fun getRegionHouseCount(db: SQLiteDatabase, regionName: String): Long {
-        return try {
-            val cursor = db.rawQuery("""
-                SELECT count(*) FROM houses h
-                JOIN streets s ON h.street_id = s.id
-                WHERE s.region_id IN (SELECT id FROM admin_places WHERE level = 4 AND (name = ? OR name LIKE ?));
-            """.trimIndent(), arrayOf(regionName, "%$regionName%"))
             cursor.use {
                 if (it.moveToFirst()) it.getLong(0) else 0L
             }
@@ -545,16 +543,6 @@ object AddressDownloadManager {
                             }
                         }
 
-                        if (city.isBlank() || street.isBlank()) {
-                            val nearest = ingestor.findNearestAddress(latRaw, lonRaw)
-                            if (city.isBlank() && nearest?.cityName != null) {
-                                city = nearest.cityName
-                            }
-                            if (street.isBlank() && nearest?.streetName != null) {
-                                street = nearest.streetName
-                            }
-                        }
-
                         // Пропускаємо точки без населеного пункту (не створюємо фейкове місто під назвою країни)
                         if (city.isBlank()) continue
 
@@ -651,7 +639,6 @@ object AddressDownloadManager {
                         WHERE rowid IN (SELECT id FROM poi_places WHERE country_code = ?);
                     """.trimIndent(), arrayOf(countryCode))
                     db.execSQL("DELETE FROM poi_places WHERE country_code = ?;", arrayOf(countryCode))
-                    db.execSQL("DELETE FROM poi_country_ranges WHERE country_code = ?;", arrayOf(countryCode))
                     db.setTransactionSuccessful()
                 } finally {
                     db.endTransaction()
@@ -661,22 +648,18 @@ object AddressDownloadManager {
             }
 
             try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_street;") } catch (_: Exception) {}
-            try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_cat;") } catch (_: Exception) {}
-            try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_coords;") } catch (_: Exception) {}
             try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_country;") } catch (_: Exception) {}
             try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);") } catch (_: Exception) {}
 
             stmtInsertPoi = db.compileStatement("""
-                INSERT INTO poi_places (poi_id, name, category_id, street_id, house_number, lat, lon, country_code) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO poi_places (name, category_id, street_id, house_number, lat, lon, country_code) 
+                VALUES (?, ?, ?, ?, ?, ?, ?);
             """.trimIndent())
 
             val addrMatchCache = mutableMapOf<Pair<String, String>, Pair<Long, String>?>()
 
             val chunkSize = 5000
             var lastId = -1L
-            var minInsertedId = Long.MAX_VALUE
-            var maxInsertedId = 0L
             var hasMore = true
 
             onProgress(0.01, "${country.nameUk}: Початок імпорту точок інтересу (0/$totalNamedPois)")
@@ -780,29 +763,26 @@ object AddressDownloadManager {
                             }
 
                             // Insert POI place (autoincrement ID)
-                            stmtInsertPoi.bindLong(1, poiId)
-                            stmtInsertPoi.bindString(2, chosenName)
-                            stmtInsertPoi.bindString(3, catId)
+                            stmtInsertPoi.bindString(1, chosenName)
+                            stmtInsertPoi.bindString(2, catId)
                             val sId = matchedStreetId
                             if (sId != null) {
-                                stmtInsertPoi.bindLong(4, sId)
+                                stmtInsertPoi.bindLong(3, sId)
                             } else {
-                                stmtInsertPoi.bindNull(4)
+                                stmtInsertPoi.bindNull(3)
                             }
                             val hNum = matchedHouseNum
                             if (hNum != null) {
-                                stmtInsertPoi.bindString(5, hNum)
+                                stmtInsertPoi.bindString(4, hNum)
                             } else {
-                                stmtInsertPoi.bindNull(5)
+                                stmtInsertPoi.bindNull(4)
                             }
-                            stmtInsertPoi.bindLong(6, latMicro.toLong())
-                            stmtInsertPoi.bindLong(7, lonMicro.toLong())
-                            stmtInsertPoi.bindString(8, countryCode)
+                            stmtInsertPoi.bindLong(5, latMicro.toLong())
+                            stmtInsertPoi.bindLong(6, lonMicro.toLong())
+                            stmtInsertPoi.bindString(7, countryCode)
                             val rowId = stmtInsertPoi.executeInsert()
 
                             if (rowId > 0) {
-                                if (rowId < minInsertedId) minInsertedId = rowId
-                                if (rowId > maxInsertedId) maxInsertedId = rowId
                                 count++
                             }
                         }
@@ -827,18 +807,9 @@ object AddressDownloadManager {
                 onProgress(ratio, "${country.nameUk}: Додано $count точок інтересу (POI)")
             }
 
-            if (!isCancelled() && count > 0 && minInsertedId <= maxInsertedId) {
-                db.execSQL("""
-                    INSERT OR REPLACE INTO poi_country_ranges (country_code, min_id, max_id, total_count) 
-                    VALUES (?, ?, ?, ?);
-                """.trimIndent(), arrayOf(countryCode, minInsertedId, maxInsertedId, count))
-            }
-
             // Оптове відновлення індексів
             onProgress(0.92, "${country.nameUk}: Побудова індексів POI...")
             try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);") } catch (_: Exception) {}
-            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_cat ON poi_places(category_id);") } catch (_: Exception) {}
-            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);") } catch (_: Exception) {}
             try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);") } catch (_: Exception) {}
 
             // Оптове заповнення poi_fts
@@ -1382,11 +1353,6 @@ object AddressDownloadManager {
 
             onProgress(0.96, "${country.nameUk}: Оптимізація індексу FTS та стиснення бази")
 
-            try {
-                db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")
-            } catch (e: Exception) {
-                AppLogger.log(TAG, "ingestCountryAddresses", false, "Failed to create idx_houses_coords: ${e.message}")
-            }
 
             // Final FTS optimize, WAL checkpoint and VACUUM
             AddressDb.optimizeAndVacuum(db)
@@ -1412,10 +1378,6 @@ object AddressDownloadManager {
         }
     }
     fun needsPoiUpdate(context: Context, country: MapCountry): Boolean {
-        val dbFile = AddressDb.getDatabaseFile(context)
-        if (!dbFile.exists() || dbFile.length() < 1024L) return false
-        if (!hasAddressesForCountry(context, country.code)) return false
-
         val candidatePoiFiles = listOf(
             File(MushroomStorageManager.poiDir, country.poiFileName),
             File(File(context.filesDir, "poi"), country.poiFileName)
@@ -1423,7 +1385,11 @@ object AddressDownloadManager {
         val hasLocalPoi = candidatePoiFiles.any { it.exists() && it.length() > 1024L }
         if (!hasLocalPoi) return false
 
+        val dbFile = AddressDb.getDatabaseFile(context)
+        if (!dbFile.exists() || dbFile.length() < 1024L) return false
+
         val db = AddressDb.openDatabase(context, writable = false) ?: return false
+        if (!hasAddressesForCountry(context, country.code)) return false
         return !AddressDb.hasPoiDataForCountry(db, country.code)
     }
 }

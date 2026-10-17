@@ -89,68 +89,11 @@ object AddAddressDialog {
         }
         listContainer.addView(statusTv)
 
-        // Check local-only POI upgrade opportunity
-        val detectedCountry = MapDownloadManager.detectCurrentCountry(activity)
-        if (AddressDownloadManager.needsPoiUpdate(activity, detectedCountry)) {
-            val banner = LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setBackgroundColor(Color.parseColor("#1B2E24"))
-                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                p.setMargins(0, 0, 0, dp(10))
-                layoutParams = p
-                setPadding(dp(12), dp(8), dp(12), dp(8))
-            }
-
-            val bannerTv = TextView(activity).apply {
-                text = if (isUk) "💡 Доступне оновлення: додати точки інтересу (POI) без інтернету"
-                       else "💡 Update available: add points of interest (POI) from local file"
-                setTextColor(Color.parseColor("#86EFAC"))
-                textSize = 12f
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            }
-
-            val btnUpdate = UiUtils.createStyledButton(activity, if (isUk) "Оновити" else "Update") {
-                banner.visibility = View.GONE
-                statusTv.text = if (isUk) "Оновлення точок інтересу (POI)..." else "Updating POI..."
-                listContainer.removeAllViews()
-                listContainer.addView(statusTv)
-                Thread {
-                    val imported = AddressDownloadManager.importPoiLocationsToAddressDb(
-                        context = activity,
-                        country = detectedCountry,
-                        onProgress = { _, statusMsg ->
-                            activity.runOnUiThread {
-                                statusTv.text = statusMsg
-                            }
-                        }
-                    )
-                    activity.runOnUiThread {
-                        if (imported > 0) {
-                            Toast.makeText(
-                                activity,
-                                if (isUk) "Успішно додано $imported точок інтересу!" else "Successfully added $imported POI points!",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            Toast.makeText(
-                                activity,
-                                if (isUk) "Не вдалося оновити POI або файл відсутній" else "Failed to update POI or file missing",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                        statusTv.text = if (isUk) "Введіть назву вулиці, міста або точки інтересу" else "Enter street, city or POI name"
-                    }
-                }.start()
-            }.apply {
-                textSize = 12f
-                setPadding(dp(10), dp(4), dp(10), dp(4))
-            }
-
-            banner.addView(bannerTv)
-            banner.addView(btnUpdate)
-            container.addView(banner)
+        val bannerContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
+        container.addView(bannerContainer)
 
         fun renderResults(results: List<AddressSearchResult>) {
             listContainer.removeAllViews()
@@ -363,5 +306,77 @@ object AddAddressDialog {
             (activity.resources.displayMetrics.heightPixels * 0.85).toInt()
         )
         dialog.show()
+
+        // Background check for POI upgrade banner without blocking the UI
+        Thread {
+            try {
+                val detectedCountry = MapDownloadManager.detectCurrentCountry(activity)
+                if (AddressDownloadManager.needsPoiUpdate(activity, detectedCountry)) {
+                    activity.runOnUiThread {
+                        if (!activity.isFinishing && !activity.isDestroyed && dialog.isShowing) {
+                            val banner = LinearLayout(activity).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                                setBackgroundColor(Color.parseColor("#1B2E24"))
+                                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                                p.setMargins(0, 0, 0, dp(10))
+                                layoutParams = p
+                                setPadding(dp(12), dp(8), dp(12), dp(8))
+                            }
+
+                            val bannerTv = TextView(activity).apply {
+                                text = if (isUk) "💡 Доступне оновлення: додати точки інтересу (POI) без інтернету"
+                                       else "💡 Update available: add points of interest (POI) from local file"
+                                setTextColor(Color.parseColor("#86EFAC"))
+                                textSize = 12f
+                                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                            }
+
+                            val btnUpdate = UiUtils.createStyledButton(activity, if (isUk) "Оновити" else "Update") {
+                                banner.visibility = View.GONE
+                                statusTv.text = if (isUk) "Оновлення точок інтересу (POI)..." else "Updating POI..."
+                                listContainer.removeAllViews()
+                                listContainer.addView(statusTv)
+                                Thread {
+                                    val imported = AddressDownloadManager.importPoiLocationsToAddressDb(
+                                        context = activity,
+                                        country = detectedCountry,
+                                        onProgress = { _, statusMsg ->
+                                            activity.runOnUiThread {
+                                                statusTv.text = statusMsg
+                                            }
+                                        }
+                                    )
+                                    activity.runOnUiThread {
+                                        if (imported > 0) {
+                                            Toast.makeText(
+                                                activity,
+                                                if (isUk) "Успішно додано $imported точок інтересу!" else "Successfully added $imported POI points!",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            Toast.makeText(
+                                                activity,
+                                                if (isUk) "Не вдалося оновити POI або файл відсутній" else "Failed to update POI or file missing",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                        statusTv.text = if (isUk) "Введіть назву вулиці, міста або точки інтересу" else "Enter street, city or POI name"
+                                    }
+                                }.start()
+                            }.apply {
+                                textSize = 12f
+                                setPadding(dp(10), dp(4), dp(10), dp(4))
+                            }
+
+                            banner.addView(bannerTv)
+                            banner.addView(btnUpdate)
+                            bannerContainer.removeAllViews()
+                            bannerContainer.addView(banner)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }.start()
     }
 }

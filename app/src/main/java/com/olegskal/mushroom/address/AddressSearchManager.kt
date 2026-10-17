@@ -161,39 +161,51 @@ object AddressSearchManager {
             return catDefs[catId]?.icon ?: "📍"
         }
 
-        if (ftsQuery.isBlank() && houseNum == null) return emptyList()
-        if (ftsQuery.isBlank() && houseNum != null) return emptyList()
+        if (ftsQuery.isBlank()) return emptyList()
 
         val results = mutableListOf<AddressSearchResult>()
         val hasPoi = AddressDb.hasPoiTables(db)
         val hasPoiFts = hasPoi && AddressDb.hasTable(db, "poi_fts")
         val seenCoords = mutableSetOf<Pair<Int, Int>>()
 
+        val hVarsList: List<String>
+        val inPlaceholders: String
+        val hUp: String
+        val hLow: String
+
+        if (houseNum != null) {
+            hUp = houseNum.uppercase().trim()
+            hLow = houseNum.lowercase().trim()
+            val hVars = mutableSetOf(
+                hUp, hLow,
+                hUp.replace(" ", ""), hLow.replace(" ", ""),
+                hUp.replace("-", ""), hLow.replace("-", "")
+            )
+
+            val mNum = Pattern.compile("^([\\d/]+)[-\\s]?([^\\d\\s/]+)$").matcher(houseNum)
+            if (mNum.find()) {
+                val numP = mNum.group(1) ?: ""
+                val letP = mNum.group(2) ?: ""
+                for (let in listOf(letP.uppercase(), letP.lowercase())) {
+                    hVars.add("$numP$let")
+                    hVars.add("$numP-$let")
+                    hVars.add("$numP $let")
+                    hVars.add("$numP/$let")
+                }
+            }
+
+            hVarsList = hVars.toList()
+            inPlaceholders = hVarsList.joinToString(",") { "?" }
+        } else {
+            hUp = ""
+            hLow = ""
+            hVarsList = emptyList()
+            inPlaceholders = ""
+        }
+
         try {
             // 1. ADDRESS SEARCH (with optional linked POI info)
             if (houseNum != null) {
-                val hUp = houseNum.uppercase().trim()
-                val hLow = houseNum.lowercase().trim()
-                val hVars = mutableSetOf(
-                    hUp, hLow,
-                    hUp.replace(" ", ""), hLow.replace(" ", ""),
-                    hUp.replace("-", ""), hLow.replace("-", "")
-                )
-
-                val mNum = Pattern.compile("^([\\d/]+)[-\\s]?([^\\d\\s/]+)$").matcher(houseNum)
-                if (mNum.find()) {
-                    val numP = mNum.group(1) ?: ""
-                    val letP = mNum.group(2) ?: ""
-                    for (let in listOf(letP.uppercase(), letP.lowercase())) {
-                        hVars.add("$numP$let")
-                        hVars.add("$numP-$let")
-                        hVars.add("$numP $let")
-                        hVars.add("$numP/$let")
-                    }
-                }
-
-                val varsList = hVars.toList()
-                val inPlaceholders = varsList.joinToString(",") { "?" }
 
                 val sql = if (hasPoi) {
                     """
@@ -233,7 +245,7 @@ object AddressSearchManager {
 
                 val args = mutableListOf<String>()
                 args.add(ftsQuery)
-                args.addAll(varsList)
+                args.addAll(hVarsList)
                 args.add("$hUp%")
                 args.add("$hLow%")
                 args.add(limit.toString())
@@ -349,10 +361,14 @@ object AddressSearchManager {
                 }
             }
 
-            // 2. POI SEARCH (standalone or query by POI name/category)
+            // 2. POI SEARCH (standalone or query by POI name/category, filtered by house number if present)
             if (hasPoiFts && results.size < limit && ftsQuery.isNotBlank()) {
                 try {
                     val remainingLimit = limit - results.size
+                    val houseFilterClause = if (houseNum != null) {
+                        "AND pp.house_number IN ($inPlaceholders)"
+                    } else ""
+
                     val poiSql = """
                         SELECT 
                             pp.name, 
@@ -372,11 +388,19 @@ object AddressSearchManager {
                         LEFT JOIN admin_places reg ON reg.id = s.region_id
                         LEFT JOIN admin_places country ON country.id = s.country_id
                         WHERE poi_fts MATCH ?
+                        $houseFilterClause
                         $poiOrderByClause
                         LIMIT ?;
                     """.trimIndent()
 
-                    val poiCursor = db.rawQuery(poiSql, arrayOf(ftsQuery, remainingLimit.toString()))
+                    val poiArgs = mutableListOf<String>()
+                    poiArgs.add(ftsQuery)
+                    if (houseNum != null) {
+                        poiArgs.addAll(hVarsList)
+                    }
+                    poiArgs.add(remainingLimit.toString())
+
+                    val poiCursor = db.rawQuery(poiSql, poiArgs.toTypedArray())
                     poiCursor.use {
                         while (it.moveToNext()) {
                             val pName = it.getString(0) ?: ""
