@@ -622,12 +622,12 @@ object AddressDownloadManager {
         try {
             poiDb = SQLiteDatabase.openDatabase(poiFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
 
-            val totalNamedPois = try {
-                val c = poiDb.rawQuery("SELECT count(1) FROM poi_data WHERE data LIKE '%name=%';", null)
+            val totalPois = try {
+                val c = poiDb.rawQuery("SELECT count(1) FROM poi_data;", null)
                 c.use { if (it.moveToFirst()) it.getInt(0) else 0 }
             } catch (_: Exception) { 0 }
 
-            if (totalNamedPois == 0 || isCancelled()) {
+            if (totalPois == 0 || isCancelled()) {
                 return 0
             }
 
@@ -635,10 +635,6 @@ object AddressDownloadManager {
             try {
                 db.beginTransaction()
                 try {
-                    db.execSQL("""
-                        DELETE FROM poi_fts 
-                        WHERE rowid IN (SELECT id FROM poi_places WHERE country_code = ?);
-                    """.trimIndent(), arrayOf(countryCode))
                     db.execSQL("DELETE FROM poi_places WHERE country_code = ?;", arrayOf(countryCode))
                     db.setTransactionSuccessful()
                 } finally {
@@ -664,6 +660,19 @@ object AddressDownloadManager {
                 onProgress(0.02, "${country.nameUk}: $msg")
             }
 
+            val tagDescMap = mutableMapOf<String, String>()
+            try {
+                val cDesc = db.rawQuery(
+                    "SELECT tag, COALESCE(desc_local, desc_en, tag) FROM poi_types WHERE country_code = ?;",
+                    arrayOf(countryCode)
+                )
+                cDesc.use {
+                    while (it.moveToNext()) {
+                        tagDescMap[it.getString(0)] = it.getString(1)
+                    }
+                }
+            } catch (_: Exception) {}
+
             onProgress(0.03, "${country.nameUk}: Завантаження будинків у пам'ять для геоприв'язки POI...")
             val grid = SpatialHouseGrid.buildFromDatabase(db, countryCode)
             houseGrid = grid
@@ -673,14 +682,14 @@ object AddressDownloadManager {
             var lastId = -1L
             var hasMore = true
 
-            onProgress(0.04, "${country.nameUk}: Початок імпорту точок інтересу (0/$totalNamedPois)")
+            onProgress(0.04, "${country.nameUk}: Початок імпорту точок інтересу (0/$totalPois)")
 
             while (hasMore && !isCancelled()) {
                 val chunkCursor = poiDb.rawQuery("""
                     SELECT p.id, i.lat, i.lon, p.data 
                     FROM poi_data p 
                     JOIN poi_index i ON p.id = i.id 
-                    WHERE p.id > ? AND p.data LIKE '%name=%' 
+                    WHERE p.id > ? 
                     ORDER BY p.id ASC 
                     LIMIT ?;
                 """.trimIndent(), arrayOf(lastId.toString(), chunkSize.toString()))
@@ -724,16 +733,31 @@ object AddressDownloadManager {
                                 }
                             }
 
-                            val chosenName = (nameDef?.takeIf { s -> s.isNotBlank() }
+                            val primaryTag = PoiTagCatalog.extractPrimaryTag(tagMap)
+                            val typeId = typeIdMap[primaryTag] ?: typeIdMap["other"] ?: 1L
+                            val localizedTagDesc = tagDescMap[primaryTag]
+                                ?: PoiTagCatalog.BY_TAG[primaryTag]?.descEn
+                                ?: tagMap["amenity"]
+                                ?: tagMap["shop"]
+                                ?: tagMap["tourism"]
+                                ?: "Точка інтересу"
+
+                            val operatorTag = tagMap["operator"]?.takeIf { s -> s.isNotBlank() }
+                            val brandTag = tagMap["brand"]?.takeIf { s -> s.isNotBlank() }
+
+                            val explicitName = (nameDef?.takeIf { s -> s.isNotBlank() }
                                 ?: nameUk?.takeIf { s -> s.isNotBlank() }
                                 ?: nameEn?.takeIf { s -> s.isNotBlank() })?.trim()
 
-                            if (chosenName.isNullOrBlank()) {
-                                continue
+                            val chosenName = if (!explicitName.isNullOrBlank()) {
+                                explicitName
+                            } else if (!brandTag.isNullOrBlank()) {
+                                brandTag
+                            } else if (!operatorTag.isNullOrBlank()) {
+                                "$localizedTagDesc ($operatorTag)"
+                            } else {
+                                localizedTagDesc
                             }
-
-                            val primaryTag = PoiTagCatalog.extractPrimaryTag(tagMap)
-                            val typeId = typeIdMap[primaryTag] ?: typeIdMap["other"] ?: 1L
 
                             val latMicro = kotlin.math.round(latRaw * 1_000_000.0).toInt()
                             val lonMicro = kotlin.math.round(lonRaw * 1_000_000.0).toInt()
@@ -806,7 +830,7 @@ object AddressDownloadManager {
                     hasMore = false
                 }
 
-                val ratio = if (totalNamedPois > 0) (count.toDouble() / totalNamedPois).coerceIn(0.0, 1.0) else 0.5
+                val ratio = if (totalPois > 0) (count.toDouble() / totalPois).coerceIn(0.0, 1.0) else 0.5
                 onProgress(ratio, "${country.nameUk}: Додано $count точок інтересу (POI)")
             }
 
@@ -820,6 +844,8 @@ object AddressDownloadManager {
             try {
                 db.beginTransaction()
                 try {
+                    db.execSQL("DROP TABLE IF EXISTS poi_fts;")
+                    db.execSQL("CREATE VIRTUAL TABLE poi_fts USING fts4(poi_name, type_name, type_tag, city_name, street_name, tokenize=unicode61, content='', matchinfo=fts3);")
                     db.execSQL("""
                         INSERT INTO poi_fts (rowid, poi_name, type_name, type_tag, city_name, street_name)
                         SELECT p.id, p.name, COALESCE(pt.desc_local, pt.desc_en, ''), COALESCE(pt.tag, ''), COALESCE(city.name, ''), COALESCE(sn.name, '')
@@ -827,9 +853,8 @@ object AddressDownloadManager {
                         LEFT JOIN poi_types pt ON pt.id = p.category_id
                         LEFT JOIN streets s ON s.id = p.street_id
                         LEFT JOIN street_names sn ON sn.id = s.name_id
-                        LEFT JOIN admin_places city ON city.id = s.place_id
-                        WHERE p.country_code = ?;
-                    """.trimIndent(), arrayOf(countryCode))
+                        LEFT JOIN admin_places city ON city.id = s.place_id;
+                    """.trimIndent())
                     db.setTransactionSuccessful()
                 } finally {
                     db.endTransaction()

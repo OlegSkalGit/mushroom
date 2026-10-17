@@ -214,7 +214,16 @@ object PoiTagCatalog {
         PoiTagDef("chimney", "Chimney", "man_made"),
         PoiTagDef("bridge", "Bridge", "man_made"),
         PoiTagDef("dock", "Pier / Dock", "man_made"),
-        PoiTagDef("ranger_station", "Forestry / Ranger Station", "forestry")
+        PoiTagDef("ranger_station", "Forestry / Ranger Station", "forestry"),
+        PoiTagDef("garden", "Garden", "leisure"),
+        PoiTagDef("fire_hydrant", "Fire Hydrant", "emergency"),
+        PoiTagDef("track", "Track / Running Track", "leisure"),
+        PoiTagDef("grave_yard", "Graveyard", "amenity"),
+        PoiTagDef("greengrocer", "Greengrocer", "shop"),
+        PoiTagDef("rest_area", "Rest Area", "highway"),
+        PoiTagDef("water_point", "Water Point", "amenity"),
+        PoiTagDef("speed_camera", "Speed Camera", "highway"),
+        PoiTagDef("petroleum_well", "Petroleum Well", "man_made")
     )
 
     val BY_TAG: Map<String, PoiTagDef> = TAGS.associateBy { it.tag }
@@ -251,7 +260,7 @@ object PoiTagCatalog {
 
         // 3. Fuel & Transport
         if (amenity == "fuel") return "fuel"
-        if (highway == "bus_stop" || publicTransport == "platform" || publicTransport == "stop_position") return "bus_stop"
+        if (highway == "bus_stop" || highway == "platform" || publicTransport == "platform" || publicTransport == "stop_position" || publicTransport == "stop" || tagMap["bus"] == "yes" || tagMap["trolleybus"] == "yes" || tagMap["share_taxi"] == "yes") return "bus_stop"
         if (railway == "tram_stop") return "tram_stop"
         if (railway == "station" || railway == "halt") return "station"
         if (amenity == "bus_station") return "bus_station"

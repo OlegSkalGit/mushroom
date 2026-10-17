@@ -208,7 +208,16 @@ object AddressSearchManager {
         "поліція" to listOf("поліці*", "police*"),
         "пожежна" to listOf("пожежн*", "fire*"),
         "швидка" to listOf("швидк*", "ambulance*"),
-        "лісництво" to listOf("лісництв*", "ranger*")
+        "лісництво" to listOf("лісництв*", "ranger*"),
+        "сад" to listOf("сад*", "garden*"),
+        "гідрант" to listOf("гідрант*", "hydrant*"),
+        "кладовище" to listOf("кладовищ*", "цвинтар*", "grave*"),
+        "цвинтар" to listOf("цвинтар*", "кладовищ*", "grave*"),
+        "трек" to listOf("трек*", "доріжк*", "track*"),
+        "овочі" to listOf("овоч*", "фрукт*", "greengrocer*"),
+        "фрукти" to listOf("фрукт*", "овоч*", "greengrocer*"),
+        "радар" to listOf("радар*", "камер*", "speed*"),
+        "камера" to listOf("камер*", "радар*", "speed*")
     )
 
     fun search(
@@ -366,6 +375,15 @@ object AddressSearchManager {
                 "townhall", "courthouse", "government" -> "🏛️"
                 "toilets" -> "🚻"
                 "ranger_station" -> "🌲"
+                "garden" -> "🌳"
+                "fire_hydrant" -> "🧯"
+                "track" -> "🏃"
+                "grave_yard" -> "🪦"
+                "greengrocer" -> "🍏"
+                "rest_area" -> "🅿️"
+                "water_point" -> "💧"
+                "speed_camera" -> "📷"
+                "petroleum_well" -> "🛢️"
                 else -> catDefs[groupCat]?.icon ?: "📍"
             }
         }
