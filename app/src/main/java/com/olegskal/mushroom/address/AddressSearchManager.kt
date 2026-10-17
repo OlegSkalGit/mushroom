@@ -75,7 +75,8 @@ object AddressSearchManager {
     private val categorySearchMap: Map<String, Set<String>> by lazy {
         val map = mutableMapOf<String, MutableSet<String>>()
         val wordRegex = Pattern.compile("[a-zA-Z0-9а-яА-ЯіІїЇєЄґҐ]+")
-        val stopWords = setOf("при", "для", "під", "над", "від", "and", "the", "for", "are")
+        val stopWords = setOf("при", "для", "під", "над", "від", "and", "the", "for", "are", "station", "stations")
+        val allCategoryIds = PoiManager.DEFAULT_CATEGORIES.map { it.id.lowercase() }.toSet()
 
         for (cat in PoiManager.DEFAULT_CATEGORIES) {
             val catId = cat.id.lowercase().replace("_", " ")
@@ -93,6 +94,11 @@ object AddressSearchManager {
                 val m = wordRegex.matcher(cleanKw)
                 while (m.find()) {
                     val part = m.group()
+                    // Захист: ніколи не додаємо ID іншої категорії як код поточної
+                    // (наприклад, "fuel" з "fuel:electricity" не повинен потрапляти до "charging")
+                    if (part in allCategoryIds && part != cat.id.lowercase()) {
+                        continue
+                    }
                     if (part.length >= 3 && part !in stopWords) {
                         relatedCodes.add(part)
                     }
@@ -103,6 +109,7 @@ object AddressSearchManager {
             while (matcher.find()) {
                 val w = matcher.group()
                 if (w.length < 3 || w in stopWords) continue
+                if (w in allCategoryIds && w != cat.id.lowercase()) continue
                 val stem = if (w.length >= 4) {
                     w.replace(Regex("[аеиіоуєюяьй]+$"), "")
                 } else w
