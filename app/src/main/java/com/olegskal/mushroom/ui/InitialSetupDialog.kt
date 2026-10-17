@@ -22,6 +22,7 @@ import android.os.StatFs
 import com.olegskal.mushroom.MushroomMapActivity
 import com.olegskal.mushroom.address.AddressDb
 import com.olegskal.mushroom.address.AddressDownloadManager
+import com.olegskal.mushroom.address.AddressPrebuiltManager
 import com.olegskal.mushroom.map.MapCountry
 import com.olegskal.mushroom.map.MapDownloadManager
 import com.olegskal.mushroom.map.OsmTileEngine
@@ -591,25 +592,44 @@ object InitialSetupDialog {
                     "База адрес", "Address database",
                     "${if (isUk) country.nameUk else country.name} ($regDisplay, addr.db)",
                     35_000_000L
-                ) { onBytes, _, isCancel ->
+                ) { onBytes, onSizeDiscovered, isCancel ->
                     var lastReported = 0L
-                    AddressDownloadManager.ingestCountryAddresses(
+                    fun reportProgress(ratio: Float, statusMsg: String) {
+                        val curBytes = (ratio * 35_000_000L).toLong()
+                        val delta = curBytes - lastReported
+                        if (delta > 0L) {
+                            lastReported = curBytes
+                            onBytes(delta)
+                        }
+                        val mapAct = context as? MushroomMapActivity
+                        val rem = pendingQueue.size
+                        val remSuffix = if (rem > 0) (if (isUk) " (у черзі: $rem)" else " (in queue: $rem)") else ""
+                        mapAct?.updateBottomDownloadProgress(true, -1, 1000, "$statusMsg$remSuffix")
+                    }
+
+                    // 1. Спроба завантажити та консолідувати готову прекомпільовану базу країни (.zip / .z01 або локальний файл)
+                    val prebuiltInstalled = AddressPrebuiltManager.tryInstallPrebuiltCountry(
                         context = context,
                         country = country,
-                        onProgress = { ratio, statusMsg ->
-                            val curBytes = (ratio * 35_000_000L).toLong()
-                            val delta = curBytes - lastReported
-                            if (delta > 0L) {
-                                lastReported = curBytes
-                                onBytes(delta)
-                            }
-                            val mapAct = context as? MushroomMapActivity
-                            val rem = pendingQueue.size
-                            val remSuffix = if (rem > 0) (if (isUk) " (у черзі: $rem)" else " (in queue: $rem)") else ""
-                            mapAct?.updateBottomDownloadProgress(true, -1, 1000, "$statusMsg$remSuffix")
-                        },
+                        onBytes = onBytes,
+                        onSizeDiscovered = onSizeDiscovered,
+                        onProgress = { ratio, statusMsg -> reportProgress(ratio, statusMsg) },
                         isCancelled = isCancel
                     )
+
+                    // 2. Якщо готової бази немає на сервері — працює незмінний основний алгоритм
+                    if (prebuiltInstalled) {
+                        true
+                    } else if (!isCancel()) {
+                        AddressDownloadManager.ingestCountryAddresses(
+                            context = context,
+                            country = country,
+                            onProgress = { ratio, statusMsg -> reportProgress(ratio.toFloat(), statusMsg) },
+                            isCancelled = isCancel
+                        )
+                    } else {
+                        false
+                    }
                 }
             )
         }
