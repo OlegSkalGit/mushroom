@@ -74,17 +74,23 @@ object AddressSearchManager {
 
     private val categorySearchMap: Map<String, Set<String>> by lazy {
         val map = mutableMapOf<String, MutableSet<String>>()
-        val wordRegex = Pattern.compile("[\\w\\dа-яА-ЯіІїЇєЄґҐ]+")
+        val wordRegex = Pattern.compile("[a-zA-Z0-9а-яА-ЯіІїЇєЄґҐ]+")
         val stopWords = setOf("при", "для", "під", "над", "від", "and", "the", "for", "are")
 
         for (cat in PoiManager.DEFAULT_CATEGORIES) {
-            val catId = cat.id.lowercase()
+            val catId = cat.id.lowercase().replace("_", " ")
             val allText = "${cat.titleUk} ${cat.titleEn} ${cat.keywords.joinToString(" ")} $catId"
 
             val relatedCodes = mutableSetOf<String>()
-            relatedCodes.add(catId)
+            val idMatcher = wordRegex.matcher(catId)
+            while (idMatcher.find()) {
+                val p = idMatcher.group()
+                if (p.length >= 3 && p !in stopWords) relatedCodes.add(p)
+            }
+
             for (kw in cat.keywords) {
-                val m = wordRegex.matcher(kw.lowercase())
+                val cleanKw = kw.lowercase().replace("_", " ").replace(":", " ")
+                val m = wordRegex.matcher(cleanKw)
                 while (m.find()) {
                     val part = m.group()
                     if (part.length >= 3 && part !in stopWords) {
@@ -180,9 +186,19 @@ object AddressSearchManager {
                             low
                         }
 
-                        val syns = categorySearchMap[low] ?: (if (stem.length >= 3) categorySearchMap[stem] else null)
+                        // 1. Прямий або стемінговий збіг
+                        var syns = categorySearchMap[low] ?: (if (stem.length >= 3) categorySearchMap[stem] else null)
+
+                        // 2. Частковий збіг (префікс, наприклад "запр" від "заправка", "апт" від "аптека")
+                        if (syns == null && low.length >= 3) {
+                            syns = categorySearchMap.entries.firstOrNull { (k, _) ->
+                                k.startsWith(low) || (stem.length >= 3 && k.startsWith(stem))
+                            }?.value
+                        }
+
                         if (syns != null && syns.isNotEmpty()) {
-                            val orClause = "(" + syns.sorted().joinToString(" OR ") { "$it*" } + ")"
+                            val terms = (syns + low).filter { it.isNotBlank() && !it.contains("_") }
+                            val orClause = "(" + terms.sorted().joinToString(" OR ") { "$it*" } + ")"
                             textTokens.add(orClause)
                         } else {
                             if (stem.length >= 3) {
