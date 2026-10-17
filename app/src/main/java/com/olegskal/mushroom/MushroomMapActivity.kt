@@ -1475,20 +1475,29 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             )
 
             addSpoilerSection(
-                "🏠", "База адрес та офлайн-пошук",
+                "🏠", "База адрес, точок інтересу (POI) та офлайн-пошук",
                 listOf(
                     HelpChapter(
-                        "📌 Глава 1: Локальна база адрес addr.db",
+                        "📌 Глава 1: Локальна база адрес та POI addr.db",
                         "• База зберігається за шляхом /sdcard/mushroom/addresses/addr.db.\n" +
-                        "• База побудована на SQLite: містить таблиці населених пунктів, вулиць, номерів будинків у цілочисельних мікроградусах (WITHOUT ROWID) та повнотекстовий індекс пошуку FTS5 з безпечним fallback до FTS4.\n" +
-                        "• Заливка даних з OpenStreetMap Overpass з багаторівневими запобіжниками: паралельна перевірка слотів серверів (/status), ескалація пам'яті до 2GB, gzip-стиснення, гео-сітка 0.1° для прив'язки будинків до населених пунктів та експорт адрес з Mapsforge .poi."
+                        "• База побудована на SQLite: містить нормалізовану ієрархію admin_places -> streets -> houses (координати в мікроградусах, WITHOUT ROWID) та повну підтримку точок інтересу poi_places із накопичувальним каталогом poi_types.\n" +
+                        "• Каталог 180 канонічних OSM-тегів: повна типізація об'єктів (лікарні, аптеки, АЗС, зарядні станції, джерела води, лісові масиви, парки, вбиральні тощо) з автоматичним каскадним автоперекладом на мову країни через Google Translate та MyMemory API.\n" +
+                        "• Повнотекстовий індекс пошуку FTS5 з безпечним fallback до FTS4: індексує назви міст, вулиць, номери будинків, власні назви POI, перекладені описи типу та системні теги."
                     ),
                     HelpChapter(
-                        "📌 Глава 2: Пошук адреси та збереження маркера",
-                        "• Відкриття: меню «Маркери» -> кнопка «Додати адресу» (розташована під кнопкою «Вставити координати з буфера»).\n" +
-                        "• Поле живого вводу: список пропозицій (до 30 адрес) оновлюється автоматично по мірі набору тексту адреси.\n" +
-                        "• Захист від збоїв: можливі помилки чи відсутність бази виводяться у системному спливаючому вікні.\n" +
-                        "• При виборі адреси зі списку автоматично відкривається стандартне вікно збереження маркера з точними координатами та назвою, що дорівнює вибраній адресі."
+                        "📌 Глава 2: Інтелектуальний гібридний пошук (Адреси + POI)",
+                        "• Відкриття: меню «Маркери» -> кнопка «Додати адресу» (під кнопкою «Вставити координати з буфера»).\n" +
+                        "• Живий гібридний пошук: миттєво знаходить і точні адреси, і об'єкти інтересу (наприклад: «Чернігів Мазепи 68-Б», «чер азс», «чер маз заправка», «зарядка», «аптека», «ліс», «вода», «парк»).\n" +
+                        "• Семантичні синоніми та сегрегація: розпізнає синоніми та частини мови з чітким розділенням понять (парки відпочинку не плутаються з автостоянками, аптеки — з лікарнями).\n" +
+                        "• Підтримка літерних номерів: розумний парсер знаходить будинки як з дефісом, так і разом (68-Б, 68б, 68 б).\n" +
+                        "• Динамічна квота 20 / 10 (ліміт 30): якщо знайдено і адреси, і POI — виводиться до 20 адрес та 10 POI; якщо результати є лише для одного або чогось менше — залишкова квота автоматично переходить до іншого.\n" +
+                        "• Сортування за GPS: за наявності сигналу GPS результати автоматично ранжуються за відстанню від вашого поточного місцеположення.\n" +
+                        "• Візуальні емодзі-іконки: кожен тип об'єкта відображається з тематичною іконкою (💊, ⛽, ⚡, 🏥, 🌲, 💧, 🌳, 🚻 тощо)."
+                    ),
+                    HelpChapter(
+                        "📌 Глава 3: Збереження маркера та навігація",
+                        "• Вибір адреси або POI зі списку автоматично відкриває стандартне вікно створення маркера з точними координатами та назвою вибраного об'єкта.\n" +
+                        "• До створеної точки можна одразу прокласти маршрут пішки, на авто чи велосипеді за допомогою BRouter лінійки або експортувати у GPX."
                     )
                 ),
                 defaultExpanded = false
@@ -1755,20 +1764,29 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             )
 
             addSpoilerSection(
-                "🏠", "Address Database & Offline Search",
+                "🏠", "Address Database, Points of Interest (POI) & Search",
                 listOf(
                     HelpChapter(
                         "📌 Chapter 1: Local SQLite Database addr.db",
                         "• Stored at /sdcard/mushroom/addresses/addr.db.\n" +
-                        "• SQLite schema: settlements, streets, house numbers in microdegrees (WITHOUT ROWID), and full-text search index FTS5 with safe fallback to FTS4.\n" +
-                        "• Ingestion from OSM Overpass with robust safeguards: mirror rotation with /status slot polling, memory limit escalation to 2GB, gzip compression, 0.1° spatial grid for settlement matching, and Mapsforge .poi address extraction."
+                        "• SQLite schema: normalized admin_places -> streets -> houses hierarchy (coordinates in microdegrees, WITHOUT ROWID), plus comprehensive Points of Interest table poi_places linked to poi_types catalog.\n" +
+                        "• Comprehensive 180 canonical OSM tags: complete object categorization (hospitals, pharmacies, gas stations, EV charging, drinking water, springs, forests, parks, restrooms, etc.) with automatic multi-source translation via Google Translate and MyMemory APIs.\n" +
+                        "• FTS5 / FTS4 full-text index: indexes settlements, street names, house numbers, POI names, localized descriptions, and system tags."
                     ),
                     HelpChapter(
-                        "📌 Chapter 2: Real-time Search & Marker Creation",
-                        "• Access: Markers menu -> 'Add Address' button (located below 'Paste from clipboard').\n" +
-                        "• Live search input: suggestion list (up to 30 addresses) updates in real-time as you type.\n" +
-                        "• Error handling: missing database or invalid queries trigger descriptive system alerts.\n" +
-                        "• Selecting an address instantly opens the standard waypoint creation dialog with exact coordinates and the address pre-filled as title."
+                        "📌 Chapter 2: Intelligent Hybrid Search (Addresses + POI)",
+                        "• Access: Markers menu -> 'Add Address' button (under 'Paste from clipboard').\n" +
+                        "• Real-time hybrid search: instantly resolves addresses, street names, and Points of Interest by name or localized category (e.g., 'gas station', 'charging', 'pharmacy', 'forest', 'spring', 'water', 'park').\n" +
+                        "• Semantic synonyms & isolation: parses colloquial phrases with strict category boundaries (recreation parks are separated from parking lots; pharmacies from general clinics).\n" +
+                        "• Alphanumeric house parsing: recognizes hyphenated and combined house numbers (68-B, 68b, 68 b).\n" +
+                        "• Dynamic 20 / 10 quota allocation (limit 30): when both match, balances up to 20 addresses and 10 POIs; if only one matches or either has fewer results, leftover slots are dynamically allocated to the other.\n" +
+                        "• GPS proximity sorting: with active GPS location, suggestions are ranked automatically by nearest distance.\n" +
+                        "• Thematic emoji badges: each POI type displays a distinct visual icon (💊, ⛽, ⚡, 🏥, 🌲, 💧, 🌳, 🚻, etc.)."
+                    ),
+                    HelpChapter(
+                        "📌 Chapter 3: Waypoint Creation & Routing",
+                        "• Selecting any result opens the standard waypoint creation dialog with exact coordinates and title pre-filled.\n" +
+                        "• Saved points can immediately be routed to via BRouter ruler (foot, car, bicycle) or exported to standard GPX."
                     )
                 ),
                 defaultExpanded = false

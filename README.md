@@ -24,8 +24,8 @@
 - 🗺️ **Векторні карти Mapsforge (`.map`):** Рендеринг карт безпосередньо з файлів без растрових тайлів, затримок та трафіку.
 - 🚴 **Офлайн-маршрутизація BRouter (`.rd5`):** Розрахунок до 3 альтернативних варіантів шляху для автомобіля, пішохода/хайкінгу та велосипеда.
 - 📏 **Інтерактивна лінійка та авто-маршрут з 1 точки:** Вимірювання відстаней, перетягування точок, вставка сегментів; **для 1 точки** автоматично підхоплюється поточне місцеположення стрілки користувача (GPS) для миттєвої побудови маршруту до цілі.
-- 🏠 **Офлайн-база адрес `addr.db` та миттєвий пошук:** Повнотекстовий пошук FTS5/FTS4 у базі `/sdcard/mushroom/addresses/addr.db` (будинки у мікроградусах, вулиці, населені пункти) з підтримкою до 30 живих підказок та миттєвим збереженням точки.
-- 📍 **Точки інтересу POI (`.poi`):** 22 офіційні категорії (лікарні, магазини, кафе, АЗС/EV, туризм, транспорт), кластеризація та автопідстановка назви найближчої POI у маркер.
+- 🏠 **Офлайн-база адрес і POI `addr.db` та гібридний пошук:** Повнотекстовий пошук FTS5/FTS4 у базі `/sdcard/mushroom/addresses/addr.db` (будинки у мікроградусах, вулиці, населені пункти, 180 канонічних типів POI з автоперекладом на мову країни) з динамічною квотою 20 адрес / 10 POI (до 30 живих підказок), сортуванням за GPS-відстанню та миттєвим збереженням точки.
+- 📍 **Точки інтересу POI (`.poi` та `poi_places`):** 22 офіційні категорії Mapsforge та 180 розширених OSM-тегів у базі адрес, кластеризація та автопідстановка назви найближчої POI у маркер.
 - 🍄 **Грибні точки та маркери:** Збереження за тапом, прапорцем за поточним GPS, адресою або вставкою координат з буфера; палітра кольорів, фільтри видимості та експорт у GPX.
 - 🥾 **Фоновий запис GPS-треків:** Foreground-сервіс із захистом від присипляння Android Doze Mode, фільтрація GPS-шумів, відображення кілометражу в назві `(км)` та імпорт/експорт GPX.
 - 📥 **Фонове завантаження без блокування екрана:** Суворий порядок завантаження (1. Версія додатку $\to$ 2. Оглядова карта світу $\to$ 3. Карта країни $\to$ 4. Точки інтересу POI $\to$ 5. Файли маршрутизації $\to$ 6. База адрес (25 регіонів) $\to$ 7. Енциклопедія $\to$ 8. Файли визначника). Для карти країни виділено 50% шкали прогрес-бару із зазначенням кількості регіонів та живого статусу завантаження без блокування карти.
@@ -80,11 +80,16 @@ chmod +x _BUILD_apk_.sh
 - BRouter пропонує до 3 альтернатив на ділянку (сірі лінії). Клік по ділянці обирає її (яскраво-блакитна) та показує спливаючу підказку з кілометражем.
 - При виході пропонується: «Зберегти трек» (довжина в км автоматично додається у назву), «Видалити» або «Скасувати».
 
-### 4. Офлайн-база адрес `addr.db` та пошук
+### 4. Офлайн-база адрес і POI `addr.db` та інтелектуальний пошук
 - Локальна SQLite база за адресою `/sdcard/mushroom/addresses/addr.db`.
 - Повнотекстовий індекс пошуку FTS5 із захисним fallback до FTS4, координати у мікроградусах (таблиці `WITHOUT ROWID`).
-- Повний захист при заливці з Overpass API: ротація дзеркал, перевірка вільних слотів `/status`, ліміт пам'яті до 2GB, gzip, просторова прив'язка будинків до населених пунктів (сітка 0.1°), витяг адрес з Mapsforge `.poi`.
-- Кнопка «Додати адресу» у меню «Маркери» (під вставкою з буфера): живий пошук до 30 варіантів на льоту, захист від помилок у спливаючих повідомленнях, миттєве відкриття діалогу збереження маркера з координатами та назвою.
+- **Каталог 180 канонічних OSM-тегів:** повна типізація точок (`hospital`, `pharmacy`, `fuel`, `charging_station`, `wood`, `spring`, `drinking_water`, `toilets` тощо) із каскадним автоперекладом на мову країни (Google Translate / MyMemory API).
+- **Інтелектуальний гібридний пошук (Адреси + POI):** кнопка «Додати адресу» у меню «Маркери» знаходить як точні адреси, так і об'єкти інтересу за назвою, категорією чи розмовними синонімами («чер маз заправка», «черн зарядна», «аптека», «ліс», «вода», «парк»).
+- **Семантична сегрегація:** міські парки відпочинку не плутаються з автостоянками, аптеки — з лікарнями.
+- **Підтримка номерів будинків:** розпізнає літерні та дефісні позначення (`68-Б`, `68б`, `68 б`).
+- **Динамічний баланс квот 20/10 (ліміт 30):** якщо знайдено і адреси, і POI — виводиться до 20 адрес та 10 POI; якщо результати є лише для одного або чогось менше — залишкова квота автоматично переходить до іншого.
+- **Сортування за GPS:** за наявності GPS-сигналу результати ранжуються за найкоротшою відстанню від користувача.
+- **Кольорові емодзі-іконки:** кожен тип точки відображається з тематичним значком (💊, ⛽, ⚡, 🏥, 🌲, 💧, 🌳, 🚻 тощо).
 
 ### 5. Грибні мітки та керування точками
 - Створення маркера тапом по карті, кнопкою прапорця за поточним GPS, кнопкою адреси або вставкою координат із буфера обміну (Google Maps / месенджери).
@@ -100,14 +105,15 @@ chmod +x _BUILD_apk_.sh
 - Повний імпорт та експорт стандартних файлів GPX.
 
 ### 7. Послідовне завантаження та прогрес-бар
-- Суворий порядок завантаження:
+- Суворий порядок завантаження (8 кроків):
   1. Версія додатку (оновлення APK через GitHub).
   2. Оглядова карта світу (`world.map`).
-  3. Карта країни (`.map`).
-  4. Файли маршрутизації BRouter (`.rd5`).
-  5. База адрес (`addr.db`).
-  6. Енциклопедія грибів (`mushrooms.db`).
-  7. Модель класифікатора (`model.zip`).
+  3. Карта країни (`.map`) — виділено 50% шкали прогрес-бару.
+  4. Точки інтересу POI (`.poi`).
+  5. Файли маршрутизації BRouter (`.rd5`).
+  6. База адрес та POI (`addr.db`).
+  7. Енциклопедія грибів (`mushrooms.db`).
+  8. Модель класифікатора (`model.zip`).
 - Діалог налаштування закривається одразу при старті, а тонкий прогрес-бар відображається знизу карти без зайвих вікон чи таймерів.
 - Завантаження карт організовано виключно по цілих суверенних країнах (понад 195 країн світу).
 
@@ -142,8 +148,8 @@ chmod +x _BUILD_apk_.sh
 - 🗺️ **Mapsforge Vector Maps (`.map`):** Direct vector rendering without raster tile bloat, network lag, or web caching.
 - 🚴 **BRouter Offline Navigation (`.rd5`):** Calculates up to 3 alternative routes per segment for Car, Foot (hiking), and Bicycle profiles.
 - 📏 **Interactive Ruler & 1-Point Route Generation:** Distance measurement, node dragging, intermediate waypoint insertion; **supports 1-point routing** by automatically utilizing the user's current GPS location arrow as the origin.
-- 🏠 **Offline Address Database `addr.db` & Instant Search:** FTS5/FTS4 full-text search in `/sdcard/mushroom/addresses/addr.db` (microdegree coordinates, `WITHOUT ROWID`, streets, settlements) with real-time suggestion list up to 30 items.
-- 📍 **Points of Interest (`.poi`):** 22 official categories (Hospitals, Food, Shops, Fuel/EV, Tourism, Transit), clustering badges, and automatic waypoint naming within 50 m.
+- 🏠 **Offline Address & POI Database `addr.db` & Hybrid Search:** FTS5/FTS4 full-text search in `/sdcard/mushroom/addresses/addr.db` (microdegree coordinates, `WITHOUT ROWID`, streets, settlements, 180 canonical POI tags with auto-translation) with dynamic 20 address / 10 POI quota (up to 30 real-time suggestions), GPS proximity sorting, and instant waypoint creation.
+- 📍 **Points of Interest (`.poi` & `poi_places`):** 22 official Mapsforge categories and 180 expanded OSM tags in address database, clustering badges, and automatic waypoint naming within 50 m.
 - 🍄 **Mushroom Waypoint Markers:** Add by map tap, floating flag at GPS position, offline address search, or clipboard coordinate pasting; custom color palette, visibility toggles, and GPX export.
 - 🥾 **Background GPS Track Logging:** Ongoing Foreground Service immune to Android Doze Mode throttling, GPS noise filtration, distance in title `(km)`, and GPX import/export.
 - 📥 **Non-Blocking Background Downloads:** Strict priority sequence (1. App version $\to$ 2. World map $\to$ 3. Country map $\to$ 4. Points of Interest (POI) $\to$ 5. Routing files $\to$ 6. Address database (25 regions) $\to$ 7. Encyclopedia $\to$ 8. Classifier files). Country map is allocated 50% of the progress bar scale, displaying region count and real-time status at the bottom of the map without blocking screen interaction.
@@ -198,11 +204,16 @@ The scripts automatically:
 - Displays up to 3 alternatives per span in gray; tapping a segment selects it in cyan-blue with distance details.
 - Exiting with $>1$ points prompts: Save Track (length in km appended to title), Delete, or Cancel.
 
-### 4. Offline Address Database `addr.db` & Search
+### 4. Offline Address & POI Database `addr.db` & Intelligent Search
 - Local SQLite database located at `/sdcard/mushroom/addresses/addr.db`.
 - Full-text search index FTS5 with safe fallback to FTS4, microdegree coordinates (`WITHOUT ROWID`).
-- High-reliability Overpass ingestion: mirror rotation with `/status` slot checking, 2GB memory limit escalation, gzip compression, 0.1° spatial settlement index, and Mapsforge `.poi` address extraction.
-- 'Add Address' button in Markers menu: live debounced search returning up to 30 suggestions, system error toasts, and direct transition to waypoint creation with pre-filled title and coordinates.
+- **180 Canonical OSM Tags Catalog:** complete categorization (`hospital`, `pharmacy`, `fuel`, `charging_station`, `wood`, `spring`, `drinking_water`, `toilets`, etc.) with multi-source cascade translation (Google Translate / MyMemory APIs).
+- **Intelligent Hybrid Search (Addresses + POI):** 'Add Address' button in Markers menu instantly resolves addresses and Points of Interest by name, category, or colloquial terms ('gas station', 'charging', 'pharmacy', 'forest', 'spring', 'water', 'park').
+- **Semantic Segregation:** recreation parks strictly segregated from parking lots; pharmacies from hospitals.
+- **House Number Parsing:** full support for hyphenated and letter-suffixed numbers (`68-B`, `68b`, `68 b`).
+- **Dynamic 20/10 Quota Allocation (limit 30):** balances up to 20 addresses and 10 POIs when both match; dynamically rolls over unused slots if one category has fewer results.
+- **GPS Proximity Ranking:** automatically sorts results from closest to furthest when device GPS location is available.
+- **Thematic Emoji Badges:** visual category icons (💊, ⛽, ⚡, 🏥, 🌲, 💧, 🌳, 🚻, etc.) for intuitive selection.
 
 ### 5. Waypoints & Marker Management
 - Create waypoints via map gestures, floating flag button (GPS position), Add Address dialog, or clipboard coordinates (Google Maps / messengers).
@@ -218,14 +229,15 @@ The scripts automatically:
 - Full GPX file import and export.
 
 ### 7. Priority Download Sequence & Minimalist Progress Bar
-- Strict 7-step sequence:
+- Strict 8-step sequence:
   1. App Version (APK update via GitHub).
   2. World Overview Map (`world.map`).
-  3. Country Vector Map (`.map`).
-  4. BRouter Routing Segments (`.rd5`).
-  5. Address Database (`addr.db`).
-  6. Mushroom Encyclopedia (`mushrooms.db`).
-  7. AI Classifier Model (`model.zip`).
+  3. Country Vector Map (`.map`) — allocated 50% of progress bar.
+  4. Points of Interest (`.poi`).
+  5. BRouter Routing Segments (`.rd5`).
+  6. Address & POI Database (`addr.db`).
+  7. Mushroom Encyclopedia (`mushrooms.db`).
+  8. AI Classifier Model (`model.zip`).
 - Setup dialog closes immediately when download begins; progress is displayed via a slim, non-intrusive progress bar at the bottom of the map screen without blocking user actions.
 - Country downloads organized strictly by entire sovereign nations (195+ countries worldwide).
 
