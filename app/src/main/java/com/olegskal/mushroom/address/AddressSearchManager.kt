@@ -167,7 +167,37 @@ object AddressSearchManager {
         // Транспорт
         "зупинка" to listOf("зупинк*", "bus_stop*"),
         "вокзал" to listOf("вокзал*", "станці*", "station*"),
-        "метро" to listOf("метро*", "subway*")
+        "метро" to listOf("метро*", "subway*"),
+        "пором" to listOf("пором*", "ferry*"),
+
+        // Додаткові сервіси, розваги, природа
+        "піцерія" to listOf("піцері*", "pizza*"),
+        "пекарня" to listOf("пекарн*", "bakery*"),
+        "пляж" to listOf("пляж*", "beach*"),
+        "замок" to listOf("замок*", "castle*", "fort*"),
+        "фортеця" to listOf("фортец*", "fort*", "castle*"),
+        "парк" to listOf("парк*", "park*"),
+        "дитячий майданчик" to listOf("майданчик*", "playground*"),
+        "майданчик" to listOf("майданчик*", "playground*", "pitch*"),
+        "стадіон" to listOf("стадіон*", "stadium*"),
+        "спортзал" to listOf("спортзал*", "фітнес*", "fitness*"),
+        "фітнес" to listOf("фітнес*", "fitness*"),
+        "басейн" to listOf("басейн*", "swimming_pool*"),
+        "сауна" to listOf("саун*", "лазн*", "sauna*"),
+        "лазня" to listOf("лазн*", "саун*", "sauna*"),
+        "кіно" to listOf("кіно*", "cinema*"),
+        "кінотеатр" to listOf("кінотеатр*", "cinema*"),
+        "театр" to listOf("театр*", "theatre*"),
+        "музей" to listOf("музей*", "museum*"),
+        "книги" to listOf("книг*", "книжк*", "book*"),
+        "квіти" to listOf("квіт*", "florist*"),
+        "перукарня" to listOf("перукарн*", "hairdresser*"),
+        "барбершоп" to listOf("барбер*", "hairdresser*"),
+        "ательє" to listOf("ательє*", "кравець*", "tailor*"),
+        "поліція" to listOf("поліці*", "police*"),
+        "пожежна" to listOf("пожежн*", "fire_station*"),
+        "швидка" to listOf("швидк*", "ambulance*"),
+        "лісництво" to listOf("лісництв*", "ranger_station*")
     )
 
     fun search(
@@ -261,28 +291,60 @@ object AddressSearchManager {
                 "pharmacy" -> "💊"
                 "hospital", "clinic" -> "🏥"
                 "dentist" -> "🦷"
+                "veterinary" -> "🐾"
                 "charging_station" -> "⚡"
                 "fuel" -> "⛽"
+                "car_wash" -> "🚿"
+                "car_repair", "car_parts", "tyres", "locksmith" -> "🔧"
+                "bicycle", "bicycle_parking", "bicycle_rental" -> "🚲"
                 "cafe" -> "☕"
-                "restaurant", "fast_food" -> "🍽️"
-                "bar", "pub" -> "🍺"
-                "supermarket", "convenience", "grocery" -> "🛒"
-                "hotel", "hostel", "motel" -> "🏨"
+                "restaurant", "fast_food", "food_court", "canteen", "pizzeria" -> "🍽️"
+                "ice_cream" -> "🍦"
+                "bar", "pub", "biergarten", "alcohol" -> "🍺"
+                "supermarket", "convenience", "grocery", "mall", "department_store" -> "🛒"
+                "bakery", "confectionery", "pastry" -> "🥐"
+                "butcher", "seafood" -> "🥩"
+                "clothes", "shoes", "tailor" -> "👗"
+                "beauty", "hairdresser", "cosmetics" -> "✂️"
+                "hotel", "hostel", "motel", "guest_house", "chalet", "alpine_hut" -> "🏨"
+                "camp_site", "caravan_site", "picnic_site", "shelter" -> "🏕️"
                 "bank" -> "🏦"
                 "atm" -> "🏧"
-                "school", "university", "college" -> "🏫"
+                "bureau_de_change" -> "💱"
+                "post_office", "post_box" -> "📮"
+                "school", "university", "college", "music_school", "driving_school" -> "🏫"
                 "kindergarten" -> "🧒"
+                "library" -> "📚"
                 "park" -> "🌳"
+                "playground" -> "🛝"
+                "pitch", "stadium", "sports_centre", "fitness_centre", "fitness_club" -> "⚽"
+                "swimming_pool", "water_park" -> "🏊"
                 "spring", "drinking_water", "water_well" -> "💧"
+                "fountain" -> "⛲"
+                "waterfall" -> "🌊"
                 "viewpoint" -> "🔭"
-                "peak" -> "⛰️"
-                "church", "place_of_worship" -> "⛪"
-                "museum" -> "🏛️"
+                "peak", "saddle" -> "⛰️"
+                "cave_entrance" -> "🕳️"
+                "beach" -> "🏖️"
+                "church", "place_of_worship", "monastery", "wayside_cross", "wayside_shrine" -> "⛪"
+                "castle", "fort", "historic_ruins", "ruins" -> "🏰"
+                "monument", "memorial" -> "🏛️"
+                "museum", "gallery", "artwork" -> "🎨"
+                "zoo", "aquarium" -> "🦁"
+                "theme_park" -> "🎡"
                 "cinema" -> "🎬"
                 "theatre" -> "🎭"
-                "bus_stop", "station" -> "🚏"
-                "car_wash" -> "🚿"
-                "car_repair" -> "🔧"
+                "nightclub" -> "🪩"
+                "bus_stop", "bus_station" -> "🚌"
+                "tram_stop" -> "🚋"
+                "station", "halt" -> "🚆"
+                "subway_entrance" -> "🚇"
+                "police", "prison" -> "👮"
+                "fire_station" -> "🚒"
+                "ambulance_station" -> "🚑"
+                "townhall", "courthouse", "government" -> "🏛️"
+                "toilets" -> "🚻"
+                "ranger_station" -> "🌲"
                 else -> catDefs[groupCat]?.icon ?: "📍"
             }
         }
