@@ -39,4 +39,5 @@ data/
 *.map
 *.poi
 *.rd5
+downloads/addresses/
 
