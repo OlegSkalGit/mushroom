@@ -19,9 +19,15 @@ data class AddressSearchResult(
     val poiName: String? = null,
     val poiCategory: String? = null,
     val poiIcon: String? = null,
-    val isPoiOnly: Boolean = false
+    val isPoiOnly: Boolean = false,
+    val isSettlement: Boolean = false,
+    val adminLevel: Int = 0
 ) {
     fun getFullTitle(): String {
+        if (isSettlement) {
+            val regSuffix = if (regionName.isNotBlank() && regionName != cityName) " ($regionName)" else ""
+            return "🏙️ $cityName$regSuffix"
+        }
         if (isPoiOnly) {
             val iconPrefix = if (!poiIcon.isNullOrBlank()) "$poiIcon " else "📍 "
             val catSuffix = if (!poiCategory.isNullOrBlank()) " • $poiCategory" else ""
@@ -48,6 +54,9 @@ data class AddressSearchResult(
     }
 
     fun getShortDisplay(): String {
+        if (isSettlement) {
+            return "🏙️ $cityName"
+        }
         if (isPoiOnly) {
             val iconPrefix = if (!poiIcon.isNullOrBlank()) "$poiIcon " else "📍 "
             val cityPart = if (cityName.isNotBlank()) cityName else regionName
@@ -314,84 +323,12 @@ object AddressSearchManager {
 
         val addressFtsQuery = addressTokens.joinToString(" ")
         val poiFtsQuery = poiTokens.joinToString(" ")
-        val catDefs = PoiManager.DEFAULT_CATEGORIES.associateBy { it.id }
 
-        fun getPoiIcon(tag: String, groupCat: String): String {
-            return when (tag) {
-                "pharmacy" -> "💊"
-                "hospital", "clinic" -> "🏥"
-                "dentist" -> "🦷"
-                "veterinary" -> "🐾"
-                "charging_station" -> "⚡"
-                "fuel" -> "⛽"
-                "car_wash" -> "🚿"
-                "car_repair", "car_parts", "tyres", "locksmith" -> "🔧"
-                "bicycle", "bicycle_parking", "bicycle_rental" -> "🚲"
-                "cafe" -> "☕"
-                "restaurant", "fast_food", "food_court", "canteen", "pizzeria" -> "🍽️"
-                "ice_cream" -> "🍦"
-                "bar", "pub", "biergarten", "alcohol" -> "🍺"
-                "supermarket", "convenience", "grocery", "mall", "department_store" -> "🛒"
-                "bakery", "confectionery", "pastry" -> "🥐"
-                "butcher", "seafood" -> "🥩"
-                "clothes", "shoes", "tailor" -> "👗"
-                "beauty", "hairdresser", "cosmetics" -> "✂️"
-                "hotel", "hostel", "motel", "guest_house", "chalet", "alpine_hut" -> "🏨"
-                "camp_site", "caravan_site", "picnic_site", "shelter" -> "🏕️"
-                "bank" -> "🏦"
-                "atm" -> "🏧"
-                "bureau_de_change" -> "💱"
-                "post_office", "post_box" -> "📮"
-                "school", "university", "college", "music_school", "driving_school" -> "🏫"
-                "kindergarten" -> "🧒"
-                "library" -> "📚"
-                "park" -> "🌳"
-                "playground" -> "🛝"
-                "pitch", "stadium", "sports_centre", "fitness_centre", "fitness_club" -> "⚽"
-                "swimming_pool", "water_park" -> "🏊"
-                "spring", "drinking_water", "water_well" -> "💧"
-                "fountain" -> "⛲"
-                "waterfall" -> "🌊"
-                "viewpoint" -> "🔭"
-                "peak", "saddle" -> "⛰️"
-                "cave_entrance" -> "🕳️"
-                "beach" -> "🏖️"
-                "church", "place_of_worship", "monastery", "wayside_cross", "wayside_shrine" -> "⛪"
-                "castle", "fort", "historic_ruins", "ruins" -> "🏰"
-                "monument", "memorial" -> "🏛️"
-                "museum", "gallery", "artwork" -> "🎨"
-                "zoo", "aquarium" -> "🦁"
-                "theme_park" -> "🎡"
-                "cinema" -> "🎬"
-                "theatre" -> "🎭"
-                "nightclub" -> "🪩"
-                "bus_stop", "bus_station" -> "🚌"
-                "tram_stop" -> "🚋"
-                "station", "halt" -> "🚆"
-                "subway_entrance" -> "🚇"
-                "police", "prison" -> "👮"
-                "fire_station" -> "🚒"
-                "ambulance_station" -> "🚑"
-                "townhall", "courthouse", "government" -> "🏛️"
-                "toilets" -> "🚻"
-                "ranger_station" -> "🌲"
-                "garden" -> "🌳"
-                "fire_hydrant" -> "🧯"
-                "track" -> "🏃"
-                "grave_yard" -> "🪦"
-                "greengrocer" -> "🍏"
-                "rest_area" -> "🅿️"
-                "water_point" -> "💧"
-                "speed_camera" -> "📷"
-                "petroleum_well" -> "🛢️"
-                else -> catDefs[groupCat]?.icon ?: "📍"
-            }
-        }
-
-        if (addressFtsQuery.isBlank() && poiFtsQuery.isBlank()) return emptyList()
+        if (addressFtsQuery.isBlank() && poiFtsQuery.isBlank() && tokens.isEmpty()) return emptyList()
 
         val addressResults = mutableListOf<AddressSearchResult>()
         val poiResults = mutableListOf<AddressSearchResult>()
+        val settlementResults = mutableListOf<AddressSearchResult>()
         val hasPoi = AddressDb.hasPoiTables(db)
         val hasPoiFts = hasPoi && AddressDb.hasTable(db, "poi_fts")
 
@@ -706,42 +643,111 @@ object AddressSearchManager {
                 }
             }
 
+            // 3. SETTLEMENT / REGION PREFIX SEARCH (admin_places levels 4, 6, 7, 8)
+            if (tokens.isNotEmpty()) {
+                val seenPlaces = mutableSetOf<Long>()
+                val searchWords = tokens.filter { !houseNumberPattern.matcher(it).matches() }
+                val searchWord = searchWords.firstOrNull()
+                val fullPrefix = tokens.joinToString(" ").trim()
+                if (searchWord != null && searchWord.length >= 2) {
+                    val capWord = searchWord.replaceFirstChar { it.uppercase() }
+                    val lowWord = searchWord.lowercase()
+                    val fullCap = fullPrefix.replaceFirstChar { it.uppercase() }
+                    val fullLow = fullPrefix.lowercase()
+
+                    val setSql = """
+                        SELECT ap.id, ap.name, COALESCE(reg.name, ''), ap.level,
+                               (CASE WHEN ap.level = 4 THEN (SELECT avg(h.lat) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.region_id = ap.id)
+                                     ELSE (SELECT avg(h.lat) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.place_id = ap.id) END),
+                               (CASE WHEN ap.level = 4 THEN (SELECT avg(h.lon) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.region_id = ap.id)
+                                     ELSE (SELECT avg(h.lon) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.place_id = ap.id) END)
+                        FROM admin_places ap
+                        LEFT JOIN admin_places reg ON reg.id = ap.parent_id
+                        WHERE ap.level IN (4, 6, 7, 8)
+                          AND (ap.name LIKE ? OR ap.name LIKE ? OR ap.name LIKE ? OR ap.name LIKE ?)
+                        LIMIT ?;
+                    """.trimIndent()
+                    try {
+                        val cSet = db.rawQuery(
+                            setSql,
+                            arrayOf("$fullCap%", "$fullLow%", "$capWord%", "$lowWord%", limit.toString())
+                        )
+                        cSet.use {
+                            while (it.moveToNext()) {
+                                val apId = it.getLong(0)
+                                if (seenPlaces.add(apId)) {
+                                    val apName = it.getString(1) ?: ""
+                                    val rName = it.getString(2) ?: ""
+                                    val level = it.getInt(3)
+                                    val latAvg = if (!it.isNull(4)) it.getDouble(4) else 0.0
+                                    val lonAvg = if (!it.isNull(5)) it.getDouble(5) else 0.0
+                                    val div = if (kotlin.math.abs(latAvg) < 10_000_000.0) 100_000.0 else 1_000_000.0
+                                    val cLat = if (latAvg != 0.0) latAvg / div else 0.0
+                                    val cLon = if (lonAvg != 0.0) lonAvg / div else 0.0
+
+                                    settlementResults.add(
+                                        AddressSearchResult(
+                                            countryCode = "UA",
+                                            regionName = rName,
+                                            cityName = apName,
+                                            streetName = "",
+                                            houseNumber = "",
+                                            lat = cLat,
+                                            lon = cLon,
+                                            isPoiOnly = false,
+                                            isSettlement = true,
+                                            adminLevel = level
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    } catch (se: Exception) {
+                        AppLogger.log(TAG, "search", false, "Settlement search warning: ${se.message}")
+                    }
+                }
+            }
+
         } catch (e: Exception) {
             AppLogger.log(TAG, "search", false, "Address search query failed: ${e.message}")
             throw e
         }
 
-        // 3. Dynamic Quota Allocation (up to limit total: target 20 addresses / 10 POIs when limit = 30)
-        val targetAddrQuota = (limit * 2) / 3
-        val targetPoiQuota = limit - targetAddrQuota
+        // 4. Dynamic Quota Allocation (15 addresses / 10 POIs / 5 settlements when limit = 30)
+        val targetAddrQuota = (limit * 15) / 30
+        val targetPoiQuota = (limit * 10) / 30
+        val targetSetQuota = maxOf(1, limit - targetAddrQuota - targetPoiQuota)
 
-        val finalAddresses: List<AddressSearchResult>
-        val finalPois: List<AddressSearchResult>
+        val addrAvailable = addressResults.size
+        val poiAvailable = poiResults.size
+        val setAvailable = settlementResults.size
 
-        if (addressResults.isEmpty()) {
-            finalAddresses = emptyList()
-            finalPois = poiResults.take(limit)
-        } else if (poiResults.isEmpty()) {
-            finalAddresses = addressResults.take(limit)
-            finalPois = emptyList()
-        } else {
-            val takeAddr: Int
-            val takePoi: Int
-            if (addressResults.size < targetAddrQuota) {
-                takeAddr = addressResults.size
-                takePoi = minOf(poiResults.size, limit - takeAddr)
-            } else if (poiResults.size < targetPoiQuota) {
-                takePoi = poiResults.size
-                takeAddr = minOf(addressResults.size, limit - takePoi)
-            } else {
-                takeAddr = targetAddrQuota
-                takePoi = targetPoiQuota
+        var addrTake = minOf(targetAddrQuota, addrAvailable)
+        var poiTake = minOf(targetPoiQuota, poiAvailable)
+        var setTake = minOf(targetSetQuota, setAvailable)
+
+        var remainingSlots = limit - (addrTake + poiTake + setTake)
+        while (remainingSlots > 0) {
+            val canTakeAddr = addrAvailable - addrTake
+            val canTakePoi = poiAvailable - poiTake
+            val canTakeSet = setAvailable - setTake
+            if (canTakeAddr <= 0 && canTakePoi <= 0 && canTakeSet <= 0) break
+
+            if (canTakeAddr > 0 && remainingSlots > 0) {
+                addrTake++
+                remainingSlots--
             }
-            finalAddresses = addressResults.take(takeAddr)
-            finalPois = poiResults.take(takePoi)
+            if (canTakePoi > 0 && remainingSlots > 0) {
+                poiTake++
+                remainingSlots--
+            }
+            if (canTakeSet > 0 && remainingSlots > 0) {
+                setTake++
+                remainingSlots--
+            }
         }
 
-        val combined = finalAddresses + finalPois
+        val combined = addressResults.take(addrTake) + poiResults.take(poiTake) + settlementResults.take(setTake)
 
         val sortedResults = if (userLoc != null) {
             val uLatDeg = userLoc.latitude
@@ -761,5 +767,284 @@ object AddressSearchManager {
         }
 
         return sortedResults
+    }
+
+    fun formatDistance(distMeters: Float): String {
+        return if (distMeters < 1000f) {
+            "${kotlin.math.round(distMeters).toInt()} м"
+        } else {
+            String.format(java.util.Locale.US, "%.1f км", distMeters / 1000f)
+        }
+    }
+
+    fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+        val results = FloatArray(1)
+        android.location.Location.distanceBetween(lat1, lon1, lat2, lon2, results)
+        return results[0]
+    }
+
+    data class MarkerLocationInfo(
+        val markerLat: Double,
+        val markerLon: Double,
+        val regionName: String,
+        val districtName: String,
+        val communityName: String,
+        val settlementName: String,
+        val nearestHouseAddress: String?, // Only if distance < 30m
+        val nearestHouseDistanceMeters: Float?,
+        val nearestAddresses: List<Pair<AddressSearchResult, Float>>, // 5 items
+        val nearestPois: List<Pair<AddressSearchResult, Float>> // 10 items
+    )
+
+    fun findMarkerLocationInfo(context: Context, lat: Double, lon: Double): MarkerLocationInfo? {
+        val db = AddressDb.openDatabase(context, writable = false) ?: return null
+
+        val uLatH = kotlin.math.round(lat * 100_000.0).toLong()
+        val uLonH = kotlin.math.round(lon * 100_000.0).toLong()
+        val uLatMicro = kotlin.math.round(lat * 1_000_000.0).toLong()
+        val uLonMicro = kotlin.math.round(lon * 1_000_000.0).toLong()
+
+        var regionName = ""
+        var districtName = ""
+        var communityName = ""
+        var settlementName = ""
+        var nearestHouseAddress: String? = null
+        var nearestHouseDist: Float? = null
+
+        val nearestAddresses = mutableListOf<Pair<AddressSearchResult, Float>>()
+        val nearestPois = mutableListOf<Pair<AddressSearchResult, Float>>()
+
+        try {
+            // 1. NEAREST 5 HOUSES
+            val houseRadii = listOf(5000L, 25000L, 100000L)
+            for (radius in houseRadii) {
+                if (nearestAddresses.isNotEmpty()) break
+                val houseSql = """
+                    SELECT h.street_id, h.number, h.lat, h.lon, sn.name, city.name, COALESCE(reg.name, ''),
+                           COALESCE(dist.name, ''), COALESCE(subdist.name, '')
+                    FROM houses h
+                    JOIN streets s ON s.id = h.street_id
+                    JOIN street_names sn ON sn.id = s.name_id
+                    JOIN admin_places city ON city.id = s.place_id
+                    LEFT JOIN admin_places subdist ON subdist.id = city.parent_id AND subdist.level = 7
+                    LEFT JOIN admin_places dist ON (dist.id = city.parent_id AND dist.level = 6) OR (dist.id = subdist.parent_id AND dist.level = 6)
+                    LEFT JOIN admin_places reg ON reg.id = s.region_id
+                    WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
+                    ORDER BY ((h.lat - $uLatH) * (h.lat - $uLatH) + (h.lon - $uLonH) * (h.lon - $uLonH)) ASC
+                    LIMIT 5;
+                """.trimIndent()
+
+                val cursor = db.rawQuery(
+                    houseSql,
+                    arrayOf((uLatH - radius).toString(), (uLatH + radius).toString(), (uLonH - radius).toString(), (uLonH + radius).toString())
+                )
+                cursor.use {
+                    while (it.moveToNext()) {
+                        val hNum = it.getString(1) ?: ""
+                        val hLatI = it.getInt(2)
+                        val hLonI = it.getInt(3)
+                        val sName = it.getString(4) ?: ""
+                        val cName = it.getString(5) ?: ""
+                        val rName = it.getString(6) ?: ""
+                        val dName = it.getString(7) ?: ""
+                        val subName = it.getString(8) ?: ""
+
+                        val div = if (kotlin.math.abs(hLatI) < 10_000_000) 100_000.0 else 1_000_000.0
+                        val dLat = hLatI / div
+                        val dLon = hLonI / div
+                        val distM = calculateDistanceMeters(lat, lon, dLat, dLon)
+
+                        if (nearestAddresses.isEmpty()) {
+                            regionName = rName
+                            districtName = dName
+                            communityName = subName
+                            settlementName = cName
+                            if (distM < 30.0f) {
+                                nearestHouseAddress = if (hNum.isNotBlank()) "$sName, $hNum" else sName
+                                nearestHouseDist = distM
+                            }
+                        }
+
+                        val res = AddressSearchResult(
+                            countryCode = "UA",
+                            regionName = rName,
+                            cityName = cName,
+                            streetName = sName,
+                            houseNumber = hNum,
+                            lat = dLat,
+                            lon = dLon,
+                            isPoiOnly = false
+                        )
+                        nearestAddresses.add(Pair(res, distM))
+                    }
+                }
+            }
+
+            // Fallback for admin hierarchy if no houses found in range:
+            if (settlementName.isBlank()) {
+                val setSql = """
+                    SELECT ap.name, COALESCE(reg.name, '')
+                    FROM admin_places ap
+                    LEFT JOIN admin_places reg ON reg.id = ap.parent_id
+                    WHERE ap.level = 8
+                    ORDER BY ap.id ASC
+                    LIMIT 1;
+                """.trimIndent()
+                try {
+                    val cSet = db.rawQuery(setSql, null)
+                    cSet.use {
+                        if (it.moveToFirst()) {
+                            settlementName = it.getString(0) ?: ""
+                            regionName = it.getString(1) ?: ""
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // 2. NEAREST 10 POIS
+            val poiRadii = listOf(50000L, 250000L, 1000000L)
+            for (radius in poiRadii) {
+                if (nearestPois.isNotEmpty()) break
+                val poiSql = """
+                    SELECT pp.id, pp.name, COALESCE(pt.desc_local, pt.desc_en, pt.tag, ''),
+                           COALESCE(pt.group_category, ''), COALESCE(pt.tag, ''),
+                           pp.lat, pp.lon, COALESCE(sn.name, ''), COALESCE(city.name, ''), COALESCE(reg.name, '')
+                    FROM poi_places pp
+                    LEFT JOIN poi_types pt ON pt.id = pp.category_id
+                    LEFT JOIN streets s ON s.id = pp.street_id
+                    LEFT JOIN street_names sn ON sn.id = s.name_id
+                    LEFT JOIN admin_places city ON city.id = s.place_id
+                    LEFT JOIN admin_places reg ON reg.id = s.region_id
+                    WHERE pp.lat BETWEEN ? AND ? AND pp.lon BETWEEN ? AND ?
+                    ORDER BY ((pp.lat - $uLatMicro) * (pp.lat - $uLatMicro) + (pp.lon - $uLonMicro) * (pp.lon - $uLonMicro)) ASC
+                    LIMIT 10;
+                """.trimIndent()
+
+                val cPoi = db.rawQuery(
+                    poiSql,
+                    arrayOf((uLatMicro - radius).toString(), (uLatMicro + radius).toString(), (uLonMicro - radius).toString(), (uLonMicro + radius).toString())
+                )
+                cPoi.use {
+                    while (it.moveToNext()) {
+                        val pName = it.getString(1) ?: ""
+                        val pDesc = it.getString(2) ?: ""
+                        val pGroup = it.getString(3) ?: ""
+                        val pTag = it.getString(4) ?: ""
+                        val pLat = it.getInt(5) / 1_000_000.0
+                        val pLon = it.getInt(6) / 1_000_000.0
+                        val sName = it.getString(7) ?: ""
+                        val cName = it.getString(8) ?: ""
+                        val rName = it.getString(9) ?: ""
+                        val pIcon = getPoiIcon(pTag, pGroup)
+                        val pCat = pDesc.ifBlank { pTag }
+
+                        val distM = calculateDistanceMeters(lat, lon, pLat, pLon)
+
+                        val res = AddressSearchResult(
+                            countryCode = "UA",
+                            regionName = rName,
+                            cityName = cName,
+                            streetName = sName,
+                            houseNumber = "",
+                            lat = pLat,
+                            lon = pLon,
+                            poiName = pName,
+                            poiCategory = pCat,
+                            poiIcon = pIcon,
+                            isPoiOnly = true
+                        )
+                        nearestPois.add(Pair(res, distM))
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "findMarkerLocationInfo", false, "Error: ${e.message}")
+        }
+
+        return MarkerLocationInfo(
+            markerLat = lat,
+            markerLon = lon,
+            regionName = regionName,
+            districtName = districtName,
+            communityName = communityName,
+            settlementName = settlementName,
+            nearestHouseAddress = nearestHouseAddress,
+            nearestHouseDistanceMeters = nearestHouseDist,
+            nearestAddresses = nearestAddresses,
+            nearestPois = nearestPois
+        )
+    }
+
+    fun getPoiIcon(tag: String, groupCat: String = ""): String {
+        return when (tag) {
+            "pharmacy" -> "💊"
+            "hospital", "clinic" -> "🏥"
+            "dentist" -> "🦷"
+            "veterinary" -> "🐾"
+            "charging_station" -> "⚡"
+            "fuel" -> "⛽"
+            "car_wash" -> "🚿"
+            "car_repair", "car_parts", "tyres", "locksmith" -> "🔧"
+            "bicycle", "bicycle_parking", "bicycle_rental" -> "🚲"
+            "cafe" -> "☕"
+            "restaurant", "fast_food", "food_court", "canteen", "pizzeria" -> "🍽️"
+            "ice_cream" -> "🍦"
+            "bar", "pub", "biergarten", "alcohol" -> "🍺"
+            "supermarket", "convenience", "grocery", "mall", "department_store" -> "🛒"
+            "bakery", "confectionery", "pastry" -> "🥐"
+            "butcher", "seafood" -> "🥩"
+            "clothes", "shoes", "tailor" -> "👗"
+            "beauty", "hairdresser", "cosmetics" -> "✂️"
+            "hotel", "hostel", "motel", "guest_house", "chalet", "alpine_hut" -> "🏨"
+            "camp_site", "caravan_site", "picnic_site", "shelter" -> "🏕️"
+            "bank" -> "🏦"
+            "atm" -> "🏧"
+            "bureau_de_change" -> "💱"
+            "post_office", "post_box" -> "📮"
+            "school", "university", "college", "music_school", "driving_school" -> "🏫"
+            "kindergarten" -> "🧒"
+            "library" -> "📚"
+            "park" -> "🌳"
+            "playground" -> "🛝"
+            "pitch", "stadium", "sports_centre", "fitness_centre", "fitness_club" -> "⚽"
+            "swimming_pool", "water_park" -> "🏊"
+            "spring", "drinking_water", "water_well" -> "💧"
+            "fountain" -> "⛲"
+            "waterfall" -> "🌊"
+            "viewpoint" -> "🔭"
+            "peak", "saddle" -> "⛰️"
+            "cave_entrance" -> "🕳️"
+            "beach" -> "🏖️"
+            "church", "place_of_worship", "monastery", "wayside_cross", "wayside_shrine" -> "⛪"
+            "castle", "fort", "historic_ruins", "ruins" -> "🏰"
+            "monument", "memorial" -> "🏛️"
+            "museum", "gallery", "artwork" -> "🎨"
+            "zoo", "aquarium" -> "🦁"
+            "theme_park" -> "🎡"
+            "cinema" -> "🎬"
+            "theatre" -> "🎭"
+            "nightclub" -> "🪩"
+            "bus_stop", "bus_station" -> "🚌"
+            "tram_stop" -> "🚋"
+            "station", "halt" -> "🚆"
+            "subway_entrance" -> "🚇"
+            "police", "prison" -> "👮"
+            "fire_station" -> "🚒"
+            "ambulance_station" -> "🚑"
+            "townhall", "courthouse", "government" -> "🏛️"
+            "toilets" -> "🚻"
+            "ranger_station" -> "🌲"
+            "garden" -> "🌳"
+            "fire_hydrant" -> "🧯"
+            "track" -> "🏃"
+            "grave_yard" -> "🪦"
+            "greengrocer" -> "🍏"
+            "rest_area" -> "🅿️"
+            "water_point" -> "💧"
+            "speed_camera" -> "📷"
+            "petroleum_well" -> "🛢️"
+            else -> PoiManager.DEFAULT_CATEGORIES.firstOrNull { it.id == groupCat }?.icon ?: "📍"
+        }
     }
 }

@@ -27,6 +27,10 @@ object MarkersListDialog {
         val dialog = Dialog(activity)
         dialog.setTitle("Markers List")
 
+        val mapActivity = activity as? com.olegskal.mushroom.MushroomMapActivity
+        val refLat = if (currentLat != null && (currentLat != 0.0 || currentLon != 0.0)) currentLat else mapActivity?.mapCenterLat
+        val refLon = if (currentLon != null && (currentLat != 0.0 || currentLon != 0.0)) currentLon else mapActivity?.mapCenterLon
+
         val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
         val container = UiUtils.createDarkDialogContainer(activity)
 
@@ -187,29 +191,32 @@ object MarkersListDialog {
 
                 val itemIcon = MarkerIconDrawable(density, marker.color, 18)
                 itemIcon.setBounds(0, 0, itemIcon.intrinsicWidth, itemIcon.intrinsicHeight)
+                var distStr = ""
+                var distPrefix = ""
+                if (refLat != null && refLon != null && (refLat != 0.0 || refLon != 0.0)) {
+                    val geo = GeoMath.calculateDistanceAndBearing(refLat, refLon, marker.lat, marker.lon)
+                    val distM = geo[0]
+                    val bearingDeg = geo[1]
+                    val direction = getBearingDirection(bearingDeg, lang == "uk")
+                    val formattedDist = if (distM >= 1000f) {
+                        val unit = if (lang == "uk") "км" else "km"
+                        String.format(Locale.US, "%.1f %s", distM / 1000f, unit)
+                    } else {
+                        val unit = if (lang == "uk") "м" else "m"
+                        String.format(Locale.US, "%d %s", distM.toInt(), unit)
+                    }
+                    distPrefix = "($formattedDist) "
+                    distStr = "$formattedDist ($direction)"
+                }
+
                 val nameTv = TextView(activity).apply {
-                    text = marker.name
+                    text = "$distPrefix${marker.name}"
                     setTextColor(Color.WHITE)
                     textSize = 15f
                     setTypeface(null, Typeface.BOLD)
                     setCompoundDrawables(itemIcon, null, null, null)
                     compoundDrawablePadding = (8 * density).toInt()
                     gravity = Gravity.CENTER_VERTICAL
-                }
-
-                var distStr = ""
-                if (currentLat != null && currentLon != null && (currentLat != 0.0 || currentLon != 0.0)) {
-                    val geo = GeoMath.calculateDistanceAndBearing(currentLat, currentLon, marker.lat, marker.lon)
-                    val distM = geo[0]
-                    val bearingDeg = geo[1]
-                    val direction = getBearingDirection(bearingDeg, lang == "uk")
-                    distStr = if (distM >= 1000f) {
-                        val unit = if (lang == "uk") "км" else "km"
-                        String.format(Locale.US, "%.1f %s (%s)", distM / 1000f, unit, direction)
-                    } else {
-                        val unit = if (lang == "uk") "м" else "m"
-                        String.format(Locale.US, "%d %s (%s)", distM.toInt(), unit, direction)
-                    }
                 }
 
                 val subTv = TextView(activity).apply {

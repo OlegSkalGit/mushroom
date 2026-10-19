@@ -218,6 +218,17 @@ object AddressDb {
         if (hasTable(db, "poi_fts_content") || isPoiFtsUpgradeNeeded(db)) {
             rebuildPoiFtsIndex(db)
         }
+        try {
+            if (hasTable(db, "houses")) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")
+            }
+            if (hasTable(db, "poi_places")) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);")
+            }
+            if (hasTable(db, "admin_places")) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_name ON admin_places(name COLLATE NOCASE);")
+            }
+        } catch (_: Exception) {}
     }
 
     fun initSchema(db: SQLiteDatabase) {

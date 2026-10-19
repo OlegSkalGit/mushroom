@@ -95,7 +95,7 @@ object AddAddressDialog {
         }
         container.addView(bannerContainer)
 
-        fun renderResults(results: List<AddressSearchResult>) {
+        fun renderResults(results: List<AddressSearchResult>, refLocation: android.location.Location?) {
             listContainer.removeAllViews()
             if (results.isEmpty()) {
                 val emptyTv = TextView(activity).apply {
@@ -110,6 +110,11 @@ object AddAddressDialog {
             }
 
             for (addr in results.take(30)) {
+                val distM = if (refLocation != null && (addr.lat != 0.0 || addr.lon != 0.0)) {
+                    AddressSearchManager.calculateDistanceMeters(refLocation.latitude, refLocation.longitude, addr.lat, addr.lon)
+                } else null
+                val distPrefix = if (distM != null) "(${AddressSearchManager.formatDistance(distM)}) " else ""
+
                 val itemRow = LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
@@ -124,7 +129,7 @@ object AddAddressDialog {
                 }
 
                 val iconTv = TextView(activity).apply {
-                    text = if (addr.isPoiOnly) (addr.poiIcon ?: "📍") else if (!addr.poiIcon.isNullOrBlank()) addr.poiIcon else "📍"
+                    text = if (addr.isSettlement) "🏙️" else if (addr.isPoiOnly) (addr.poiIcon ?: "📍") else if (!addr.poiIcon.isNullOrBlank()) addr.poiIcon else "📍"
                     textSize = 18f
                     setPadding(0, 0, dp(10), 0)
                 }
@@ -135,14 +140,16 @@ object AddAddressDialog {
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 }
 
-                val titleText = if (addr.isPoiOnly) {
-                    addr.poiName ?: addr.getFullTitle()
+                val titleText = if (addr.isSettlement) {
+                    "$distPrefix${addr.cityName}"
+                } else if (addr.isPoiOnly) {
+                    "$distPrefix${addr.poiName ?: addr.getFullTitle()}"
                 } else {
                     val streetPart = if (addr.houseNumber.isNotBlank()) "${addr.streetName}, ${addr.houseNumber}" else addr.streetName
                     if (!addr.poiName.isNullOrBlank()) {
-                        "$streetPart • ${addr.poiName}"
+                        "$distPrefix$streetPart • ${addr.poiName}"
                     } else {
-                        streetPart.ifBlank { addr.cityName }
+                        "$distPrefix${streetPart.ifBlank { addr.cityName }}"
                     }
                 }
 
@@ -155,7 +162,9 @@ object AddAddressDialog {
                     ellipsize = TextUtils.TruncateAt.END
                 }
 
-                val subtitleText = if (addr.isPoiOnly) {
+                val subtitleText = if (addr.isSettlement) {
+                    addr.regionName
+                } else if (addr.isPoiOnly) {
                     val loc = listOf(
                         addr.streetName + (if (addr.houseNumber.isNotBlank()) ", " + addr.houseNumber else ""),
                         addr.cityName,
@@ -183,7 +192,9 @@ object AddAddressDialog {
 
                 itemRow.setOnClickListener {
                     dialog.dismiss()
-                    val initialType = if (addr.isPoiOnly) {
+                    val initialType = if (addr.isSettlement) {
+                        if (isUk) "🏙️ Населений пункт" else "🏙️ Settlement"
+                    } else if (addr.isPoiOnly) {
                         if (!addr.poiCategory.isNullOrBlank()) {
                             "${addr.poiIcon ?: "📍"} ${addr.poiCategory}"
                         } else {
@@ -192,7 +203,9 @@ object AddAddressDialog {
                     } else {
                         if (isUk) "📍 Адреса" else "📍 Address"
                     }
-                    val initialName = if (addr.isPoiOnly) {
+                    val initialName = if (addr.isSettlement) {
+                        addr.cityName
+                    } else if (addr.isPoiOnly) {
                         addr.poiName ?: addr.getFullTitle()
                     } else {
                         addr.getFullTitle()
@@ -224,15 +237,22 @@ object AddAddressDialog {
                 return
             }
 
+            val mapActivity = activity as? MushroomMapActivity
+            val gpsLoc = com.olegskal.mushroom.util.LocationUtils.getUserLocation(activity)
+            val refLocation = gpsLoc ?: android.location.Location("map_center").apply {
+                latitude = mapActivity?.mapCenterLat ?: 50.4501
+                longitude = mapActivity?.mapCenterLon ?: 30.5234
+            }
+
             listContainer.removeAllViews()
             statusTv.text = if (isUk) "Пошук..." else "Searching..."
             listContainer.addView(statusTv)
 
             Thread {
                 try {
-                    val results = AddressSearchManager.search(activity, query, limit = 30)
+                    val results = AddressSearchManager.search(activity, query, limit = 30, userLocation = refLocation)
                     activity.runOnUiThread {
-                        renderResults(results)
+                        renderResults(results, refLocation)
                     }
                 } catch (e: Exception) {
                     activity.runOnUiThread {

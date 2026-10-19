@@ -82,8 +82,42 @@ class ZoomImageView(context: Context) : ImageView(context) {
                 }
                 return false
             }
+
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (currentScale > 1.05f || e1 == null) return false
+                val dx = e2.x - e1.x
+                val dy = e2.y - e1.y
+                val absDx = kotlin.math.abs(dx)
+                val absDy = kotlin.math.abs(dy)
+                val density = resources.displayMetrics.density
+                val minDistance = 60f * density
+                val minVelocity = 200f * density
+
+                // Horizontal swipe (Left -> next, Right -> prev)
+                if (absDx > absDy && absDx > minDistance && kotlin.math.abs(velocityX) > minVelocity) {
+                    if (dx < 0) {
+                        onSwipeLeft?.invoke()
+                        return true
+                    } else {
+                        onSwipeRight?.invoke()
+                        return true
+                    }
+                }
+
+                // Vertical swipe (Up -> close dialog)
+                if (absDy > absDx && dy < -minDistance && velocityY < -minVelocity) {
+                    onSwipeUp?.invoke()
+                    return true
+                }
+
+                return false
+            }
         })
     }
+
+    var onSwipeLeft: (() -> Unit)? = null
+    var onSwipeRight: (() -> Unit)? = null
+    var onSwipeUp: (() -> Unit)? = null
 
     override fun setImageBitmap(bm: Bitmap?) {
         super.setImageBitmap(bm)
@@ -689,6 +723,22 @@ object PhotoZoomDialog {
 
         updatePhoto(currentIndex)
 
+        zoomView.onSwipeLeft = {
+            if (totalCount > 1) {
+                val nextIdx = if (currentIndex < totalCount - 1) currentIndex + 1 else 0
+                updatePhoto(nextIdx)
+            }
+        }
+        zoomView.onSwipeRight = {
+            if (totalCount > 1) {
+                val nextIdx = if (currentIndex > 0) currentIndex - 1 else totalCount - 1
+                updatePhoto(nextIdx)
+            }
+        }
+        zoomView.onSwipeUp = {
+            dialog.dismiss()
+        }
+
         dialog.setContentView(root)
         dialog.show()
     }
@@ -965,6 +1015,24 @@ object PhotoZoomDialog {
         }
 
         updatePhoto(currentIndex)
+
+        zoomView.onSwipeLeft = {
+            if (!cropOverlay.isCropActive && totalCount > 1) {
+                val nextIdx = if (currentIndex < totalCount - 1) currentIndex + 1 else 0
+                updatePhoto(nextIdx)
+            }
+        }
+        zoomView.onSwipeRight = {
+            if (!cropOverlay.isCropActive && totalCount > 1) {
+                val nextIdx = if (currentIndex > 0) currentIndex - 1 else totalCount - 1
+                updatePhoto(nextIdx)
+            }
+        }
+        zoomView.onSwipeUp = {
+            if (!cropOverlay.isCropActive) {
+                dialog.dismiss()
+            }
+        }
 
         dialog.setContentView(root)
         dialog.show()

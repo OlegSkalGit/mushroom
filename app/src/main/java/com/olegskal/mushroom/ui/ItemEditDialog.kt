@@ -2,14 +2,22 @@ package com.olegskal.mushroom.ui
 
 import android.app.Activity
 import android.app.Dialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.olegskal.mushroom.address.AddressSearchManager
 import com.olegskal.mushroom.db.DatabaseHelper
 import com.olegskal.mushroom.model.MushroomMarker
 import com.olegskal.mushroom.model.MushroomTrack
@@ -33,6 +41,17 @@ object ItemEditDialog {
         return SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date())
     }
 
+    private data class MarkerContext(
+        val dbHelper: DatabaseHelper,
+        var lat: Double,
+        var lon: Double,
+        var altitude: Double = 0.0,
+        var type: String,
+        val originalMarkerId: Long? = null,
+        val onMarkerAdded: ((MushroomMarker) -> Unit)? = null,
+        val onMarkerUpdated: ((MushroomMarker) -> Unit)? = null
+    )
+
     // 1. Create new marker
     fun showAddMarker(
         activity: Activity,
@@ -48,6 +67,15 @@ object ItemEditDialog {
         val defaultName = initialName ?: (if (lang == "uk") "Маркер (${formatDate()})" else "Marker (${formatDate()})")
         val density = activity.resources.displayMetrics.density
         val markerColor = 0xFFF44336.toInt()
+        val markerCtx = MarkerContext(
+            dbHelper = dbHelper,
+            lat = lat,
+            lon = lon,
+            altitude = altitude,
+            type = initialType ?: (if (lang == "uk") "Гриб" else "Mushroom"),
+            originalMarkerId = null,
+            onMarkerAdded = onMarkerAdded
+        )
         showDialog(
             activity = activity,
             dialogTitle = if (lang == "uk") "Новий маркер" else "New Marker",
@@ -55,25 +83,9 @@ object ItemEditDialog {
             colorTitle = if (lang == "uk") "Колір маркера:" else "Marker color:",
             initialColor = markerColor,
             saveButtonText = if (lang == "uk") "Зберегти" else "Save",
-            iconDrawable = MarkerIconDrawable(density, markerColor, 20)
-        ) { name, color ->
-            val marker = MushroomMarker(
-                id = System.currentTimeMillis(),
-                name = name,
-                type = initialType ?: (if (lang == "uk") "Гриб" else "Mushroom"),
-                lat = lat,
-                lon = lon,
-                altitude = altitude,
-                timestamp = System.currentTimeMillis(),
-                note = "",
-                color = color,
-                isVisible = true
-            )
-            dbHelper.insertMarker(marker)
-            onMarkerAdded(marker)
-            val msg = if (lang == "uk") "Маркер \"$name\" збережено!" else "Marker \"$name\" saved!"
-            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
-        }
+            iconDrawable = MarkerIconDrawable(density, markerColor, 20),
+            markerContext = markerCtx
+        ) { _, _ -> }
     }
 
     // 2. Edit marker
@@ -85,6 +97,15 @@ object ItemEditDialog {
     ) {
         val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
         val density = activity.resources.displayMetrics.density
+        val markerCtx = MarkerContext(
+            dbHelper = dbHelper,
+            lat = marker.lat,
+            lon = marker.lon,
+            altitude = marker.altitude,
+            type = marker.type,
+            originalMarkerId = marker.id,
+            onMarkerUpdated = onMarkerUpdated
+        )
         showDialog(
             activity = activity,
             dialogTitle = if (lang == "uk") "Редагувати маркер" else "Edit Marker",
@@ -92,15 +113,9 @@ object ItemEditDialog {
             colorTitle = if (lang == "uk") "Колір маркера:" else "Marker color:",
             initialColor = marker.color,
             saveButtonText = if (lang == "uk") "Зберегти" else "Save",
-            iconDrawable = MarkerIconDrawable(density, marker.color, 20)
-        ) { name, color ->
-            dbHelper.updateMarker(marker.id, name, color)
-            marker.name = name
-            marker.color = color
-            onMarkerUpdated(marker)
-            val msg = if (lang == "uk") "Маркер \"$name\" оновлено!" else "Marker \"$name\" updated!"
-            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
-        }
+            iconDrawable = MarkerIconDrawable(density, marker.color, 20),
+            markerContext = markerCtx
+        ) { _, _ -> }
     }
 
     // 3. Start recording new track
@@ -202,41 +217,82 @@ object ItemEditDialog {
         initialColor: Int,
         saveButtonText: String,
         iconDrawable: android.graphics.drawable.Drawable? = null,
+        markerContext: MarkerContext? = null,
         onSave: (name: String, color: Int) -> Unit
     ) {
         val dialog = Dialog(activity)
         val container = UiUtils.createDarkDialogContainer(activity)
+        val isUk = com.olegskal.mushroom.util.AppPrefs.isUk(activity)
+        val density = activity.resources.displayMetrics.density
+        val dp = { v: Int -> (v * density).toInt() }
+
+        var isForceNewMarker = false
+
+        // Header row: Title on left, optional Info button on right
+        val headerRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(12))
+        }
 
         val titleTv = TextView(activity).apply {
             text = dialogTitle
             setTextColor(Color.parseColor("#4CAF50"))
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, 16)
             if (iconDrawable != null) {
                 iconDrawable.setBounds(0, 0, iconDrawable.intrinsicWidth, iconDrawable.intrinsicHeight)
                 setCompoundDrawables(iconDrawable, null, null, null)
-                compoundDrawablePadding = (8 * activity.resources.displayMetrics.density).toInt()
+                compoundDrawablePadding = dp(8)
                 gravity = Gravity.CENTER_VERTICAL
             }
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
-        container.addView(titleTv)
+        headerRow.addView(titleTv)
 
         val nameInput = EditText(activity).apply {
             setText(initialName)
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#333333"))
-            setPadding(20, 20, 20, 20)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             textSize = 15f
             selectAll()
         }
+
+        if (markerContext != null) {
+            val btnInfo = TextView(activity).apply {
+                text = "ℹ️"
+                textSize = 20f
+                setPadding(dp(8), 0, dp(4), 0)
+                isClickable = true
+                setOnClickListener {
+                    showMarkerInfoDialog(
+                        activity = activity,
+                        lat = markerContext.lat,
+                        lon = markerContext.lon,
+                        currentMarkerName = nameInput.text.toString().trim().ifEmpty { initialName },
+                        isUk = isUk
+                    ) { selectedName, selectedType, selectedLat, selectedLon ->
+                        nameInput.setText(selectedName)
+                        markerContext.lat = selectedLat
+                        markerContext.lon = selectedLon
+                        markerContext.type = selectedType
+                        isForceNewMarker = true
+                        titleTv.text = if (isUk) "Новий маркер" else "New Marker"
+                    }
+                }
+            }
+            headerRow.addView(btnInfo)
+        }
+
+        container.addView(headerRow)
         container.addView(nameInput)
 
         val colorTitleTv = TextView(activity).apply {
             text = colorTitle
             setTextColor(Color.LTGRAY)
             textSize = 13f
-            setPadding(0, 16, 0, 8)
+            setPadding(0, dp(12), 0, dp(8))
         }
         container.addView(colorTitleTv)
 
@@ -244,7 +300,7 @@ object ItemEditDialog {
         val colorRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 8)
+            setPadding(0, 0, 0, dp(8))
         }
 
         val colorViews = ArrayList<TextView>()
@@ -262,9 +318,8 @@ object ItemEditDialog {
             }
         }
 
-        val density = activity.resources.displayMetrics.density
-        val sz = (36 * density).toInt()
-        val m = (4 * density).toInt()
+        val sz = dp(36)
+        val m = dp(4)
 
         for (c in COLORS) {
             val tv = TextView(activity).apply {
@@ -292,23 +347,61 @@ object ItemEditDialog {
         val buttonRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, 8, 0, 0)
+            setPadding(0, dp(8), 0, 0)
         }
 
         val rowParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-            setMargins(8, 0, 8, 0)
+            setMargins(dp(6), 0, dp(6), 0)
         }
 
         val btnSave = UiUtils.createStyledButton(activity, saveButtonText) {
             val defaultFallback = if (colorTitle.contains("track", ignoreCase = true)) "Track" else "Marker"
             val name = nameInput.text.toString().trim().ifEmpty { defaultFallback }
-            onSave(name, selectedColor)
+
+            if (markerContext != null) {
+                if (isForceNewMarker || markerContext.originalMarkerId == null) {
+                    val newMarker = MushroomMarker(
+                        id = System.currentTimeMillis(),
+                        name = name,
+                        type = markerContext.type,
+                        lat = markerContext.lat,
+                        lon = markerContext.lon,
+                        altitude = markerContext.altitude,
+                        timestamp = System.currentTimeMillis(),
+                        note = "",
+                        color = selectedColor,
+                        isVisible = true
+                    )
+                    markerContext.dbHelper.insertMarker(newMarker)
+                    markerContext.onMarkerAdded?.invoke(newMarker) ?: markerContext.onMarkerUpdated?.invoke(newMarker)
+                    val msg = if (isUk) "Маркер \"$name\" збережено!" else "Marker \"$name\" saved!"
+                    Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+                } else {
+                    markerContext.dbHelper.updateMarker(markerContext.originalMarkerId, name, selectedColor)
+                    val updatedMarker = MushroomMarker(
+                        id = markerContext.originalMarkerId,
+                        name = name,
+                        type = markerContext.type,
+                        lat = markerContext.lat,
+                        lon = markerContext.lon,
+                        altitude = markerContext.altitude,
+                        timestamp = System.currentTimeMillis(),
+                        note = "",
+                        color = selectedColor,
+                        isVisible = true
+                    )
+                    markerContext.onMarkerUpdated?.invoke(updatedMarker)
+                    val msg = if (isUk) "Маркер \"$name\" оновлено!" else "Marker \"$name\" updated!"
+                    Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                onSave(name, selectedColor)
+            }
             dialog.dismiss()
         }
         btnSave.layoutParams = rowParams
 
-        val lang = com.olegskal.mushroom.util.AppPrefs.getAppLang(activity)
-        val btnCancel = UiUtils.createStyledButton(activity, if (lang == "uk") "Скасувати" else "Cancel") {
+        val btnCancel = UiUtils.createStyledButton(activity, if (isUk) "Скасувати" else "Cancel") {
             dialog.dismiss()
         }
         btnCancel.layoutParams = rowParams
@@ -319,5 +412,292 @@ object ItemEditDialog {
 
         dialog.setContentView(container)
         dialog.show()
+    }
+
+    private fun showMarkerInfoDialog(
+        activity: Activity,
+        lat: Double,
+        lon: Double,
+        currentMarkerName: String,
+        isUk: Boolean,
+        onItemSelected: (name: String, type: String, lat: Double, lon: Double) -> Unit
+    ) {
+        val infoDialog = Dialog(activity)
+        val density = activity.resources.displayMetrics.density
+        val dp = { v: Int -> (v * density).toInt() }
+
+        val root = UiUtils.createDarkDialogContainer(activity)
+
+        // Header
+        val headerRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(10))
+        }
+
+        val titleTv = TextView(activity).apply {
+            text = if (isUk) "ℹ️ Інформація про маркер" else "ℹ️ Marker Info"
+            setTextColor(Color.WHITE)
+            textSize = 17f
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val btnClose = Button(activity).apply {
+            text = "✕"
+            setTextColor(Color.LTGRAY)
+            setBackgroundColor(Color.TRANSPARENT)
+            textSize = 18f
+            setOnClickListener { infoDialog.dismiss() }
+        }
+
+        headerRow.addView(titleTv)
+        headerRow.addView(btnClose)
+        root.addView(headerRow)
+
+        val scroll = ScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val contentCol = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        scroll.addView(contentCol)
+        root.addView(scroll)
+
+        // Top info card
+        val topCard = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#1B261E"))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            p.setMargins(0, 0, 0, dp(8))
+            layoutParams = p
+        }
+
+        val nameTv = TextView(activity).apply {
+            text = currentMarkerName
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setTypeface(null, Typeface.BOLD)
+        }
+        topCard.addView(nameTv)
+
+        val coordStr = String.format(Locale.US, "%.6f, %.6f", lat, lon)
+        val coordRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, dp(4))
+            isClickable = true
+            setOnClickListener {
+                val clip = ClipData.newPlainText("Coordinates", coordStr)
+                (activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
+                Toast.makeText(activity, if (isUk) "Координати скопійовано: $coordStr" else "Coordinates copied: $coordStr", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        val coordTv = TextView(activity).apply {
+            text = "📍 $coordStr 📋"
+            setTextColor(Color.parseColor("#90CAF9"))
+            textSize = 13f
+        }
+        coordRow.addView(coordTv)
+        topCard.addView(coordRow)
+
+        val spinner = ProgressBar(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER
+                setMargins(0, dp(6), 0, dp(6))
+            }
+        }
+        topCard.addView(spinner)
+
+        val adminTv = TextView(activity).apply {
+            setTextColor(Color.parseColor("#E0E0E0"))
+            textSize = 13f
+            visibility = View.GONE
+            setPadding(0, dp(2), 0, dp(2))
+        }
+        topCard.addView(adminTv)
+
+        val settlementTv = TextView(activity).apply {
+            setTextColor(Color.parseColor("#81C784"))
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            visibility = View.GONE
+            setPadding(0, dp(2), 0, dp(2))
+        }
+        topCard.addView(settlementTv)
+
+        val addressTv = TextView(activity).apply {
+            setTextColor(Color.parseColor("#FFD54F"))
+            textSize = 13f
+            visibility = View.GONE
+            setPadding(0, dp(2), 0, dp(2))
+        }
+        topCard.addView(addressTv)
+
+        contentCol.addView(topCard)
+
+        val listsContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        contentCol.addView(listsContainer)
+
+        Thread {
+            val info = AddressSearchManager.findMarkerLocationInfo(activity, lat, lon)
+            activity.runOnUiThread {
+                spinner.visibility = View.GONE
+                if (info != null) {
+                    val adminParts = listOf(info.regionName, info.districtName, info.communityName).filter { it.isNotBlank() }
+                    if (adminParts.isNotEmpty()) {
+                        adminTv.text = "🏛️ ${adminParts.joinToString(" • ")}"
+                        adminTv.visibility = View.VISIBLE
+                    }
+                    if (info.settlementName.isNotBlank()) {
+                        settlementTv.text = "🏙️ ${info.settlementName}"
+                        settlementTv.visibility = View.VISIBLE
+                    }
+                    if (info.nearestHouseAddress != null && info.nearestHouseDistanceMeters != null) {
+                        val distStr = AddressSearchManager.formatDistance(info.nearestHouseDistanceMeters)
+                        addressTv.text = "🏠 ${info.nearestHouseAddress} ($distStr)"
+                        addressTv.visibility = View.VISIBLE
+                    }
+
+                    // Render 5 nearest addresses
+                    if (info.nearestAddresses.isNotEmpty()) {
+                        val addrHeader = TextView(activity).apply {
+                            text = if (isUk) "📍 Найближчі адреси (до 5):" else "📍 Nearest addresses (up to 5):"
+                            setTextColor(Color.parseColor("#4CAF50"))
+                            textSize = 14f
+                            setTypeface(null, Typeface.BOLD)
+                            setPadding(dp(4), dp(8), dp(4), dp(4))
+                        }
+                        listsContainer.addView(addrHeader)
+
+                        for ((addr, dist) in info.nearestAddresses) {
+                            val row = LinearLayout(activity).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                                setBackgroundColor(Color.parseColor("#222A22"))
+                                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    setMargins(0, 0, 0, dp(4))
+                                }
+                                layoutParams = p
+                                setPadding(dp(10), dp(8), dp(10), dp(8))
+                                isClickable = true
+                                isFocusable = true
+                            }
+
+                            val tCol = LinearLayout(activity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                            }
+                            val distPrefix = "(${AddressSearchManager.formatDistance(dist)}) "
+                            val streetPart = if (addr.houseNumber.isNotBlank()) "${addr.streetName}, ${addr.houseNumber}" else addr.streetName
+                            val title = "$distPrefix${streetPart.ifBlank { addr.cityName }}"
+                            val sub = listOf(addr.cityName, addr.regionName).filter { it.isNotBlank() }.joinToString(", ")
+
+                            val rTitle = TextView(activity).apply {
+                                text = title
+                                setTextColor(Color.WHITE)
+                                textSize = 13.5f
+                                setTypeface(null, Typeface.BOLD)
+                            }
+                            val rSub = TextView(activity).apply {
+                                text = sub
+                                setTextColor(Color.GRAY)
+                                textSize = 11.5f
+                            }
+                            tCol.addView(rTitle)
+                            if (sub.isNotBlank()) tCol.addView(rSub)
+                            row.addView(tCol)
+
+                            row.setOnClickListener {
+                                infoDialog.dismiss()
+                                onItemSelected(
+                                    addr.getFullTitle(),
+                                    if (isUk) "📍 Адреса" else "📍 Address",
+                                    addr.lat,
+                                    addr.lon
+                                )
+                            }
+                            listsContainer.addView(row)
+                        }
+                    }
+
+                    // Render 10 nearest POIs
+                    if (info.nearestPois.isNotEmpty()) {
+                        val poiHeader = TextView(activity).apply {
+                            text = if (isUk) "✨ Найближчі точки інтересу (до 10):" else "✨ Nearest POIs (up to 10):"
+                            setTextColor(Color.parseColor("#4CAF50"))
+                            textSize = 14f
+                            setTypeface(null, Typeface.BOLD)
+                            setPadding(dp(4), dp(12), dp(4), dp(4))
+                        }
+                        listsContainer.addView(poiHeader)
+
+                        for ((poi, dist) in info.nearestPois) {
+                            val row = LinearLayout(activity).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                                setBackgroundColor(Color.parseColor("#222A22"))
+                                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    setMargins(0, 0, 0, dp(4))
+                                }
+                                layoutParams = p
+                                setPadding(dp(10), dp(8), dp(10), dp(8))
+                                isClickable = true
+                                isFocusable = true
+                            }
+
+                            val iconTv = TextView(activity).apply {
+                                text = poi.poiIcon ?: "📍"
+                                textSize = 18f
+                                setPadding(0, 0, dp(8), 0)
+                            }
+                            row.addView(iconTv)
+
+                            val tCol = LinearLayout(activity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                            }
+                            val distPrefix = "(${AddressSearchManager.formatDistance(dist)}) "
+                            val title = "$distPrefix${poi.poiName ?: poi.getFullTitle()}"
+                            val sub = listOf(poi.poiCategory ?: "", poi.streetName, poi.cityName).filter { it.isNotBlank() }.joinToString(", ")
+
+                            val rTitle = TextView(activity).apply {
+                                text = title
+                                setTextColor(Color.WHITE)
+                                textSize = 13.5f
+                                setTypeface(null, Typeface.BOLD)
+                            }
+                            val rSub = TextView(activity).apply {
+                                text = sub
+                                setTextColor(Color.GRAY)
+                                textSize = 11.5f
+                            }
+                            tCol.addView(rTitle)
+                            if (sub.isNotBlank()) tCol.addView(rSub)
+                            row.addView(tCol)
+
+                            row.setOnClickListener {
+                                infoDialog.dismiss()
+                                val chosenType = "${poi.poiIcon ?: "📍"} ${poi.poiCategory ?: ""}".trim()
+                                onItemSelected(
+                                    poi.poiName ?: poi.getFullTitle(),
+                                    chosenType.ifBlank { if (isUk) "📍 Точка інтересу" else "📍 Point of Interest" },
+                                    poi.lat,
+                                    poi.lon
+                                )
+                            }
+                            listsContainer.addView(row)
+                        }
+                    }
+                }
+            }
+        }.start()
+
+        infoDialog.setContentView(root)
+        infoDialog.show()
     }
 }
