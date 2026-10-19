@@ -12,12 +12,17 @@ object AddressDb {
     private var openDb: SQLiteDatabase? = null
     private val dbLock = Any()
 
+    fun getAddressesDir(context: Context): File {
+        val target = MushroomStorageManager.addressesDir
+        if (target.exists() && target.canWrite()) return target
+        if (target.canWrite()) return target
+        return File(context.filesDir, "addresses").apply { if (!exists()) mkdirs() }
+    }
+
     fun getDatabaseFile(context: Context): File {
         val target = MushroomStorageManager.addressDbFile
         if (target.exists() && target.canWrite()) return target
-        if (MushroomStorageManager.addressesDir.canWrite()) return target
-        val fallbackDir = File(context.filesDir, "addresses").apply { if (!exists()) mkdirs() }
-        return File(fallbackDir, "addr.db")
+        return File(getAddressesDir(context), "addr.db")
     }
 
     fun openDatabase(context: Context, writable: Boolean = false): SQLiteDatabase? {

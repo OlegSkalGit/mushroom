@@ -688,7 +688,7 @@ object AddressDownloadManager {
             var lastId = -1L
             var hasMore = true
 
-            unlinkedPoisTempFile = File(context.cacheDir, "unlinked_pois_${country.code}_${System.currentTimeMillis()}.tmp")
+            unlinkedPoisTempFile = File(AddressDb.getAddressesDir(context), "unlinked_pois_${country.code}_${System.currentTimeMillis()}.tmp")
             unlinkedPoiWriter = java.io.BufferedWriter(java.io.FileWriter(unlinkedPoisTempFile, true))
 
             onProgress(0.04, "${country.nameUk}: Початок імпорту точок інтересу (0/$totalPois)")
@@ -978,7 +978,7 @@ object AddressDownloadManager {
         AddressDb.ensureTablesExist(db)
         val ingestor = AddressIngestor(db, country.code, country.nameUk)
         var downloadedAnyBbox = false
-        val unlinkedHousesTempFile = File(context.cacheDir, "unlinked_houses_${country.code}_${System.currentTimeMillis()}.tmp")
+        val unlinkedHousesTempFile = File(AddressDb.getAddressesDir(context), "unlinked_houses_${country.code}_${System.currentTimeMillis()}.tmp")
         var unlinkedHousesWriter: java.io.BufferedWriter? = java.io.BufferedWriter(java.io.FileWriter(unlinkedHousesTempFile, true))
 
         try {
