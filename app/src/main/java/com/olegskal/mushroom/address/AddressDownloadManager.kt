@@ -614,6 +614,9 @@ object AddressDownloadManager {
                                     parentPlaceId = rId
                                     regionName = regTarget.name
                                     regionId = rId
+                                } else {
+                                    // Точка POI за межами країни — пропускаємо
+                                    continue
                                 }
                             }
 
@@ -1230,6 +1233,9 @@ object AddressDownloadManager {
 
                         if (usedBbox) {
                             downloadedAnyBbox = true
+                            if (boundaryMatcher == null && !isCancelled()) {
+                                boundaryMatcher = RegionBoundaryMatcher.downloadAndLoad(country.code, logCallback)
+                            }
                         }
 
                         if (!isCancelled()) {
@@ -1266,6 +1272,30 @@ object AddressDownloadManager {
                                     val osmType = parts[1].trim()
                                     val lat = parts[2].trim().toDoubleOrNull() ?: continue
                                     val lon = parts[3].trim().toDoubleOrNull() ?: continue
+
+                                    var targetRegion = curRegion
+                                    val matcher = boundaryMatcher
+                                    if (usedBbox && matcher != null) {
+                                        val ptCode = matcher.findRegionCode(lat, lon)
+                                        if (ptCode == null) {
+                                            // Точка за межами кордонів України (закордон: Білорусь, РФ, Польща тощо) — відкидаємо
+                                            continue
+                                        }
+                                        val matchedReg = regionByCode[ptCode]
+                                        if (matchedReg != null) {
+                                            val isCurrent = if (curRegion.code.isNotBlank() && matchedReg.code.isNotBlank()) {
+                                                matchedReg.code.equals(curRegion.code, ignoreCase = true)
+                                            } else {
+                                                matchedReg.name.trim().equals(curRegion.name.trim(), ignoreCase = true)
+                                            }
+                                            if (!isCurrent) {
+                                                // Точка належить іншій області України — відкидаємо з поточної області.
+                                                // Вона завантажиться у свій час рідною областю зі своєю сіткою доріг!
+                                                continue
+                                            }
+                                            targetRegion = matchedReg
+                                        }
+                                    }
 
                                     val rowCity = parts.getOrNull(4)?.trim() ?: ""
                                     val rowTown = parts.getOrNull(5)?.trim() ?: ""
@@ -1321,17 +1351,6 @@ object AddressDownloadManager {
 
                                     val cleanNum = houseNumber.trim()
                                     if (cleanNum.isBlank() && street.isBlank()) continue
-
-                                    var targetRegion = curRegion
-                                    if (usedBbox) {
-                                        val ptCode = boundaryMatcher?.findRegionCode(lat, lon)
-                                        if (ptCode != null) {
-                                            val matchedReg = regionByCode[ptCode]
-                                            if (matchedReg != null) {
-                                                targetRegion = matchedReg
-                                            }
-                                        }
-                                    }
 
                                     val regPlaceId = if (targetRegion.name == curRegion.name) defaultRegPlaceId else getRegionPlaceId(targetRegion)
 
