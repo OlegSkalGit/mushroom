@@ -431,6 +431,57 @@ object AddressDownloadManager {
         return assocMap
     }
 
+    private fun fetchRegionStreets(
+        context: Context,
+        region: RegionTarget,
+        countryCode: String,
+        logFn: (String) -> Unit,
+        isCancelled: () -> Boolean
+    ): File? {
+        val areaClause = if (region.relId > 0) {
+            "area(${3600000000L + region.relId})->.a;"
+        } else {
+            "area[\"ISO3166-1\"=\"${countryCode.uppercase()}\"][admin_level=2]->.a;"
+        }
+        val qArea = """
+            [out:json][timeout:180][maxsize:1073741824];
+            $areaClause
+            (
+              way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"](area.a);
+            );
+            out tags geom qt;
+        """.trimIndent()
+
+        val tempFile = File(AddressDb.getAddressesDir(context), "temp_streets_${region.relId}_${System.currentTimeMillis()}.json")
+        var hasStreets = false
+
+        if (region.relId > 0) {
+            hasStreets = client.queryToFile(qArea, tempFile, timeoutSec = 185, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
+        }
+
+        val fileHasData = hasStreets && tempFile.exists() && tempFile.length() > 500L
+        if (!fileHasData && region.isBbox && !isCancelled()) {
+            try { tempFile.delete() } catch (_: Exception) {}
+            logFn("Сервер не повернув вулиці через area для ${region.name}. Перехід на географічну рамку (bbox)...")
+            val bboxStr = "(${region.minLat}, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
+            val qBbox = """
+                [out:json][timeout:180][maxsize:1073741824];
+                (
+                  way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"]$bboxStr;
+                );
+                out tags geom qt;
+            """.trimIndent()
+            hasStreets = client.queryToFile(qBbox, tempFile, timeoutSec = 185, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
+        }
+
+        return if (hasStreets && tempFile.exists() && tempFile.length() > 500L) {
+            tempFile
+        } else {
+            try { tempFile.delete() } catch (_: Exception) {}
+            null
+        }
+    }
+
     private fun fetchRegionSettlements(
         region: RegionTarget,
         countryCode: String,
@@ -1133,7 +1184,7 @@ object AddressDownloadManager {
                         out center;
                     """.trimIndent()
 
-                    val tempFile = File(context.cacheDir, "temp_houses_${curRegion.relId}_${System.currentTimeMillis()}.tsv")
+                    val tempFile = File(AddressDb.getAddressesDir(context), "temp_houses_${curRegion.relId}_${System.currentTimeMillis()}.tsv")
                     try {
                         var hasHouses = false
                         var usedBbox = curRegion.relId <= 0L
@@ -1179,6 +1230,17 @@ object AddressDownloadManager {
 
                         if (usedBbox) {
                             downloadedAnyBbox = true
+                        }
+
+                        if (!isCancelled()) {
+                            client.interruptibleSleep(2000L, isCancelled)
+                        }
+                        logCallback("Завантаження сітки іменованих вулиць для ${curRegion.name}...")
+                        val streetsFile = if (!isCancelled()) fetchRegionStreets(context, curRegion, country.code, logCallback, isCancelled) else null
+                        val streetGrid = SpatialStreetGrid()
+                        if (streetsFile != null) {
+                            val loadedWays = streetGrid.loadFromJsonFile(streetsFile)
+                            logCallback("Побудовано сітку вулиць для ${curRegion.name}: $loadedWays ліній (${streetGrid.segmentCount} відрізків, ${streetGrid.streetCount} унікальних вулиць)")
                         }
 
                         db.beginTransaction()
@@ -1246,6 +1308,15 @@ object AddressDownloadManager {
                                     if (street.isBlank() && rowPlace.isNotBlank() && houseNumber.isNotBlank()) {
                                         street = rowPlace
                                         rank = 2.toByte()
+                                    }
+
+                                    // Ранг 2: Геометрична прив'язка до осі найближчої названої вулиці (<= 80м)
+                                    if (street.isBlank() && streetGrid.segmentCount > 0) {
+                                        val nearestStreet = streetGrid.findNearestStreet(lat, lon, maxDistanceMeters = 80.0)
+                                        if (!nearestStreet.isNullOrBlank()) {
+                                            street = nearestStreet
+                                            rank = 2.toByte()
+                                        }
                                     }
 
                                     val cleanNum = houseNumber.trim()
@@ -1423,6 +1494,8 @@ object AddressDownloadManager {
                             loadedNames.add(region.name.trim().lowercase())
                         } finally {
                             db.endTransaction()
+                            try { streetsFile?.delete() } catch (_: Exception) {}
+                            streetGrid.clear()
                         }
                     } finally {
                         tempFile.delete()
@@ -1466,10 +1539,16 @@ object AddressDownloadManager {
                             val regionName = parts[5]
                             val cityName = parts[6]
 
-                            val matchedStreetId = if (houseGrid.size > 0) houseGrid.findNearestStreetId(latI, lonI) else null
+                            // Ранг 3: Безпечний ланцюг через сусіда з назвою вулиці (<= 40м)
+                            val matchedStreetId = if (houseGrid.size > 0) {
+                                houseGrid.findNearestStreetIdWithMaxDist(latI, lonI, maxDistMeters = 40.0)
+                            } else null
+
                             val finalStreetId = if (matchedStreetId != null) {
+                                houseGrid.add(latI, lonI, matchedStreetId) // ланцюг для наступних сусідів
                                 matchedStreetId
                             } else {
+                                // Ранг 4: Офіційна адреса населеного пункту без назви вулиці
                                 ingestor.getOrCreateStreet(cityPlaceId, "", regionName, cityName, if (regPlaceId > 0) regPlaceId else null)
                             }
                             ingestor.addHouse(finalStreetId, number, latI, lonI)

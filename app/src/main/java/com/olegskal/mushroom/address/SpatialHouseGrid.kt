@@ -28,11 +28,18 @@ class SpatialHouseGrid {
                     SELECT h.lat, h.lon, h.street_id 
                     FROM houses h 
                     JOIN streets s ON s.id = h.street_id 
+                    JOIN street_names sn ON sn.id = s.name_id
                     JOIN admin_places c ON c.id = s.country_id 
-                    WHERE UPPER(c.code) = ?;
+                    WHERE UPPER(c.code) = ? AND sn.name != '';
                 """.trimIndent()
             } else {
-                "SELECT lat, lon, street_id FROM houses;"
+                """
+                    SELECT h.lat, h.lon, h.street_id 
+                    FROM houses h 
+                    JOIN streets s ON s.id = h.street_id 
+                    JOIN street_names sn ON sn.id = s.name_id
+                    WHERE sn.name != '';
+                """.trimIndent()
             }
             val args = if (countryCode != null) arrayOf(countryCode.uppercase()) else null
             val cursor = db.rawQuery(sql, args)
@@ -141,6 +148,46 @@ class SpatialHouseGrid {
                 break
             }
             radius++
+        }
+
+        return bestStreetId
+    }
+
+    /**
+     * Пошук найближчого будинку з прив'язкою до вулиці у межах [maxDistMeters].
+     * @param latI широта в deg * 100_000
+     * @param lonI довгота в deg * 100_000
+     * @param maxDistMeters максимальна відстань у метрах (за замовчуванням 40 м)
+     */
+    fun findNearestStreetIdWithMaxDist(latI: Int, lonI: Int, maxDistMeters: Double = 40.0): Long? {
+        if (count == 0) return null
+
+        val cx = latI / CELL_SIZE
+        val cy = lonI / CELL_SIZE
+
+        val latDeg = latI / 100_000.0
+        val cosLat = cos(Math.toRadians(latDeg))
+        val ky = 1.10574
+        val kx = 1.11320 * cosLat
+
+        var bestDist = maxDistMeters
+        var bestStreetId: Long? = null
+
+        for (dx in -1..1) {
+            for (dy in -1..1) {
+                val cell = cells[cellKey(cx + dx, cy + dy)] ?: continue
+                val cellSize = cell.size
+                for (i in 0 until cellSize) {
+                    val hIdx = cell[i]
+                    val dlat = (latI - lats[hIdx]) * ky
+                    val dlon = (lonI - lons[hIdx]) * kx
+                    val d = kotlin.math.hypot(dlat, dlon)
+                    if (d < bestDist) {
+                        bestDist = d
+                        bestStreetId = streetIds[hIdx]
+                    }
+                }
+            }
         }
 
         return bestStreetId
