@@ -320,8 +320,8 @@ object AddressSearchManager {
             }
         }
 
-        val addressFtsQuery = addressTokens.joinToString(" AND ")
-        val poiFtsQuery = poiTokens.joinToString(" AND ")
+        val addressFtsQuery = addressTokens.joinToString(" ")
+        val poiFtsQuery = poiTokens.joinToString(" ")
 
         if (addressFtsQuery.isBlank() && poiFtsQuery.isBlank() && tokens.isEmpty()) return emptyList()
 
