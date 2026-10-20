@@ -21,12 +21,18 @@ data class AddressSearchResult(
     val poiIcon: String? = null,
     val isPoiOnly: Boolean = false,
     val isSettlement: Boolean = false,
-    val adminLevel: Int = 0
+    val adminLevel: Int = 0,
+    val isStreet: Boolean = false
 ) {
     fun getFullTitle(): String {
         if (isSettlement) {
             val regSuffix = if (regionName.isNotBlank() && regionName != cityName) " ($regionName)" else ""
             return "🏙️ $cityName$regSuffix"
+        }
+        if (isStreet || (!isSettlement && !isPoiOnly && houseNumber.isBlank() && streetName.isNotBlank())) {
+            val cityPart = if (cityName.isNotBlank() && cityName != streetName) ", $cityName" else ""
+            val regSuffix = if (regionName.isNotBlank() && regionName != cityName) " ($regionName)" else ""
+            return "🛣️ $streetName$cityPart$regSuffix"
         }
         if (isPoiOnly) {
             val iconPrefix = if (!poiIcon.isNullOrBlank()) "$poiIcon " else "📍 "
@@ -56,6 +62,10 @@ data class AddressSearchResult(
     fun getShortDisplay(): String {
         if (isSettlement) {
             return "🏙️ $cityName"
+        }
+        if (isStreet || (!isSettlement && !isPoiOnly && houseNumber.isBlank() && streetName.isNotBlank())) {
+            val cityPart = if (cityName.isNotBlank() && cityName != streetName) " ($cityName)" else ""
+            return "🛣️ $streetName$cityPart"
         }
         if (isPoiOnly) {
             val iconPrefix = if (!poiIcon.isNullOrBlank()) "$poiIcon " else "📍 "
@@ -326,6 +336,7 @@ object AddressSearchManager {
         if (addressFtsQuery.isBlank() && poiFtsQuery.isBlank() && tokens.isEmpty()) return emptyList()
 
         val addressResults = mutableListOf<AddressSearchResult>()
+        val streetResults = mutableListOf<AddressSearchResult>()
         val poiResults = mutableListOf<AddressSearchResult>()
         val settlementResults = mutableListOf<AddressSearchResult>()
         val hasPoi = AddressDb.hasPoiTables(db)
@@ -456,6 +467,67 @@ object AddressSearchManager {
                     }
                 }
             } else {
+                // 1A. Вулиці (до 5 штук з точкою центру number = '')
+                val streetOrderBy = if (userLoc != null) {
+                    """
+                        ORDER BY
+                          (CASE WHEN h.lat IS NULL OR h.lat = 0 THEN 1 ELSE 0 END) ASC,
+                          ((h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) *
+                           (h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) +
+                           (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon) *
+                           (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon)) ASC
+                    """.trimIndent()
+                } else {
+                    "ORDER BY sn.name ASC"
+                }
+
+                val streetSql = """
+                    SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.lat, h.lon
+                    FROM search_fts f
+                    JOIN streets s ON s.id = f.rowid
+                    JOIN street_names sn ON sn.id = s.name_id
+                    JOIN admin_places city ON city.id = s.place_id
+                    LEFT JOIN admin_places reg ON reg.id = s.region_id
+                    LEFT JOIN admin_places country ON country.id = s.country_id
+                    JOIN houses h ON h.street_id = s.id AND (h.number = '' OR h.number IS NULL)
+                    WHERE search_fts MATCH ?
+                    $streetOrderBy
+                    LIMIT 5;
+                """.trimIndent()
+
+                try {
+                    val cStreet = db.rawQuery(streetSql, arrayOf(addressFtsQuery))
+                    cStreet.use {
+                        while (it.moveToNext()) {
+                            val cCode = it.getString(0) ?: ""
+                            val rName = it.getString(1) ?: ""
+                            val cName = it.getString(2) ?: ""
+                            val sName = it.getString(3) ?: ""
+                            val latRaw = it.getInt(4)
+                            val lonRaw = it.getInt(5)
+                            val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
+                            val dLat = latRaw / div
+                            val dLon = lonRaw / div
+
+                            streetResults.add(
+                                AddressSearchResult(
+                                    countryCode = cCode,
+                                    regionName = rName,
+                                    cityName = cName,
+                                    streetName = sName,
+                                    houseNumber = "",
+                                    lat = dLat,
+                                    lon = dLon,
+                                    isStreet = true
+                                )
+                            )
+                        }
+                    }
+                } catch (se: Exception) {
+                    AppLogger.log(TAG, "search", false, "Street search warning: ${se.message}")
+                }
+
+                // 1B. Будинки з конкретними номерами
                 val sql = if (hasPoi) {
                     """
                         SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.number, h.lat, h.lon,
@@ -469,7 +541,7 @@ object AddressSearchManager {
                         JOIN admin_places city ON city.id = s.place_id
                         LEFT JOIN admin_places reg ON reg.id = s.region_id
                         LEFT JOIN admin_places country ON country.id = s.country_id
-                        JOIN houses h ON h.street_id = s.id
+                        JOIN houses h ON h.street_id = s.id AND h.number != '' AND h.number IS NOT NULL
                         LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
                         LEFT JOIN poi_types pt ON pt.id = pp.category_id
                         WHERE search_fts MATCH ?
@@ -486,7 +558,7 @@ object AddressSearchManager {
                         JOIN admin_places city ON city.id = s.place_id
                         LEFT JOIN admin_places reg ON reg.id = s.region_id
                         LEFT JOIN admin_places country ON country.id = s.country_id
-                        JOIN houses h ON h.street_id = s.id
+                        JOIN houses h ON h.street_id = s.id AND h.number != '' AND h.number IS NOT NULL
                         WHERE search_fts MATCH ?
                         $orderByClause
                         LIMIT ?;
@@ -756,13 +828,12 @@ object AddressSearchManager {
             }
         }
 
-        val combined = addressResults.take(addrTake) + poiResults.take(poiTake) + settlementResults.take(setTake)
-
-        val sortedResults = if (userLoc != null) {
+        fun sortByDistanceIfPossible(list: List<AddressSearchResult>): List<AddressSearchResult> {
+            if (userLoc == null || list.size <= 1) return list
             val uLatDeg = userLoc.latitude
             val uLonDeg = userLoc.longitude
             val cosLat = Math.cos(Math.toRadians(uLatDeg))
-            combined.sortedWith(
+            return list.sortedWith(
                 compareBy<AddressSearchResult> { res ->
                     if (res.lat == 0.0 && res.lon == 0.0) 1 else 0
                 }.thenBy { res ->
@@ -771,11 +842,15 @@ object AddressSearchManager {
                     dLat * dLat + dLon * dLon
                 }
             )
-        } else {
-            combined
         }
 
-        return sortedResults
+        val streetTake = minOf(5, streetResults.size)
+        val combined = sortByDistanceIfPossible(settlementResults.take(setTake)) +
+                       sortByDistanceIfPossible(streetResults.take(streetTake)) +
+                       sortByDistanceIfPossible(addressResults.take(addrTake)) +
+                       sortByDistanceIfPossible(poiResults.take(poiTake))
+
+        return combined
     }
 
     fun formatDistance(distMeters: Float): String {
