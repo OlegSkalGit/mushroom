@@ -519,8 +519,13 @@ object AddressPrebuiltManager {
             targetDb.execSQL("DROP INDEX IF EXISTS idx_streets_place_id;")
             targetDb.execSQL("DROP INDEX IF EXISTS idx_streets_name_id;")
             targetDb.execSQL("DROP INDEX IF EXISTS idx_admin_places_parent;")
+            targetDb.execSQL("DROP INDEX IF EXISTS idx_admin_places_name;")
+            targetDb.execSQL("DROP INDEX IF EXISTS idx_houses_coords;")
+            targetDb.execSQL("DROP INDEX IF EXISTS idx_poi_places_coords;")
             targetDb.execSQL("DROP INDEX IF EXISTS idx_poi_places_street;")
             targetDb.execSQL("DROP INDEX IF EXISTS idx_poi_places_country;")
+            targetDb.execSQL("DROP INDEX IF EXISTS idx_poi_types_country;")
+            targetDb.execSQL("DROP INDEX IF EXISTS idx_poi_types_tag;")
 
             // 3. Підключення вхідної бази
             targetDb.execSQL("ATTACH DATABASE ? AS src;", arrayOf(sourceDbFile.absolutePath))
@@ -734,6 +739,9 @@ object AddressPrebuiltManager {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_place_id ON streets(place_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_parent ON admin_places(parent_id);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_name ON admin_places(name COLLATE NOCASE);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_types_country ON poi_types(country_code);")

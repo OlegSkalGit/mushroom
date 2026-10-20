@@ -10,6 +10,7 @@ import com.olegskal.mushroom.math.GeoMath
 import kotlin.math.roundToInt
 import org.json.JSONObject
 import java.io.File
+import java.util.Locale
 
 data class RegionTarget(
     val relId: Long,
@@ -656,6 +657,7 @@ object AddressDownloadManager {
     fun importPoiLocationsToAddressDb(
         context: Context,
         country: MapCountry,
+        streetGrid: SpatialStreetGrid? = null,
         onProgress: (progressRatio: Double, statusText: String) -> Unit = { _, _ -> },
         isCancelled: () -> Boolean = { false }
     ): Int {
@@ -675,9 +677,8 @@ object AddressDownloadManager {
         var count = 0
         var poiDb: SQLiteDatabase? = null
         var stmtInsertPoi: android.database.sqlite.SQLiteStatement? = null
-        var houseGrid: SpatialHouseGrid? = null
-        var unlinkedPoisTempFile: File? = null
-        var unlinkedPoiWriter: java.io.BufferedWriter? = null
+        var stmtInsertStreet: android.database.sqlite.SQLiteStatement? = null
+        var grid: SpatialHouseGrid? = null
 
         try {
             poiDb = SQLiteDatabase.openDatabase(poiFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
@@ -706,6 +707,7 @@ object AddressDownloadManager {
 
             try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_street;") } catch (_: Exception) {}
             try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_country;") } catch (_: Exception) {}
+            try { db.execSQL("DROP INDEX IF EXISTS idx_poi_places_coords;") } catch (_: Exception) {}
             try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);") } catch (_: Exception) {}
 
             stmtInsertPoi = db.compileStatement("""
@@ -734,16 +736,16 @@ object AddressDownloadManager {
             } catch (_: Exception) {}
 
             onProgress(0.03, "${country.nameUk}: Завантаження будинків у пам'ять для геоприв'язки POI...")
-            val grid = SpatialHouseGrid.buildFromDatabase(db, countryCode)
-            houseGrid = grid
-            AppLogger.log(TAG, "importPoiLocationsToAddressDb", true, "Завантажено ${grid.size} будинків у RAM для прив'язки POI")
+            val loadedGrid = SpatialHouseGrid.buildFromDatabase(db, countryCode)
+            grid = loadedGrid
+            AppLogger.log(TAG, "importPoiLocationsToAddressDb", true, "Завантажено ${loadedGrid.size} будинків у RAM для прив'язки POI")
+
+            val settlementStreetCache = mutableMapOf<Long, Long>()
+            var cachedEmptyNameId: Long? = null
 
             val chunkSize = 5000
             var lastId = -1L
             var hasMore = true
-
-            unlinkedPoisTempFile = File(AddressDb.getAddressesDir(context), "unlinked_pois_${country.code}_${System.currentTimeMillis()}.tmp")
-            unlinkedPoiWriter = java.io.BufferedWriter(java.io.FileWriter(unlinkedPoisTempFile, true))
 
             onProgress(0.04, "${country.nameUk}: Початок імпорту точок інтересу (0/$totalPois)")
 
@@ -827,57 +829,163 @@ object AddressDownloadManager {
 
                             var matchedStreetId: Long? = null
 
-                            // 1. Якщо є точна адреса на точці - перевіряємо прямий збіг вулиці
-                            if (streetTag.isNotBlank() && houseTag.isNotBlank()) {
+                            // 1. Пряма адреса з OSM тегів (вулиця та номер будинку)
+                            if (streetTag.isNotBlank()) {
                                 val cleanStreet = AddressNormalizer.canonicalStreetNameUniversal(streetTag).ifBlank { streetTag.trim() }
-                                val cacheKey = Pair(cleanStreet.lowercase(), houseTag.lowercase())
-                                if (addrMatchCache.containsKey(cacheKey)) {
-                                    matchedStreetId = addrMatchCache[cacheKey]
-                                } else {
-                                    val cHouse = db.rawQuery("""
-                                        SELECT s.id 
-                                        FROM street_names sn
-                                        JOIN streets s ON s.name_id = sn.id
-                                        JOIN houses h ON h.street_id = s.id
-                                        WHERE sn.name = ? AND (h.number = ? OR LOWER(h.number) = ?)
-                                        LIMIT 1;
-                                    """.trimIndent(), arrayOf(cleanStreet, houseTag, houseTag.lowercase()))
-                                    val found = cHouse.use { ch ->
-                                        if (ch.moveToFirst()) ch.getLong(0) else null
+                                if (houseTag.isNotBlank()) {
+                                    val cacheKey = Pair(cleanStreet.lowercase(), houseTag.lowercase())
+                                    if (addrMatchCache.containsKey(cacheKey)) {
+                                        matchedStreetId = addrMatchCache[cacheKey]
+                                    } else {
+                                        val cHouse = db.rawQuery("""
+                                            SELECT s.id 
+                                            FROM street_names sn
+                                            JOIN streets s ON s.name_id = sn.id
+                                            JOIN houses h ON h.street_id = s.id
+                                            WHERE sn.name = ? AND (h.number = ? OR LOWER(h.number) = ?)
+                                            LIMIT 1;
+                                        """.trimIndent(), arrayOf(cleanStreet, houseTag, houseTag.lowercase()))
+                                        val found = cHouse.use { ch ->
+                                            if (ch.moveToFirst()) ch.getLong(0) else null
+                                        }
+                                        if (addrMatchCache.size > 5000) {
+                                            addrMatchCache.clear()
+                                        }
+                                        addrMatchCache[cacheKey] = found
+                                        matchedStreetId = found
                                     }
-                                    if (addrMatchCache.size > 5000) {
-                                        addrMatchCache.clear()
+                                }
+
+                                if (matchedStreetId == null) {
+                                    val streetOnlyKey = Pair(cleanStreet.lowercase(), "")
+                                    if (addrMatchCache.containsKey(streetOnlyKey)) {
+                                        matchedStreetId = addrMatchCache[streetOnlyKey]
+                                    } else {
+                                        val cStreet = db.rawQuery("""
+                                            SELECT s.id 
+                                            FROM street_names sn
+                                            JOIN streets s ON s.name_id = sn.id
+                                            WHERE sn.name = ?
+                                            LIMIT 1;
+                                        """.trimIndent(), arrayOf(cleanStreet))
+                                        val found = cStreet.use { cs ->
+                                            if (cs.moveToFirst()) cs.getLong(0) else null
+                                        }
+                                        if (addrMatchCache.size > 5000) {
+                                            addrMatchCache.clear()
+                                        }
+                                        addrMatchCache[streetOnlyKey] = found
+                                        matchedStreetId = found
                                     }
-                                    addrMatchCache[cacheKey] = found
-                                    matchedStreetId = found
                                 }
                             }
 
-                            // 2. Якщо адреса відсутня або не знайдена - шукаємо найближчий будинок у RAM!
-                            if (matchedStreetId == null && houseGrid.size > 0) {
-                                matchedStreetId = houseGrid.findNearestStreetId(latMicro, lonMicro)
+                            // 2. Прив'язка до найближчої осі дороги (<= 50м)
+                            if (matchedStreetId == null && streetGrid != null && streetGrid.segmentCount > 0) {
+                                val nearestRoad = streetGrid.findNearestStreet(latRaw, lonRaw, maxDistanceMeters = 50.0)
+                                if (!nearestRoad.isNullOrBlank()) {
+                                    val cleanRoad = AddressNormalizer.canonicalStreetNameUniversal(nearestRoad).ifBlank { nearestRoad.trim() }
+                                    val roadKey = Pair(cleanRoad.lowercase(), "")
+                                    if (addrMatchCache.containsKey(roadKey)) {
+                                        matchedStreetId = addrMatchCache[roadKey]
+                                    } else {
+                                        val cStreet = db.rawQuery("""
+                                            SELECT s.id 
+                                            FROM street_names sn
+                                            JOIN streets s ON s.name_id = sn.id
+                                            WHERE sn.name = ?
+                                            LIMIT 1;
+                                        """.trimIndent(), arrayOf(cleanRoad))
+                                        val found = cStreet.use { cs ->
+                                            if (cs.moveToFirst()) cs.getLong(0) else null
+                                        }
+                                        if (addrMatchCache.size > 5000) {
+                                            addrMatchCache.clear()
+                                        }
+                                        addrMatchCache[roadKey] = found
+                                        matchedStreetId = found
+                                    }
+                                }
                             }
 
+                            // 3. Будинки: перевіряємо найближчий сусідній будинок (<= 40м)
+                            if (matchedStreetId == null && loadedGrid.size > 0) {
+                                matchedStreetId = loadedGrid.findNearestStreetIdWithMaxDist(latMicro / 10, lonMicro / 10, maxDistMeters = 40.0)
+                            }
+
+                            // 4. Поселення: якщо будинку поруч немає (> 40м) - прив'язуємо до найближчого населеного пункту
+                            if (matchedStreetId == null && loadedGrid.size > 0) {
+                                val nearestAnyStreetId = loadedGrid.findNearestStreetId(latMicro, lonMicro)
+                                if (nearestAnyStreetId != null) {
+                                    if (settlementStreetCache.containsKey(nearestAnyStreetId)) {
+                                        matchedStreetId = settlementStreetCache[nearestAnyStreetId]
+                                    } else {
+                                        val cSetStreet = db.rawQuery("""
+                                            SELECT s2.id 
+                                            FROM streets s1
+                                            JOIN streets s2 ON s2.place_id = s1.place_id
+                                            JOIN street_names sn ON sn.id = s2.name_id
+                                            WHERE s1.id = ? AND sn.name = ''
+                                            LIMIT 1;
+                                        """.trimIndent(), arrayOf(nearestAnyStreetId.toString()))
+                                        var unnamedStreetId = cSetStreet.use { cs ->
+                                            if (cs.moveToFirst()) cs.getLong(0) else null
+                                        }
+                                        if (unnamedStreetId == null) {
+                                            val cPlace = db.rawQuery("""
+                                                SELECT place_id, region_id, country_id FROM streets WHERE id = ? LIMIT 1;
+                                            """.trimIndent(), arrayOf(nearestAnyStreetId.toString()))
+                                            var pId = 0L
+                                            var rId: Long? = null
+                                            var cId = 0L
+                                            cPlace.use { cp ->
+                                                if (cp.moveToFirst()) {
+                                                    pId = cp.getLong(0)
+                                                    if (!cp.isNull(1)) rId = cp.getLong(1)
+                                                    cId = cp.getLong(2)
+                                                }
+                                            }
+                                            if (pId > 0) {
+                                                if (cachedEmptyNameId == null) {
+                                                    val cEmptyName = db.rawQuery("SELECT id FROM street_names WHERE name = '' LIMIT 1;", null)
+                                                    cachedEmptyNameId = cEmptyName.use { if (it.moveToFirst()) it.getLong(0) else null }
+                                                    if (cachedEmptyNameId == null) {
+                                                        db.execSQL("INSERT INTO street_names (name) VALUES ('');")
+                                                        val cNewId = db.rawQuery("SELECT last_insert_rowid();", null)
+                                                        cachedEmptyNameId = cNewId.use { if (it.moveToFirst()) it.getLong(0) else 1L }
+                                                    }
+                                                }
+                                                val stmtStreet = stmtInsertStreet ?: db.compileStatement("INSERT INTO streets (place_id, region_id, country_id, name_id) VALUES (?, ?, ?, ?);").also { stmtInsertStreet = it }
+                                                stmtStreet.bindLong(1, pId)
+                                                val regId = rId
+                                                if (regId != null) stmtStreet.bindLong(2, regId) else stmtStreet.bindNull(2)
+                                                stmtStreet.bindLong(3, cId)
+                                                stmtStreet.bindLong(4, cachedEmptyNameId!!)
+                                                unnamedStreetId = stmtStreet.executeInsert()
+                                            }
+                                        }
+                                        val resolved = unnamedStreetId ?: nearestAnyStreetId
+                                        settlementStreetCache[nearestAnyStreetId] = resolved
+                                        matchedStreetId = resolved
+                                    }
+                                }
+                            }
+
+                            stmtInsertPoi.bindString(1, chosenName)
+                            stmtInsertPoi.bindLong(2, typeId)
                             if (matchedStreetId != null) {
-                                // Номер будинку для точки НЕ записуємо (лише вулиця та населений пункт)
-                                stmtInsertPoi.bindString(1, chosenName)
-                                stmtInsertPoi.bindLong(2, typeId)
                                 stmtInsertPoi.bindLong(3, matchedStreetId)
-                                stmtInsertPoi.bindNull(4) // house_number is null for POI
-                                stmtInsertPoi.bindLong(5, latMicro.toLong())
-                                stmtInsertPoi.bindLong(6, lonMicro.toLong())
-                                stmtInsertPoi.bindString(7, countryCode)
-                                val rowId = stmtInsertPoi.executeInsert()
-
-                                if (rowId > 0) {
-                                    count++
-                                }
                             } else {
-                                // Точка без прив'язки - записуємо у тимчасовий файл для фінальної прив'язки в самому кінці
-                                val safeName = chosenName.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-                                val safeStreet = streetTag.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-                                val safeHouse = houseTag.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-                                unlinkedPoiWriter?.write("$safeName\t$typeId\t$latMicro\t$lonMicro\t$safeStreet\t$safeHouse\n")
+                                stmtInsertPoi.bindNull(3)
+                            }
+                            stmtInsertPoi.bindNull(4) // house_number is null for POI
+                            stmtInsertPoi.bindLong(5, latMicro.toLong())
+                            stmtInsertPoi.bindLong(6, lonMicro.toLong())
+                            stmtInsertPoi.bindString(7, countryCode)
+                            val rowId = stmtInsertPoi.executeInsert()
+
+                            if (rowId > 0) {
+                                count++
                             }
                         }
                     }
@@ -901,79 +1009,14 @@ object AddressDownloadManager {
                 onProgress(ratio, "${country.nameUk}: Додано $count точок інтересу (POI)")
             }
 
-            try { unlinkedPoiWriter?.flush() } catch (_: Exception) {}
-            try { unlinkedPoiWriter?.close() } catch (_: Exception) {}
-            unlinkedPoiWriter = null
-
-            // Фінальна обробка точок без прив'язки з тимчасового файлу
-            val stagingFile = unlinkedPoisTempFile
-            if (stagingFile != null && stagingFile.exists() && stagingFile.length() > 0L && !isCancelled()) {
-                onProgress(0.88, "${country.nameUk}: Фінальна прив'язка точок інтересу (POI)...")
-                db.beginTransaction()
-                try {
-                    stagingFile.bufferedReader(Charsets.UTF_8).use { reader ->
-                        var line: String?
-                        var inTx = 0
-                        while (reader.readLine().also { line = it } != null) {
-                            if (isCancelled()) break
-                            val trimmed = line!!.trim()
-                            if (trimmed.isBlank()) continue
-                            val parts = trimmed.split("\t")
-                            if (parts.size < 4) continue
-                            val poiName = parts[0]
-                            val typeId = parts[1].toLongOrNull() ?: 1L
-                            val latMicro = parts[2].toIntOrNull() ?: continue
-                            val lonMicro = parts[3].toIntOrNull() ?: continue
-                            val sTag = parts.getOrNull(4) ?: ""
-                            val hTag = parts.getOrNull(5) ?: ""
-
-                            var finalStreetId: Long? = null
-                            if (sTag.isNotBlank() && hTag.isNotBlank()) {
-                                val cleanStreet = AddressNormalizer.canonicalStreetNameUniversal(sTag).ifBlank { sTag.trim() }
-                                val cacheKey = Pair(cleanStreet.lowercase(), hTag.lowercase())
-                                finalStreetId = addrMatchCache[cacheKey]
-                            }
-                            if (finalStreetId == null && houseGrid.size > 0) {
-                                finalStreetId = houseGrid.findNearestStreetId(latMicro, lonMicro)
-                            }
-
-                            stmtInsertPoi.bindString(1, poiName)
-                            stmtInsertPoi.bindLong(2, typeId)
-                            if (finalStreetId != null) {
-                                stmtInsertPoi.bindLong(3, finalStreetId)
-                            } else {
-                                stmtInsertPoi.bindNull(3)
-                            }
-                            stmtInsertPoi.bindNull(4)
-                            stmtInsertPoi.bindLong(5, latMicro.toLong())
-                            stmtInsertPoi.bindLong(6, lonMicro.toLong())
-                            stmtInsertPoi.bindString(7, countryCode)
-                            val rowId = stmtInsertPoi.executeInsert()
-                            if (rowId > 0) count++
-                            inTx++
-                            if (inTx >= 5000) {
-                                db.setTransactionSuccessful()
-                                db.endTransaction()
-                                db.beginTransaction()
-                                inTx = 0
-                            }
-                        }
-                    }
-                    if (!isCancelled()) {
-                        db.setTransactionSuccessful()
-                    }
-                } finally {
-                    if (db.inTransaction()) {
-                        db.endTransaction()
-                    }
-                    try { stagingFile.delete() } catch (_: Exception) {}
-                }
-            }
+            stmtInsertStreet?.close()
+            stmtInsertStreet = null
 
             // Оптове відновлення індексів
             onProgress(0.92, "${country.nameUk}: Побудова індексів POI...")
             try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);") } catch (_: Exception) {}
             try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);") } catch (_: Exception) {}
+            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);") } catch (_: Exception) {}
 
             // Оптове заповнення poi_fts
             onProgress(0.96, "${country.nameUk}: Побудова пошукового індексу POI...")
@@ -1013,11 +1056,10 @@ object AddressDownloadManager {
             AppLogger.log(TAG, "importPoiLocationsToAddressDb", false, "Error importing POI: ${e.message}")
             return 0
         } finally {
-            try { unlinkedPoiWriter?.close() } catch (_: Exception) {}
-            try { unlinkedPoisTempFile?.delete() } catch (_: Exception) {}
+            try { stmtInsertStreet?.close() } catch (_: Exception) {}
             try { stmtInsertPoi?.close() } catch (_: Exception) {}
             try { poiDb?.close() } catch (_: Exception) {}
-            try { houseGrid?.clear() } catch (_: Exception) {}
+            try { grid?.clear() } catch (_: Exception) {}
             AddressDb.closeDatabase()
         }
     }
@@ -1079,10 +1121,11 @@ object AddressDownloadManager {
             }
 
             val loadedOsmIds = mutableSetOf<Long>()
+            val loadedCodes = mutableSetOf<String>()
             val loadedNames = mutableSetOf<String>()
             try {
                 val pCur = db.rawQuery("""
-                    SELECT DISTINCT ap.osm_id, ap.name
+                    SELECT DISTINCT ap.osm_id, COALESCE(ap.code, ''), ap.name
                     FROM streets s
                     JOIN admin_places ap ON s.region_id = ap.id
                     WHERE s.country_id = ?
@@ -1091,9 +1134,11 @@ object AddressDownloadManager {
                 pCur.use {
                     while (it.moveToNext()) {
                         val osmId = it.getLong(0)
-                        val name = it.getString(1) ?: ""
+                        val code = it.getString(1) ?: ""
+                        val name = it.getString(2) ?: ""
                         if (osmId > 0) loadedOsmIds.add(osmId)
-                        if (name.isNotBlank()) loadedNames.add(name.trim().lowercase())
+                        if (code.isNotBlank()) loadedCodes.add(code.trim().uppercase(Locale.US))
+                        if (name.isNotBlank()) loadedNames.add(name.trim().lowercase(Locale.ROOT))
                     }
                 }
             } catch (e: Exception) {
@@ -1101,20 +1146,13 @@ object AddressDownloadManager {
             }
 
             fun isRegionAlreadyLoaded(reg: RegionTarget): Boolean {
+                // 1. Повний збіг за глобальним OSM Relation ID
                 if (reg.relId > 0 && loadedOsmIds.contains(reg.relId)) return true
-                val clean = reg.name.trim().lowercase()
-                if (loadedNames.contains(clean)) return true
-                val stem = clean.replace(" область", "")
-                    .replace(" обл.", "")
-                    .replace(" автономна республіка", "")
-                    .replace(" ар ", "")
-                    .trim()
-                if (stem.length >= 4 && loadedNames.any { loadedName ->
-                    val lStem = loadedName.replace(" область", "").replace(" обл.", "").trim()
-                    lStem == stem || loadedName.contains(stem) || clean.contains(lStem)
-                }) {
-                    return true
-                }
+                // 2. Повний збіг за кодом ISO 3166-2 (якщо вказано)
+                if (reg.code.isNotBlank() && loadedCodes.contains(reg.code.trim().uppercase(Locale.US))) return true
+                // 3. Повне співпадіння за точною назвою регіону
+                val clean = reg.name.trim().lowercase(Locale.ROOT)
+                if (clean.isNotBlank() && loadedNames.contains(clean)) return true
                 return false
             }
 
@@ -1510,7 +1548,8 @@ object AddressDownloadManager {
                             ingestor.flush()
                             db.setTransactionSuccessful()
                             if (region.relId > 0) loadedOsmIds.add(region.relId)
-                            loadedNames.add(region.name.trim().lowercase())
+                            if (region.code.isNotBlank()) loadedCodes.add(region.code.trim().uppercase(Locale.US))
+                            loadedNames.add(region.name.trim().lowercase(Locale.ROOT))
                         } finally {
                             db.endTransaction()
                             try { streetsFile?.delete() } catch (_: Exception) {}
@@ -1613,6 +1652,20 @@ object AddressDownloadManager {
             if (isCancelled()) return false
 
             ingestor.close()
+
+            // Автоматичний імпорт POI локацій, якщо локальний файл POI присутній
+            for (pFil in candidatePoiFiles) {
+                if (pFil.exists() && pFil.length() > 1024L && !isCancelled()) {
+                    onProgress(0.90, "${country.nameUk}: Імпорт точок інтересу (POI)...")
+                    importPoiLocationsToAddressDb(
+                        context = context,
+                        country = country,
+                        onProgress = { r, msg -> onProgress(0.90 + (r * 0.05), msg) },
+                        isCancelled = isCancelled
+                    )
+                    break
+                }
+            }
 
             if (downloadedAnyBbox) {
                 boundaryMatcher = null

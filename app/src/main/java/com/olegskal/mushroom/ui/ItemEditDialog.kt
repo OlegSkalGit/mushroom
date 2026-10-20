@@ -72,7 +72,7 @@ object ItemEditDialog {
             lat = lat,
             lon = lon,
             altitude = altitude,
-            type = initialType ?: (if (lang == "uk") "Гриб" else "Mushroom"),
+            type = initialType ?: (if (lang == "uk") "Маркер" else "Marker"),
             originalMarkerId = null,
             onMarkerAdded = onMarkerAdded
         )

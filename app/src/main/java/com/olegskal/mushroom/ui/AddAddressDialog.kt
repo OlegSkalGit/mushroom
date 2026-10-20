@@ -109,7 +109,22 @@ object AddAddressDialog {
                 return
             }
 
-            for (addr in results.take(30)) {
+            val settlements = results.filter { it.isSettlement }
+            val addresses = results.filter { !it.isSettlement && !it.isPoiOnly }
+            val pois = results.filter { it.isPoiOnly }
+
+            fun renderBlockHeader(title: String) {
+                val header = TextView(activity).apply {
+                    text = title
+                    setTextColor(Color.parseColor("#4CAF50"))
+                    textSize = 14f
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(dp(4), dp(10), dp(4), dp(4))
+                }
+                listContainer.addView(header)
+            }
+
+            fun renderItemRow(addr: AddressSearchResult) {
                 val distM = if (refLocation != null && (addr.lat != 0.0 || addr.lon != 0.0)) {
                     AddressSearchManager.calculateDistanceMeters(refLocation.latitude, refLocation.longitude, addr.lat, addr.lon)
                 } else null
@@ -225,6 +240,33 @@ object AddAddressDialog {
                 }
 
                 listContainer.addView(itemRow)
+            }
+
+            // 1. Населені пункти
+            if (settlements.isNotEmpty()) {
+                val headerText = if (isUk) "🏙️ Населені пункти (${settlements.size}):" else "🏙️ Settlements (${settlements.size}):"
+                renderBlockHeader(headerText)
+                for (s in settlements) {
+                    renderItemRow(s)
+                }
+            }
+
+            // 2. Адреси
+            if (addresses.isNotEmpty()) {
+                val headerText = if (isUk) "📍 Адреси (${addresses.size}):" else "📍 Addresses (${addresses.size}):"
+                renderBlockHeader(headerText)
+                for (a in addresses) {
+                    renderItemRow(a)
+                }
+            }
+
+            // 3. Точки інтересу
+            if (pois.isNotEmpty()) {
+                val headerText = if (isUk) "✨ Точки інтересу (${pois.size}):" else "✨ Points of Interest (${pois.size}):"
+                renderBlockHeader(headerText)
+                for (p in pois) {
+                    renderItemRow(p)
+                }
             }
         }
 

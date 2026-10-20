@@ -192,7 +192,6 @@ object MarkersListDialog {
                 val itemIcon = MarkerIconDrawable(density, marker.color, 18)
                 itemIcon.setBounds(0, 0, itemIcon.intrinsicWidth, itemIcon.intrinsicHeight)
                 var distStr = ""
-                var distPrefix = ""
                 if (refLat != null && refLon != null && (refLat != 0.0 || refLon != 0.0)) {
                     val geo = GeoMath.calculateDistanceAndBearing(refLat, refLon, marker.lat, marker.lon)
                     val distM = geo[0]
@@ -205,12 +204,11 @@ object MarkersListDialog {
                         val unit = if (lang == "uk") "м" else "m"
                         String.format(Locale.US, "%d %s", distM.toInt(), unit)
                     }
-                    distPrefix = "($formattedDist) "
                     distStr = "$formattedDist ($direction)"
                 }
 
                 val nameTv = TextView(activity).apply {
-                    text = "$distPrefix${marker.name}"
+                    text = marker.name
                     setTextColor(Color.WHITE)
                     textSize = 15f
                     setTypeface(null, Typeface.BOLD)
@@ -219,8 +217,14 @@ object MarkersListDialog {
                     gravity = Gravity.CENTER_VERTICAL
                 }
 
+                val displayType = if (marker.type.equals("Гриб", ignoreCase = true) || marker.type.equals("Mushroom", ignoreCase = true)) {
+                    if (lang == "uk") "Маркер" else "Marker"
+                } else {
+                    marker.type
+                }
+
                 val subTv = TextView(activity).apply {
-                    text = if (distStr.isNotEmpty()) "${marker.type} • $distStr" else marker.type
+                    text = if (distStr.isNotEmpty()) "$displayType • $distStr" else displayType
                     setTextColor(marker.color)
                     textSize = 12f
                 }

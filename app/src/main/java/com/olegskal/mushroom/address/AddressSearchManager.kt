@@ -283,7 +283,6 @@ object AddressSearchManager {
         for (t in tokens) {
             if (houseNumberPattern.matcher(t).matches()) {
                 houseNum = t
-                poiTokens.add("$t*")
             } else {
                 val matcher = wordPattern.matcher(t)
                 while (matcher.find()) {
@@ -321,8 +320,8 @@ object AddressSearchManager {
             }
         }
 
-        val addressFtsQuery = addressTokens.joinToString(" ")
-        val poiFtsQuery = poiTokens.joinToString(" ")
+        val addressFtsQuery = addressTokens.joinToString(" AND ")
+        val poiFtsQuery = poiTokens.joinToString(" AND ")
 
         if (addressFtsQuery.isBlank() && poiFtsQuery.isBlank() && tokens.isEmpty()) return emptyList()
 
@@ -539,7 +538,7 @@ object AddressSearchManager {
             if (hasPoiFts && poiFtsQuery.isNotBlank()) {
                 try {
                     val houseFilterClause = if (houseNum != null) {
-                        "AND (pp.house_number IS NULL OR pp.house_number IN ($inPlaceholders))"
+                        "AND (pp.house_number IN ($inPlaceholders) OR pp.name LIKE ? OR pp.name LIKE ?)"
                     } else ""
 
                     val poiSql = """
@@ -576,6 +575,8 @@ object AddressSearchManager {
                     poiArgs.add(poiFtsQuery)
                     if (houseNum != null) {
                         poiArgs.addAll(hVarsList)
+                        poiArgs.add("%$hUp%")
+                        poiArgs.add("%$hLow%")
                     }
                     poiArgs.add(limit.toString())
 
@@ -644,17 +645,28 @@ object AddressSearchManager {
             }
 
             // 3. SETTLEMENT / REGION PREFIX SEARCH (admin_places levels 4, 6, 7, 8)
-            if (tokens.isNotEmpty()) {
+            // If the query contains a house number, it is strictly an address/POI search - skip settlements.
+            if (houseNum == null && tokens.isNotEmpty()) {
                 val seenPlaces = mutableSetOf<Long>()
-                val searchWords = tokens.filter { !houseNumberPattern.matcher(it).matches() }
-                val searchWord = searchWords.firstOrNull()
-                val fullPrefix = tokens.joinToString(" ").trim()
-                if (searchWord != null && searchWord.length >= 2) {
-                    val capWord = searchWord.replaceFirstChar { it.uppercase() }
-                    val lowWord = searchWord.lowercase()
-                    val fullCap = fullPrefix.replaceFirstChar { it.uppercase() }
-                    val fullLow = fullPrefix.lowercase()
+                val searchWords = tokens.filter { !houseNumberPattern.matcher(it).matches() && it.length >= 2 }
+                if (searchWords.isNotEmpty()) {
+                    // Strict AND matching: all query words must match either the settlement name or its region name
+                    val whereClauses = mutableListOf<String>()
+                    val setArgs = mutableListOf<String>()
 
+                    for (w in searchWords) {
+                        val low = w.lowercase()
+                        val cap = w.replaceFirstChar { it.uppercase() }
+                        whereClauses.add("(ap.name LIKE ? OR ap.name LIKE ? OR ap.name LIKE ? OR reg.name LIKE ? OR reg.name LIKE ?)")
+                        setArgs.add("$cap%")
+                        setArgs.add("$low%")
+                        setArgs.add("%$low%")
+                        setArgs.add("$cap%")
+                        setArgs.add("%$low%")
+                    }
+                    setArgs.add(limit.toString())
+
+                    val whereSql = whereClauses.joinToString(" AND ")
                     val setSql = """
                         SELECT ap.id, ap.name, COALESCE(reg.name, ''), ap.level,
                                (CASE WHEN ap.level = 4 THEN (SELECT avg(h.lat) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.region_id = ap.id)
@@ -664,14 +676,11 @@ object AddressSearchManager {
                         FROM admin_places ap
                         LEFT JOIN admin_places reg ON reg.id = ap.parent_id
                         WHERE ap.level IN (4, 6, 7, 8)
-                          AND (ap.name LIKE ? OR ap.name LIKE ? OR ap.name LIKE ? OR ap.name LIKE ?)
+                          AND $whereSql
                         LIMIT ?;
                     """.trimIndent()
                     try {
-                        val cSet = db.rawQuery(
-                            setSql,
-                            arrayOf("$fullCap%", "$fullLow%", "$capWord%", "$lowWord%", limit.toString())
-                        )
+                        val cSet = db.rawQuery(setSql, setArgs.toTypedArray())
                         cSet.use {
                             while (it.moveToNext()) {
                                 val apId = it.getLong(0)
