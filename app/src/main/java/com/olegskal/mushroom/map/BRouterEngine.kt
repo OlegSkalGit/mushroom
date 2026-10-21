@@ -18,7 +18,7 @@ enum class TransportType {
 data class RouteSegment(
     val id: String,
     val legIndex: Int,
-    val spanIndex: Int,
+    var spanIndex: Int,
     val variantIndex: Int,
     val points: List<Pair<Double, Double>>,
     val distanceMeters: Float,
@@ -118,26 +118,34 @@ object BRouterEngine {
             onProgress?.invoke(pct.coerceIn(5, 90))
         }
 
-        // Phase 1: Compute first route (profile 0) for each leg and emit immediately
-        val primaryOpt = profileOptions.first()
-        val primaryAltsPerLeg = ArrayList<RawAlternative>(totalLegs)
+        // Phase 1: Compute first route (profile 0, or fallback profile if profile 0 fails) for each leg and emit immediately
+        val primaryAltsPerLeg = ArrayList<RawAlternative?>(totalLegs)
         val initialSegments = mutableListOf<RouteSegment>()
 
         for (i in 0 until totalLegs) {
             val start = waypoints[i]
             val end = waypoints[i + 1]
-            val alt = calculateSingleAlternative(start.first, start.second, end.first, end.second, primaryOpt, 0, isUk)
-                ?: createStraightLineAlternative(start.first, start.second, end.first, end.second, isUk)
-            primaryAltsPerLeg.add(alt)
+            var computedAlt: RawAlternative? = null
+            for (pIdx in profileOptions.indices) {
+                val cand = calculateSingleAlternative(start.first, start.second, end.first, end.second, profileOptions[pIdx], pIdx, isUk)
+                if (cand != null && cand.points.size > 2) {
+                    computedAlt = cand
+                    break
+                } else if (cand != null && computedAlt == null) {
+                    computedAlt = cand
+                }
+            }
+            val displayAlt = computedAlt ?: createStraightLineAlternative(start.first, start.second, end.first, end.second, isUk)
+            primaryAltsPerLeg.add(computedAlt?.takeIf { it.points.size > 2 })
             initialSegments.add(
                 RouteSegment(
                     id = "seg_${i}_0",
                     legIndex = i,
                     spanIndex = i,
                     variantIndex = 0,
-                    points = alt.points,
-                    distanceMeters = alt.distanceMeters,
-                    advantage = alt.advantage,
+                    points = displayAlt.points,
+                    distanceMeters = displayAlt.distanceMeters,
+                    advantage = displayAlt.advantage,
                     isSelected = true
                 )
             )
@@ -184,7 +192,7 @@ object BRouterEngine {
                         points = v.points,
                         distanceMeters = v.distanceMeters,
                         advantage = v.advantage,
-                        isSelected = (vIdx == 0)
+                        isSelected = v.isPrimarySelected
                     )
                 )
             }
@@ -198,7 +206,8 @@ object BRouterEngine {
         val variantIndex: Int,
         val points: List<Pair<Double, Double>>,
         val distanceMeters: Float,
-        val advantage: String
+        val advantage: String,
+        val isPrimarySelected: Boolean = false
     )
 
     private data class ProfileOption(
@@ -247,7 +256,7 @@ object BRouterEngine {
                 "hiking-mountain.brf", 0,
                 "🌲 Стежка лісом (мальовнича)",
                 "🌲 Scenic forest trail",
-                mapOf("path_preference" to "20.0", "consider_forest" to "true", "add_beeline" to "1", "waypointCatchingRange" to "2500")
+                mapOf("path_preference" to "20.0", "consider_forest" to "1", "add_beeline" to "1", "waypointCatchingRange" to "2500")
             ),
             ProfileOption(
                 "trekking.brf", 0,
@@ -412,7 +421,7 @@ object BRouterEngine {
         val alternatives = mutableListOf<RawAlternative>()
 
         val startIndex: Int
-        if (initialAlternative != null) {
+        if (initialAlternative != null && initialAlternative.points.size > 2) {
             alternatives.add(initialAlternative)
             startIndex = 1
         } else {
@@ -458,25 +467,28 @@ object BRouterEngine {
         for (alt in alternatives) {
             if (alt.points.size < 2) continue
 
-            var isDuplicate = false
-            for (existing in valid) {
+            var dupIdx = -1
+            for (eIdx in valid.indices) {
+                val existing = valid[eIdx]
                 val distDiffRatio = abs(alt.distanceMeters - existing.distanceMeters) / max(1f, existing.distanceMeters)
-                if (distDiffRatio < 0.015f) {
+                if (distDiffRatio < 0.025f) {
                     var maxDivergence = 0f
-                    val sampleCount = 10
+                    val sampleCount = minOf(25, maxOf(2, alt.points.size))
                     for (s in 1 until sampleCount) {
                         val pt = alt.points[(alt.points.size * s) / sampleCount]
-                        val minD = existing.points.minOf { GeoMath.calculateDistance(pt.first, pt.second, it.first, it.second) }
+                        val minD = minDistToPath(pt, existing.points)
                         if (minD > maxDivergence) maxDivergence = minD
                     }
-                    if (maxDivergence < 30f) {
-                        isDuplicate = true
+                    if (maxDivergence < 25f) {
+                        dupIdx = eIdx
                         break
                     }
                 }
             }
-            if (!isDuplicate) {
+            if (dupIdx < 0) {
                 valid.add(alt)
+            } else if (alt.isPrimarySelected && !valid[dupIdx].isPrimarySelected) {
+                valid[dupIdx] = valid[dupIdx].copy(isPrimarySelected = true)
             }
         }
 
@@ -503,150 +515,310 @@ object BRouterEngine {
         )
         val filtered = filterDuplicates(rawAlternatives)
 
-        if (depth >= 2 || filtered.size < 2) {
-            return IntermediateSpanResult(listOf(filtered), listOf(start, end))
+        if (filtered.size < 2) {
+            val single = filtered.mapIndexed { idx, a -> a.copy(isPrimarySelected = (idx == 0)) }
+            return IntermediateSpanResult(listOf(single), listOf(start, end))
         }
 
-        val interCoord = findFirstIntersection(filtered, start, end)
-        if (interCoord == null) {
-            return IntermediateSpanResult(listOf(filtered), listOf(start, end))
+        val splitPoints = findAllIntersectionPoints(filtered, start, end)
+        if (splitPoints.isEmpty()) {
+            val marked = filtered.mapIndexed { idx, a -> a.copy(isPrimarySelected = (idx == 0)) }
+            return IntermediateSpanResult(listOf(marked), listOf(start, end))
         }
 
-        // Split existing alternatives at intersection point to preserve both alternative branches
-        val (firstSpanAlts, secondSpanAlts) = splitAlternativesAtIntersection(filtered, interCoord, end, isUk)
-
-        val firstHalf = if (depth < 1 && firstSpanAlts.size >= 2) {
-            val subInter = findFirstIntersection(firstSpanAlts, start, interCoord)
-            if (subInter != null) {
-                processSpanWithIntersectionSplits(start, interCoord, transport, isUk, depth + 1, onStep)
-            } else {
-                IntermediateSpanResult(listOf(firstSpanAlts), listOf(start, interCoord))
-            }
-        } else {
-            IntermediateSpanResult(listOf(firstSpanAlts), listOf(start, interCoord))
-        }
-
-        val secondHalf = if (depth < 1 && secondSpanAlts.size >= 2) {
-            val subInter = findFirstIntersection(secondSpanAlts, interCoord, end)
-            if (subInter != null) {
-                processSpanWithIntersectionSplits(interCoord, end, transport, isUk, depth + 1, onStep)
-            } else {
-                IntermediateSpanResult(listOf(secondSpanAlts), listOf(interCoord, end))
-            }
-        } else {
-            IntermediateSpanResult(listOf(secondSpanAlts), listOf(interCoord, end))
-        }
-
-        val combinedSpans = firstHalf.spans + secondHalf.spans
-        val combinedWaypoints = firstHalf.waypoints + secondHalf.waypoints.drop(1)
-
-        return IntermediateSpanResult(combinedSpans, combinedWaypoints)
-    }
-
-    private fun splitAlternativesAtIntersection(
-        alternatives: List<RawAlternative>,
-        interCoord: Pair<Double, Double>,
-        end: Pair<Double, Double>,
-        isUk: Boolean
-    ): Pair<List<RawAlternative>, List<RawAlternative>> {
         val unit = if (isUk) "км" else "km"
-        val firstHalfList = mutableListOf<RawAlternative>()
-        val secondHalfList = mutableListOf<RawAlternative>()
+        val endNodeId = splitPoints.size + 1
 
-        for (alt in alternatives) {
+        data class CutPoint(
+            val nodeId: Int,
+            val vertexIdx: Int,
+            val coord: Pair<Double, Double>,
+            val arcDist: Float
+        )
+
+        val spanBuckets = LinkedHashMap<Pair<Int, Int>, MutableList<RawAlternative>>()
+
+        for (altIdx in filtered.indices) {
+            val alt = filtered[altIdx]
             val pts = alt.points
             if (pts.size < 2) continue
+            val isPrimary = (altIdx == 0)
+            val baseTitle = alt.advantage.substringBefore(" (")
 
-            var closestIdx = 0
-            var minDist = Float.MAX_VALUE
-            for (i in pts.indices) {
-                val d = GeoMath.calculateDistance(pts[i].first, pts[i].second, interCoord.first, interCoord.second)
-                if (d < minDist) {
-                    minDist = d
-                    closestIdx = i
+            val cumDist = FloatArray(pts.size)
+            for (i in 1 until pts.size) {
+                cumDist[i] = cumDist[i - 1] + GeoMath.calculateDistance(
+                    pts[i - 1].first, pts[i - 1].second,
+                    pts[i].first, pts[i].second
+                )
+            }
+            val totalDist = cumDist[pts.size - 1]
+
+            val candidateCuts = ArrayList<CutPoint>()
+            if (pts.size >= 3 && totalDist >= 90f) {
+                for (k in splitPoints.indices) {
+                    val sp = splitPoints[k]
+                    var closestIdx = -1
+                    var minDist = Float.MAX_VALUE
+                    for (i in 1 until pts.size - 1) {
+                        val d = GeoMath.calculateDistance(pts[i].first, pts[i].second, sp.first, sp.second)
+                        if (d < minDist) {
+                            minDist = d
+                            closestIdx = i
+                        }
+                    }
+                    if (closestIdx in 1 until (pts.size - 1) && minDist <= 18f) {
+                        val dFromStart = cumDist[closestIdx]
+                        val dToEnd = totalDist - dFromStart
+                        if (dFromStart >= 40f && dToEnd >= 40f) {
+                            candidateCuts.add(CutPoint(k + 1, closestIdx, sp, dFromStart))
+                        }
+                    }
                 }
             }
 
-            val headPts = mutableListOf<Pair<Double, Double>>()
-            headPts.addAll(pts.subList(0, closestIdx + 1))
-            if (headPts.isEmpty() || GeoMath.calculateDistance(headPts.last().first, headPts.last().second, interCoord.first, interCoord.second) > 2f) {
-                headPts.add(interCoord)
+            candidateCuts.sortBy { it.vertexIdx }
+            val acceptedCuts = ArrayList<CutPoint>(candidateCuts.size)
+            for (c in candidateCuts) {
+                if (acceptedCuts.isEmpty()) {
+                    acceptedCuts.add(c)
+                } else {
+                    val prev = acceptedCuts.last()
+                    if (c.vertexIdx > prev.vertexIdx && (c.arcDist - prev.arcDist) >= 40f) {
+                        acceptedCuts.add(c)
+                    }
+                }
             }
 
-            val tailPts = mutableListOf<Pair<Double, Double>>()
-            tailPts.add(interCoord)
-            if (closestIdx + 1 < pts.size) {
-                tailPts.addAll(pts.subList(closestIdx + 1, pts.size))
+            if (acceptedCuts.isEmpty()) {
+                val key = Pair(0, endNodeId)
+                spanBuckets.getOrPut(key) { ArrayList() }.add(
+                    alt.copy(isPrimarySelected = isPrimary)
+                )
             } else {
-                tailPts.add(end)
+                val sliceCount = acceptedCuts.size + 1
+                for (s in 0 until sliceCount) {
+                    val fromNode = if (s == 0) 0 else acceptedCuts[s - 1].nodeId
+                    val toNode = if (s == acceptedCuts.size) endNodeId else acceptedCuts[s].nodeId
+                    val startVIdx = if (s == 0) 0 else acceptedCuts[s - 1].vertexIdx
+                    val endVIdx = if (s == acceptedCuts.size) pts.size - 1 else acceptedCuts[s].vertexIdx
+
+                    val slicePts = ArrayList<Pair<Double, Double>>(endVIdx - startVIdx + 3)
+                    if (s > 0) {
+                        val startCoord = acceptedCuts[s - 1].coord
+                        slicePts.add(startCoord)
+                    }
+                    for (v in startVIdx..endVIdx) {
+                        val pt = pts[v]
+                        if (slicePts.isEmpty() || GeoMath.calculateDistance(slicePts.last().first, slicePts.last().second, pt.first, pt.second) >= 1.5f) {
+                            slicePts.add(pt)
+                        }
+                    }
+                    if (s < acceptedCuts.size) {
+                        val endCoord = acceptedCuts[s].coord
+                        if (slicePts.isEmpty() || GeoMath.calculateDistance(slicePts.last().first, slicePts.last().second, endCoord.first, endCoord.second) >= 1.5f) {
+                            slicePts.add(endCoord)
+                        } else {
+                            slicePts[slicePts.size - 1] = endCoord
+                        }
+                    }
+
+                    if (slicePts.size >= 2) {
+                        val sDist = computePolylineDistance(slicePts)
+                        val sKm = sDist / 1000f
+                        val sAdv = "$baseTitle (${String.format(Locale.US, "%.2f", sKm)} $unit)"
+                        val key = Pair(fromNode, toNode)
+                        spanBuckets.getOrPut(key) { ArrayList() }.add(
+                            RawAlternative(
+                                variantIndex = alt.variantIndex,
+                                points = slicePts,
+                                distanceMeters = sDist,
+                                advantage = sAdv,
+                                isPrimarySelected = isPrimary
+                            )
+                        )
+                    }
+                }
             }
-
-            val headDist = computePolylineDistance(headPts)
-            val headKm = headDist / 1000f
-            val baseTitle = alt.advantage.substringBefore(" (")
-            val headAdvantage = "$baseTitle (${String.format(Locale.US, "%.2f", headKm)} $unit)"
-            firstHalfList.add(RawAlternative(alt.variantIndex, headPts, headDist, headAdvantage))
-
-            val tailDist = computePolylineDistance(tailPts)
-            val tailKm = tailDist / 1000f
-            val tailAdvantage = "$baseTitle (${String.format(Locale.US, "%.2f", tailKm)} $unit)"
-            secondHalfList.add(RawAlternative(alt.variantIndex, tailPts, tailDist, tailAdvantage))
         }
 
-        val dedupFirst = filterDuplicates(firstHalfList)
-        val dedupSecond = filterDuplicates(secondHalfList)
+        val sortedKeys = spanBuckets.keys.sortedWith(compareBy<Pair<Int, Int>> { it.first }.thenBy { it.second })
+        val finalSpans = ArrayList<List<RawAlternative>>(sortedKeys.size)
+        for (key in sortedKeys) {
+            val rawList = spanBuckets[key] ?: continue
+            val dedup = filterDuplicates(rawList)
+            var primaryAssigned = false
+            val normalized = dedup.mapIndexed { idx, item ->
+                val sel = if (item.isPrimarySelected && !primaryAssigned) {
+                    primaryAssigned = true
+                    true
+                } else {
+                    false
+                }
+                item.copy(variantIndex = idx, isPrimarySelected = sel)
+            }
+            finalSpans.add(normalized)
+        }
 
-        return Pair(dedupFirst, dedupSecond)
+        val allWps = ArrayList<Pair<Double, Double>>(splitPoints.size + 2)
+        allWps.add(start)
+        allWps.addAll(splitPoints)
+        allWps.add(end)
+
+        return IntermediateSpanResult(finalSpans, allWps)
     }
 
-    private fun findFirstIntersection(
+    private fun pointAlongPath(
+        path: List<Pair<Double, Double>>,
+        fromIdx: Int,
+        targetDistMeters: Float,
+        direction: Int
+    ): Pair<Double, Double> {
+        var curIdx = fromIdx
+        var accumulated = 0f
+        while (true) {
+            val nextIdx = curIdx + direction
+            if (nextIdx < 0 || nextIdx >= path.size) return path[curIdx]
+            val segD = GeoMath.calculateDistance(
+                path[curIdx].first, path[curIdx].second,
+                path[nextIdx].first, path[nextIdx].second
+            )
+            if (accumulated + segD >= targetDistMeters && segD > 0.1f) {
+                val frac = ((targetDistMeters - accumulated) / segD).coerceIn(0f, 1f)
+                val lat = path[curIdx].first + frac * (path[nextIdx].first - path[curIdx].first)
+                val lon = path[curIdx].second + frac * (path[nextIdx].second - path[curIdx].second)
+                return Pair(lat, lon)
+            }
+            accumulated += segD
+            curIdx = nextIdx
+        }
+    }
+
+    private fun minDistToPath(pt: Pair<Double, Double>, path: List<Pair<Double, Double>>): Float {
+        if (path.isEmpty()) return Float.MAX_VALUE
+        if (path.size == 1) return GeoMath.calculateDistance(pt.first, pt.second, path[0].first, path[0].second)
+        var minD = Float.MAX_VALUE
+        val cosLat = kotlin.math.cos(Math.toRadians(pt.first))
+        val px = pt.second * cosLat * 111320.0
+        val py = pt.first * 110574.0
+
+        for (i in 0 until path.size - 1) {
+            val p1 = path[i]
+            val p2 = path[i + 1]
+            val x1 = p1.second * cosLat * 111320.0
+            val y1 = p1.first * 110574.0
+            val x2 = p2.second * cosLat * 111320.0
+            val y2 = p2.first * 110574.0
+            val vx = x2 - x1
+            val vy = y2 - y1
+            val l2 = vx * vx + vy * vy
+            val d = if (l2 < 1e-4) {
+                kotlin.math.hypot(px - x1, py - y1).toFloat()
+            } else {
+                val t = (((px - x1) * vx + (py - y1) * vy) / l2).coerceIn(0.0, 1.0)
+                val projX = x1 + t * vx
+                val projY = y1 + t * vy
+                kotlin.math.hypot(px - projX, py - projY).toFloat()
+            }
+            if (d < minD) minD = d
+        }
+        return minD
+    }
+
+    private fun findAllIntersectionPoints(
         alternatives: List<RawAlternative>,
         start: Pair<Double, Double>,
         end: Pair<Double, Double>
-    ): Pair<Double, Double>? {
-        val startThreshold = 40f
-        val endThreshold = 40f
+    ): List<Pair<Double, Double>> {
+        val endpointThreshold = 40f
+        val minSplitSpacing = 45f
+        val maxSplits = 14
+
+        data class Candidate(val coord: Pair<Double, Double>, val progressDist: Float)
+        val rawCandidates = ArrayList<Candidate>()
 
         for (a in 0 until alternatives.size - 1) {
             val path1 = alternatives[a].points
+            if (path1.size < 3) continue
+
+            val cumDist1 = FloatArray(path1.size)
+            for (i in 1 until path1.size) {
+                cumDist1[i] = cumDist1[i - 1] + GeoMath.calculateDistance(
+                    path1[i - 1].first, path1[i - 1].second,
+                    path1[i].first, path1[i].second
+                )
+            }
+
             for (b in a + 1 until alternatives.size) {
                 val path2 = alternatives[b].points
+                if (path2.size < 3) continue
 
-                for (i in 1 until path1.size - 2) {
+                for (i in 1 until path1.size - 1) {
                     val p1 = path1[i]
-                    val p2 = path1[i + 1]
-                    val distToStart1 = GeoMath.calculateDistance(start.first, start.second, p1.first, p1.second)
-                    val distToEnd1 = GeoMath.calculateDistance(end.first, end.second, p2.first, p2.second)
-                    if (distToStart1 < startThreshold || distToEnd1 < endThreshold) continue
+                    val distToStart = GeoMath.calculateDistance(start.first, start.second, p1.first, p1.second)
+                    val distToEnd = GeoMath.calculateDistance(end.first, end.second, p1.first, p1.second)
+                    if (distToStart < endpointThreshold || distToEnd < endpointThreshold) continue
 
-                    for (j in 1 until path2.size - 2) {
-                        val q1 = path2[j]
-                        val q2 = path2[j + 1]
+                    // 1. Check divergence / convergence at shared road junction
+                    val dToPath2 = minDistToPath(p1, path2)
+                    if (dToPath2 <= 14f) {
+                        val pBehind = pointAlongPath(path1, i, 35f, -1)
+                        val pAhead = pointAlongPath(path1, i, 35f, +1)
+                        val prevDist = minDistToPath(pBehind, path2)
+                        val nextDist = minDistToPath(pAhead, path2)
+                        val immPrevDist = minDistToPath(path1[i - 1], path2)
+                        val immNextDist = minDistToPath(path1[i + 1], path2)
 
-                        // 1. Line segment intersection
-                        val inter = segmentIntersection(p1, p2, q1, q2)
-                        if (inter != null) {
-                            val dStart = GeoMath.calculateDistance(start.first, start.second, inter.first, inter.second)
-                            val dEnd = GeoMath.calculateDistance(end.first, end.second, inter.first, inter.second)
-                            if (dStart > startThreshold && dEnd > endThreshold) {
-                                return inter
-                            }
+                        val isDivergence = nextDist > 22f && immNextDist > 3.5f
+                        val isConvergence = prevDist > 22f && immPrevDist > 3.5f
+                        if (isDivergence || isConvergence) {
+                            rawCandidates.add(Candidate(p1, cumDist1[i]))
                         }
+                    }
 
-                        // 2. Shared road junction node
-                        val nodeDist = GeoMath.calculateDistance(p1.first, p1.second, q1.first, q1.second)
-                        if (nodeDist < 12f && distToStart1 > startThreshold && distToEnd1 > endThreshold) {
-                            val prevDist = GeoMath.calculateDistance(path1[i - 1].first, path1[i - 1].second, path2[j - 1].first, path2[j - 1].second)
-                            val nextDist = GeoMath.calculateDistance(path1[i + 1].first, path1[i + 1].second, path2[j + 1].first, path2[j + 1].second)
-                            if (prevDist > 20f || nextDist > 20f) {
-                                return p1
+                    // 2. Check geometric segment intersection
+                    if (i < path1.size - 2) {
+                        val p2 = path1[i + 1]
+                        val minLat1 = min(p1.first, p2.first) - 0.0005
+                        val maxLat1 = max(p1.first, p2.first) + 0.0005
+                        val minLon1 = min(p1.second, p2.second) - 0.0005
+                        val maxLon1 = max(p1.second, p2.second) + 0.0005
+
+                        for (j in 1 until path2.size - 2) {
+                            val q1 = path2[j]
+                            val q2 = path2[j + 1]
+                            if (max(q1.first, q2.first) < minLat1 || min(q1.first, q2.first) > maxLat1) continue
+                            if (max(q1.second, q2.second) < minLon1 || min(q1.second, q2.second) > maxLon1) continue
+
+                            val inter = segmentIntersection(p1, p2, q1, q2)
+                            if (inter != null) {
+                                val dS = GeoMath.calculateDistance(start.first, start.second, inter.first, inter.second)
+                                val dE = GeoMath.calculateDistance(end.first, end.second, inter.first, inter.second)
+                                if (dS > endpointThreshold && dE > endpointThreshold) {
+                                    rawCandidates.add(Candidate(inter, cumDist1[i]))
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        return null
+
+        if (rawCandidates.isEmpty()) return emptyList()
+        rawCandidates.sortBy { it.progressDist }
+
+        val deduplicated = ArrayList<Pair<Double, Double>>()
+        for (cand in rawCandidates) {
+            val tooClose = deduplicated.any { existing ->
+                GeoMath.calculateDistance(cand.coord.first, cand.coord.second, existing.first, existing.second) < minSplitSpacing
+            }
+            if (!tooClose) {
+                deduplicated.add(cand.coord)
+                if (deduplicated.size >= maxSplits) break
+            }
+        }
+
+        return deduplicated
     }
 
     private fun segmentIntersection(

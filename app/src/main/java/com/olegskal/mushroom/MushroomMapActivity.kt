@@ -684,11 +684,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 var totalDistMeters = 0f
 
                 if (mapView.isRouteMode && mapView.routeSegments.isNotEmpty()) {
-                    val totalSpans = (mapView.routeSegments.maxOfOrNull { it.spanIndex } ?: -1) + 1
-                    for (s in 0 until totalSpans) {
-                        val selSeg = mapView.routeSegments.firstOrNull { it.spanIndex == s && it.isSelected }
-                            ?: mapView.routeSegments.firstOrNull { it.spanIndex == s }
-                        if (selSeg != null && selSeg.points.size >= 2) {
+                    val selectedSegs = mapView.routeSegments
+                        .filter { it.isSelected }
+                        .sortedWith(compareBy<RouteSegment> { it.legIndex }.thenBy { it.spanIndex })
+                    for (selSeg in selectedSegs) {
+                        if (selSeg.points.size >= 2) {
                             for (p in selSeg.points) {
                                 if (trackPts.isEmpty() || trackPts.last().lat != p.first || trackPts.last().lon != p.second) {
                                     trackPts.add(com.olegskal.mushroom.model.TrackPoint(p.first, p.second))
@@ -2397,11 +2397,12 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         fun calculateRouteTotalDistanceMeters(): Float {
             if (!isRouteMode || routeSegments.isEmpty()) return calculateRulerTotalDistanceMeters()
+            val selectedSum = routeSegments.filter { it.isSelected }.sumOf { it.distanceMeters.toDouble() }.toFloat()
+            if (selectedSum > 0f) return selectedSum
             val totalSpans = (routeSegments.maxOfOrNull { it.spanIndex } ?: -1) + 1
             var total = 0f
             for (s in 0 until totalSpans) {
-                val sel = routeSegments.firstOrNull { it.spanIndex == s && it.isSelected }
-                    ?: routeSegments.firstOrNull { it.spanIndex == s }
+                val sel = routeSegments.firstOrNull { it.spanIndex == s }
                 total += sel?.distanceMeters ?: 0f
             }
             return total
@@ -2409,11 +2410,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         fun findRouteSegmentAt(screenX: Float, screenY: Float, maxDistPx: Float): RouteSegment? {
             if (!isRouteMode || routeSegments.isEmpty()) return null
-            var bestSeg: RouteSegment? = null
-            var minDist = maxDistPx
+            var bestUnselected: RouteSegment? = null
+            var minUnselectedDist = maxDistPx
+            var bestSelected: RouteSegment? = null
+            var minSelectedDist = maxDistPx
 
             for (seg in routeSegments) {
                 if (seg.points.size < 2) continue
+                var segMinD = Float.MAX_VALUE
                 for (j in 0 until seg.points.size - 1) {
                     val (x1, y1) = latLonToScreen(seg.points[j].first, seg.points[j].second)
                     val (x2, y2) = latLonToScreen(seg.points[j + 1].first, seg.points[j + 1].second)
@@ -2426,13 +2430,124 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         val py = y1 + t * (y2 - y1)
                         hypot((screenX - px).toDouble(), (screenY - py).toDouble()).toFloat()
                     }
-                    if (d < minDist) {
-                        minDist = d
-                        bestSeg = seg
+                    if (d < segMinD) segMinD = d
+                }
+                if (!seg.isSelected) {
+                    if (segMinD < minUnselectedDist) {
+                        minUnselectedDist = segMinD
+                        bestUnselected = seg
+                    }
+                } else {
+                    if (segMinD < minSelectedDist) {
+                        minSelectedDist = segMinD
+                        bestSelected = seg
                     }
                 }
             }
-            return bestSeg
+            return bestUnselected ?: bestSelected
+        }
+
+        fun selectRouteSegment(hitSeg: RouteSegment) {
+            val legSegs = routeSegments.filter { it.legIndex == hitSeg.legIndex && it.points.size >= 2 }
+            if (legSegs.isEmpty()) return
+
+            // Stitch a connected path from legStart -> hitSeg.first -> hitSeg.last -> legEnd
+            // preserving currently selected segments wherever possible (cost 0 for isSelected, 10 + variantIndex otherwise)
+            val nodeMatchMeters = 8f
+            val nodeCoords = ArrayList<Pair<Double, Double>>()
+            fun nodeIdOf(pt: Pair<Double, Double>): Int {
+                for (i in nodeCoords.indices) {
+                    if (GeoMath.calculateDistance(pt.first, pt.second, nodeCoords[i].first, nodeCoords[i].second) <= nodeMatchMeters) {
+                        return i
+                    }
+                }
+                nodeCoords.add(pt)
+                return nodeCoords.size - 1
+            }
+
+            val segStartNode = HashMap<String, Int>(legSegs.size)
+            val segEndNode = HashMap<String, Int>(legSegs.size)
+            for (s in legSegs) {
+                segStartNode[s.id] = nodeIdOf(s.points.first())
+                segEndNode[s.id] = nodeIdOf(s.points.last())
+            }
+
+            val selectedInLeg = legSegs.filter { it.isSelected }.sortedBy { it.spanIndex }
+            val legStartNode = segStartNode[selectedInLeg.firstOrNull()?.id ?: legSegs.first().id] ?: 0
+            val legEndNode = segEndNode[selectedInLeg.lastOrNull()?.id ?: legSegs.last().id] ?: 0
+            val hitStartNode = segStartNode[hitSeg.id] ?: return
+            val hitEndNode = segEndNode[hitSeg.id] ?: return
+
+            fun findConnectedChain(fromNode: Int, toNode: Int): List<RouteSegment>? {
+                if (fromNode == toNode) return emptyList()
+                val nNodes = nodeCoords.size
+                val bestCost = IntArray(nNodes) { Int.MAX_VALUE }
+                val prevNode = IntArray(nNodes) { -1 }
+                val prevSeg = arrayOfNulls<RouteSegment>(nNodes)
+                val visited = BooleanArray(nNodes)
+
+                bestCost[fromNode] = 0
+                for (step in 0 until nNodes) {
+                    var u = -1
+                    var minC = Int.MAX_VALUE
+                    for (v in 0 until nNodes) {
+                        if (!visited[v] && bestCost[v] < minC) {
+                            minC = bestCost[v]
+                            u = v
+                        }
+                    }
+                    if (u == -1 || u == toNode) break
+                    visited[u] = true
+
+                    for (s in legSegs) {
+                        if (segStartNode[s.id] == u) {
+                            val v = segEndNode[s.id] ?: continue
+                            val edgeCost = if (s.isSelected) 0 else (10 + s.variantIndex)
+                            if (bestCost[u] + edgeCost < bestCost[v]) {
+                                bestCost[v] = bestCost[u] + edgeCost
+                                prevNode[v] = u
+                                prevSeg[v] = s
+                            }
+                        }
+                    }
+                }
+
+                if (bestCost[toNode] == Int.MAX_VALUE) return null
+                val chain = ArrayList<RouteSegment>()
+                var cur = toNode
+                while (cur != fromNode) {
+                    val seg = prevSeg[cur] ?: return null
+                    chain.add(seg)
+                    cur = prevNode[cur]
+                }
+                chain.reverse()
+                return chain
+            }
+
+            val prefix = findConnectedChain(legStartNode, hitStartNode)
+            val suffix = findConnectedChain(hitEndNode, legEndNode)
+
+            if (prefix != null && suffix != null) {
+                val fullChain = ArrayList<RouteSegment>(prefix.size + 1 + suffix.size)
+                fullChain.addAll(prefix)
+                fullChain.add(hitSeg)
+                fullChain.addAll(suffix)
+
+                val chosenIds = HashSet<String>(fullChain.size)
+                val baseSpan = hitSeg.legIndex * 1000
+                for ((idx, s) in fullChain.withIndex()) {
+                    chosenIds.add(s.id)
+                    s.spanIndex = baseSpan + idx
+                }
+                for (s in legSegs) {
+                    s.isSelected = chosenIds.contains(s.id)
+                }
+            } else {
+                val sameSpanSegs = legSegs.filter { it.spanIndex == hitSeg.spanIndex }
+                for (s in sameSpanSegs) {
+                    s.isSelected = (s.id == hitSeg.id)
+                }
+            }
         }
 
         private var cachedPoiMinLat = 0.0
@@ -2883,11 +2998,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                             if (!isDragging && upDist <= touchSlop * 1.5f) {
                                 val hitSeg = findRouteSegmentAt(event.x, event.y, 28f * density)
                                 if (hitSeg != null) {
-                                    for (s in routeSegments) {
-                                        if (s.spanIndex == hitSeg.spanIndex) {
-                                            s.isSelected = (s.id == hitSeg.id)
-                                        }
-                                    }
+                                    selectRouteSegment(hitSeg)
                                     performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                                     Toast.makeText(context, hitSeg.advantage, Toast.LENGTH_SHORT).show()
                                     invalidate()

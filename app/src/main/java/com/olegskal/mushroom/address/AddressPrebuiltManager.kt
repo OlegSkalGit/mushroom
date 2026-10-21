@@ -127,6 +127,9 @@ object AddressPrebuiltManager {
             if (unpackedDb.exists()) unpackedDb.delete()
 
             if (consolidated) {
+                try {
+                    if (tmpDir.exists()) tmpDir.deleteRecursively()
+                } catch (_: Exception) {}
                 onProgress(1.0f, "Готово!")
                 AppLogger.log(TAG, "tryInstallPrebuiltCountry", true, "Успішно встановлено та консолідовано готову базу для ${country.code}!")
                 return true
@@ -137,12 +140,14 @@ object AddressPrebuiltManager {
             AppLogger.log(TAG, "tryInstallPrebuiltCountry", false, "Помилка встановлення готової бази: ${e.message}")
             return false
         } finally {
-            cleanupFiles(downloadedParts)
-            try {
-                if (tmpDir.exists()) {
-                    tmpDir.deleteRecursively()
-                }
-            } catch (_: Exception) {}
+            if (isCancelled()) {
+                cleanupFiles(downloadedParts)
+                try {
+                    if (tmpDir.exists()) {
+                        tmpDir.deleteRecursively()
+                    }
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -251,23 +256,30 @@ object AddressPrebuiltManager {
     }
 
     private fun checkUrlExists(urlStr: String): Boolean {
-        var conn: HttpURLConnection? = null
-        return try {
-            val url = URL(urlStr)
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "HEAD"
-                connectTimeout = 5000
-                readTimeout = 5000
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "Mushroom/2.0")
+        for (attempt in 1..3) {
+            var conn: HttpURLConnection? = null
+            try {
+                val url = URL(urlStr)
+                conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "HEAD"
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "Mushroom/2.0")
+                }
+                val code = conn.responseCode
+                if (code in 200..299) return true
+                if (code == HttpURLConnection.HTTP_NOT_FOUND || code == 403 || code == 400) return false
+            } catch (_: Exception) {
+                // Мережевий збій — спробуємо ще раз після паузи
+            } finally {
+                try { conn?.disconnect() } catch (_: Exception) {}
             }
-            val code = conn.responseCode
-            code in 200..299
-        } catch (_: Exception) {
-            false
-        } finally {
-            try { conn?.disconnect() } catch (_: Exception) {}
+            if (attempt < 3) {
+                try { Thread.sleep(1500L * attempt) } catch (_: Exception) { return false }
+            }
         }
+        return false
     }
 
     private fun downloadPartWithResume(
@@ -279,36 +291,116 @@ object AddressPrebuiltManager {
         isCancelled: () -> Boolean
     ): Boolean {
         val partFile = File(destFile.parentFile, "${destFile.name}.part")
-        var attempts = 0
+        if (destFile.exists() && destFile.length() > 1024L && !partFile.exists()) {
+            onSizeDiscovered(destFile.length())
+            onBytesRead(destFile.length())
+            onProgress(1f)
+            return true
+        }
 
-        while (attempts < 3) {
-            attempts++
+        var consecutiveFailures = 0
+        var totalAttempts = 0
+        val maxConsecutiveFailures = 8
+        val maxTotalAttempts = 50
+        var lastAttemptMadeProgress = false
+        var reportedBytes = 0L
+
+        while (consecutiveFailures < maxConsecutiveFailures && totalAttempts < maxTotalAttempts) {
+            totalAttempts++
+            if (totalAttempts > 1) {
+                var waited = 0L
+                val pauseMs = if (lastAttemptMadeProgress) {
+                    2500L
+                } else {
+                    (3000L * consecutiveFailures).coerceIn(3000L, 15000L)
+                }
+                val step = 200L
+                while (waited < pauseMs) {
+                    if (isCancelled()) return false
+                    try { Thread.sleep(step) } catch (_: Exception) { return false }
+                    waited += step
+                }
+            }
             if (isCancelled()) return false
+            lastAttemptMadeProgress = false
+            var bytesReadThisAttempt = 0L
             var conn: HttpURLConnection? = null
             var input: InputStream? = null
             var output: FileOutputStream? = null
 
             try {
                 val existingBytes = if (partFile.exists()) partFile.length() else 0L
-                val url = URL(urlStr)
-                conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "Mushroom/2.0")
-                    if (existingBytes > 0L) {
-                        setRequestProperty("Range", "bytes=$existingBytes-")
+                var currentUrl = urlStr
+                var redirects = 0
+                while (redirects < 5) {
+                    val url = URL(currentUrl)
+                    conn = (url.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 20000
+                        readTimeout = 45000
+                        instanceFollowRedirects = true
+                        setRequestProperty("User-Agent", "Mushroom/2.0")
+                        setRequestProperty("Connection", "keep-alive")
+                        if (existingBytes > 0L) {
+                            setRequestProperty("Range", "bytes=$existingBytes-")
+                        }
                     }
+                    val code = conn.responseCode
+                    if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
+                        val loc = conn.getHeaderField("Location")
+                        conn.disconnect()
+                        if (!loc.isNullOrEmpty()) {
+                            currentUrl = loc
+                            redirects++
+                            continue
+                        }
+                    }
+                    break
+                }
+                if (conn == null) {
+                    consecutiveFailures++
+                    continue
                 }
 
                 val responseCode = conn.responseCode
-                val contentLength = conn.contentLength.toLong()
+                if (responseCode == 416) {
+                    val cr = conn.getHeaderField("Content-Range")
+                    val totalFromCr = cr?.substringAfterLast('/')?.trim()?.toLongOrNull()
+                    if (totalFromCr != null && totalFromCr > 0L && partFile.length() == totalFromCr) {
+                        if (destFile.exists()) destFile.delete()
+                        if (!partFile.renameTo(destFile)) {
+                            partFile.copyTo(destFile, overwrite = true)
+                            partFile.delete()
+                        }
+                        onSizeDiscovered(destFile.length())
+                        onProgress(1f)
+                        return true
+                    }
+                    partFile.delete()
+                    if (reportedBytes > 0L) {
+                        onBytesRead(-reportedBytes)
+                        reportedBytes = 0L
+                    }
+                    conn.disconnect()
+                    continue
+                }
+
+                if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_PARTIAL) {
+                    consecutiveFailures++
+                    conn.disconnect()
+                    continue
+                }
+
+                val contentLength = conn.contentLengthLong
                 val totalExpected = if (responseCode == HttpURLConnection.HTTP_PARTIAL) {
-                    existingBytes + contentLength
-                } else if (responseCode == HttpURLConnection.HTTP_OK) {
-                    contentLength
+                    val cr = conn.getHeaderField("Content-Range")
+                    val totalFromRange = cr?.substringAfterLast('/')?.trim()?.toLongOrNull()
+                    if (totalFromRange != null && totalFromRange > 0L) {
+                        totalFromRange
+                    } else if (contentLength > 0L) {
+                        existingBytes + contentLength
+                    } else -1L
                 } else {
-                    -1L
+                    contentLength
                 }
 
                 if (totalExpected > 0L) {
@@ -316,6 +408,17 @@ object AddressPrebuiltManager {
                 }
 
                 val append = (responseCode == HttpURLConnection.HTTP_PARTIAL && existingBytes > 0L)
+                if (!append) {
+                    if (partFile.exists()) partFile.delete()
+                    if (reportedBytes > 0L) {
+                        onBytesRead(-reportedBytes)
+                        reportedBytes = 0L
+                    }
+                } else if (existingBytes > reportedBytes) {
+                    onBytesRead(existingBytes - reportedBytes)
+                    reportedBytes = existingBytes
+                }
+
                 input = conn.inputStream
                 output = FileOutputStream(partFile, append)
 
@@ -332,8 +435,11 @@ object AddressPrebuiltManager {
                         return false
                     }
                     output.write(buffer, 0, bytesRead)
-                    currentTotal += bytesRead
-                    onBytesRead(bytesRead.toLong())
+                    val chunk = bytesRead.toLong()
+                    bytesReadThisAttempt += chunk
+                    reportedBytes += chunk
+                    currentTotal += chunk
+                    onBytesRead(chunk)
 
                     if (totalExpected > 0L) {
                         val ratio = (currentTotal.toFloat() / totalExpected.toFloat()).coerceIn(0f, 1f)
@@ -343,23 +449,56 @@ object AddressPrebuiltManager {
 
                 output.flush()
                 output.close()
+                output = null
                 input.close()
+                input = null
                 conn.disconnect()
 
-                if (destFile.exists()) destFile.delete()
-                if (partFile.renameTo(destFile)) {
-                    return true
+                if (bytesReadThisAttempt >= 65536L) {
+                    lastAttemptMadeProgress = true
+                    consecutiveFailures = 0
                 } else {
-                    partFile.copyTo(destFile, overwrite = true)
+                    consecutiveFailures++
+                }
+
+                val isComplete = if (totalExpected > 0L) {
+                    partFile.length() == totalExpected
+                } else {
+                    partFile.length() > 0L
+                }
+
+                if (isComplete) {
+                    if (destFile.exists()) destFile.delete()
+                    if (partFile.renameTo(destFile)) {
+                        return true
+                    } else {
+                        partFile.copyTo(destFile, overwrite = true)
+                        partFile.delete()
+                        return true
+                    }
+                } else if (totalExpected > 0L && partFile.length() > totalExpected) {
                     partFile.delete()
-                    return true
+                    if (reportedBytes > 0L) {
+                        onBytesRead(-reportedBytes)
+                        reportedBytes = 0L
+                    }
                 }
             } catch (e: Exception) {
                 try { output?.close() } catch (_: Exception) {}
                 try { input?.close() } catch (_: Exception) {}
                 try { conn?.disconnect() } catch (_: Exception) {}
-                if (attempts >= 3) return false
-                try { Thread.sleep(1500) } catch (_: Exception) { return false }
+                if (bytesReadThisAttempt >= 65536L) {
+                    lastAttemptMadeProgress = true
+                    consecutiveFailures = 0
+                } else {
+                    consecutiveFailures++
+                }
+                AppLogger.log(
+                    TAG,
+                    "downloadPartWithResume",
+                    false,
+                    "Обрив завантаження ${destFile.name} (зчитано за спробу: ${bytesReadThisAttempt / 1024} КБ): ${e.message}"
+                )
             }
         }
         return false

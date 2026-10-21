@@ -152,7 +152,7 @@ class OverpassAddressClient(
 
                     conn = (URL(mirror).openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
-                        connectTimeout = 8000
+                        connectTimeout = 15000
                         readTimeout = timeoutSec * 1000
                         doOutput = true
                         setRequestProperty("User-Agent", USER_AGENT)
@@ -225,7 +225,7 @@ class OverpassAddressClient(
 
                 } catch (e: Exception) {
                     AppLogger.log(TAG, "query", false, "Connection error to $mirror: ${e.message}")
-                    interruptibleSleep(1500L, isCancelled)
+                    interruptibleSleep(3000L, isCancelled)
                     continue
                 } finally {
                     conn?.disconnect()
@@ -233,7 +233,7 @@ class OverpassAddressClient(
             }
 
             if (cycle < maxCycles && !isCancelled()) {
-                interruptibleSleep(3000L, isCancelled)
+                interruptibleSleep((4000L * cycle).coerceAtMost(15000L), isCancelled)
             }
         }
         return null
@@ -272,7 +272,7 @@ class OverpassAddressClient(
 
                     conn = (URL(mirror).openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
-                        connectTimeout = 8000
+                        connectTimeout = 15000
                         readTimeout = timeoutSec * 1000
                         doOutput = true
                         setRequestProperty("User-Agent", USER_AGENT)
@@ -359,6 +359,24 @@ class OverpassAddressClient(
                             interruptibleSleep(1500L, isCancelled)
                             continue
                         }
+                    } else if (activeQuery.contains("[out:json]", ignoreCase = true)) {
+                        val tailText = try {
+                            java.io.RandomAccessFile(targetFile, "r").use { raf ->
+                                val len = raf.length()
+                                val readLen = minOf(len, 512L).toInt()
+                                raf.seek(len - readLen)
+                                val buf = ByteArray(readLen)
+                                raf.readFully(buf)
+                                String(buf, Charsets.UTF_8).lowercase()
+                            }
+                        } catch (_: Exception) { "" }
+
+                        if (tailText.contains("runtime error") || tailText.contains("timed out") || !tailText.trimEnd().endsWith("}")) {
+                            targetFile.delete()
+                            AppLogger.log(TAG, "queryToFile", false, "$mirror: обірваний або помилковий JSON у кінці потоку. Спробуємо інше дзеркало...")
+                            interruptibleSleep(2500L, isCancelled)
+                            continue
+                        }
                     }
 
                     AppLogger.log(TAG, "queryToFile", true, "$mirror: HTTP $responseCode OK — збережено ${targetFile.length()} байт (слотів: $freeSlots)")
@@ -367,7 +385,7 @@ class OverpassAddressClient(
                 } catch (e: Exception) {
                     AppLogger.log(TAG, "queryToFile", false, "Connection error to $mirror: ${e.message}")
                     targetFile.delete()
-                    interruptibleSleep(1500L, isCancelled)
+                    interruptibleSleep(3000L, isCancelled)
                     continue
                 } finally {
                     conn?.disconnect()
@@ -375,7 +393,7 @@ class OverpassAddressClient(
             }
 
             if (cycle < maxCycles && !isCancelled()) {
-                interruptibleSleep(3000L, isCancelled)
+                interruptibleSleep((4000L * cycle).coerceAtMost(15000L), isCancelled)
             }
         }
         targetFile.delete()

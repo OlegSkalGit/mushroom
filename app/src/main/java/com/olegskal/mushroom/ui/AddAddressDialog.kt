@@ -110,7 +110,8 @@ object AddAddressDialog {
             }
 
             val settlements = results.filter { it.isSettlement }
-            val addresses = results.filter { !it.isSettlement && !it.isPoiOnly }
+            val streets = results.filter { !it.isSettlement && !it.isPoiOnly && it.houseNumber.isEmpty() }
+            val addresses = results.filter { !it.isSettlement && !it.isPoiOnly && it.houseNumber.isNotEmpty() }
             val pois = results.filter { it.isPoiOnly }
 
             fun renderBlockHeader(title: String) {
@@ -143,8 +144,9 @@ object AddAddressDialog {
                     isFocusable = true
                 }
 
+                val isStreetOnly = !addr.isSettlement && !addr.isPoiOnly && addr.houseNumber.isEmpty()
                 val iconTv = TextView(activity).apply {
-                    text = if (addr.isSettlement) "🏙️" else if (addr.isPoiOnly) (addr.poiIcon ?: "📍") else if (!addr.poiIcon.isNullOrBlank()) addr.poiIcon else "📍"
+                    text = if (addr.isSettlement) "🏙️" else if (addr.isPoiOnly) (addr.poiIcon ?: "📍") else if (isStreetOnly) "🛣️" else if (!addr.poiIcon.isNullOrBlank()) addr.poiIcon else "📍"
                     textSize = 18f
                     setPadding(0, 0, dp(10), 0)
                 }
@@ -160,7 +162,7 @@ object AddAddressDialog {
                 } else if (addr.isPoiOnly) {
                     "$distPrefix${addr.poiName ?: addr.getFullTitle()}"
                 } else {
-                    val streetPart = if (addr.houseNumber.isNotBlank()) "${addr.streetName}, ${addr.houseNumber}" else addr.streetName
+                    val streetPart = listOf(addr.streetName.ifBlank { addr.cityName }, addr.houseNumber).filter { it.isNotBlank() }.joinToString(", ")
                     if (!addr.poiName.isNullOrBlank()) {
                         "$distPrefix$streetPart • ${addr.poiName}"
                     } else {
@@ -181,7 +183,7 @@ object AddAddressDialog {
                     addr.regionName
                 } else if (addr.isPoiOnly) {
                     val loc = listOf(
-                        addr.streetName + (if (addr.houseNumber.isNotBlank()) ", " + addr.houseNumber else ""),
+                        listOf(addr.streetName, addr.houseNumber).filter { it.isNotBlank() }.joinToString(", "),
                         addr.cityName,
                         addr.regionName
                     ).filter { it.isNotBlank() }.joinToString(", ")
@@ -215,6 +217,8 @@ object AddAddressDialog {
                         } else {
                             if (isUk) "📍 Точка інтересу" else "📍 Point of Interest"
                         }
+                    } else if (isStreetOnly) {
+                        if (isUk) "🛣️ Вулиця" else "🛣️ Street"
                     } else {
                         if (isUk) "📍 Адреса" else "📍 Address"
                     }
@@ -251,7 +255,16 @@ object AddAddressDialog {
                 }
             }
 
-            // 2. Адреси
+            // 2. Вулиці
+            if (streets.isNotEmpty()) {
+                val headerText = if (isUk) "🛣️ Вулиці (${streets.size}):" else "🛣️ Streets (${streets.size}):"
+                renderBlockHeader(headerText)
+                for (st in streets) {
+                    renderItemRow(st)
+                }
+            }
+
+            // 3. Адреси
             if (addresses.isNotEmpty()) {
                 val headerText = if (isUk) "📍 Адреси (${addresses.size}):" else "📍 Addresses (${addresses.size}):"
                 renderBlockHeader(headerText)
@@ -260,7 +273,7 @@ object AddAddressDialog {
                 }
             }
 
-            // 3. Точки інтересу
+            // 4. Точки інтересу
             if (pois.isNotEmpty()) {
                 val headerText = if (isUk) "✨ Точки інтересу (${pois.size}):" else "✨ Points of Interest (${pois.size}):"
                 renderBlockHeader(headerText)

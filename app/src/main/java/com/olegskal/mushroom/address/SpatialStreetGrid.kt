@@ -271,4 +271,156 @@ class SpatialStreetGrid {
         lon2s = IntArray(1024)
         nameIndices = IntArray(1024)
     }
+
+    data class StreetCluster(
+        val canonicalName: String,
+        val centerLat: Double,
+        val centerLon: Double,
+        val segmentCount: Int
+    )
+
+    /**
+     * Групує відрізки вулиць за канонічною назвою та просторовою близькістю (~2.5 км),
+     * щоб однойменні вулиці в різних селах/містах області не зливалися в одну,
+     * та обчислює геометричний центр кожної вулиці безпосередньо на лінії дороги.
+     */
+    fun extractStreetClusters(): List<StreetCluster> {
+        if (count == 0) return emptyList()
+
+        val canonicalById = arrayOfNulls<String>(streetNames.size)
+        val segsByCanonical = HashMap<String, ArrayList<Int>>()
+        val displayByKey = HashMap<String, String>()
+
+        for (i in 0 until streetNames.size) {
+            val raw = streetNames[i]
+            val canonical = AddressNormalizer.canonicalStreetNameUniversal(raw).trim()
+            if (canonical.length >= 2 && canonical.any { it.isLetter() }) {
+                canonicalById[i] = canonical
+                val key = canonical.lowercase()
+                if (!displayByKey.containsKey(key)) {
+                    displayByKey[key] = canonical
+                }
+            }
+        }
+
+        for (idx in 0 until count) {
+            val cName = canonicalById[nameIndices[idx]] ?: continue
+            val key = cName.lowercase()
+            segsByCanonical.getOrPut(key) { ArrayList() }.add(idx)
+        }
+
+        // Поріг просторової кластеризації: 2500 одиниць = 0.025 градуса (~2.5 км)
+        val clusterRadiusUnits = 2500
+        val result = ArrayList<StreetCluster>(segsByCanonical.size)
+
+        class ClusterBox(firstIdx: Int) {
+            val segs = ArrayList<Int>(8)
+            var minLat: Int
+            var maxLat: Int
+            var minLon: Int
+            var maxLon: Int
+
+            init {
+                segs.add(firstIdx)
+                val l1 = lat1s[firstIdx]
+                val l2 = lat2s[firstIdx]
+                val n1 = lon1s[firstIdx]
+                val n2 = lon2s[firstIdx]
+                minLat = min(l1, l2)
+                maxLat = max(l1, l2)
+                minLon = min(n1, n2)
+                maxLon = max(n1, n2)
+            }
+
+            fun add(idx: Int) {
+                segs.add(idx)
+                val l1 = lat1s[idx]
+                val l2 = lat2s[idx]
+                val n1 = lon1s[idx]
+                val n2 = lon2s[idx]
+                if (l1 < minLat) minLat = l1
+                if (l2 < minLat) minLat = l2
+                if (l1 > maxLat) maxLat = l1
+                if (l2 > maxLat) maxLat = l2
+                if (n1 < minLon) minLon = n1
+                if (n2 < minLon) minLon = n2
+                if (n1 > maxLon) maxLon = n1
+                if (n2 > maxLon) maxLon = n2
+            }
+
+            fun isNear(idx: Int): Boolean {
+                val midLat = (lat1s[idx] + lat2s[idx]) shr 1
+                val midLon = (lon1s[idx] + lon2s[idx]) shr 1
+                return midLat >= (minLat - clusterRadiusUnits) &&
+                    midLat <= (maxLat + clusterRadiusUnits) &&
+                    midLon >= (minLon - clusterRadiusUnits) &&
+                    midLon <= (maxLon + clusterRadiusUnits)
+            }
+        }
+
+        for ((key, segIndices) in segsByCanonical) {
+            val canonicalName = displayByKey[key] ?: continue
+            val clusters = ArrayList<ClusterBox>(2)
+
+            for (i in 0 until segIndices.size) {
+                val segIdx = segIndices[i]
+                var matchedCluster: ClusterBox? = null
+                for (c in clusters) {
+                    if (c.isNear(segIdx)) {
+                        matchedCluster = c
+                        break
+                    }
+                }
+                if (matchedCluster != null) {
+                    matchedCluster.add(segIdx)
+                } else {
+                    clusters.add(ClusterBox(segIdx))
+                }
+            }
+
+            for (c in clusters) {
+                val cSegs = c.segs
+                val n = cSegs.size
+                if (n == 0) continue
+
+                var sumLat = 0L
+                var sumLon = 0L
+                for (i in 0 until n) {
+                    val idx = cSegs[i]
+                    sumLat += (lat1s[idx].toLong() + lat2s[idx].toLong()) / 2L
+                    sumLon += (lon1s[idx].toLong() + lon2s[idx].toLong()) / 2L
+                }
+                val avgLat = sumLat.toDouble() / n
+                val avgLon = sumLon.toDouble() / n
+
+                var bestLat = avgLat
+                var bestLon = avgLon
+                var bestDistSq = Double.MAX_VALUE
+
+                for (i in 0 until n) {
+                    val idx = cSegs[i]
+                    val midLat = (lat1s[idx] + lat2s[idx]) * 0.5
+                    val midLon = (lon1s[idx] + lon2s[idx]) * 0.5
+                    val dLat = midLat - avgLat
+                    val dLon = midLon - avgLon
+                    val dSq = dLat * dLat + dLon * dLon
+                    if (dSq < bestDistSq) {
+                        bestDistSq = dSq
+                        bestLat = midLat
+                        bestLon = midLon
+                    }
+                }
+
+                val centerLatDeg = bestLat / 100_000.0
+                val centerLonDeg = bestLon / 100_000.0
+                if (centerLatDeg != 0.0 || centerLonDeg != 0.0) {
+                    result.add(StreetCluster(canonicalName, centerLatDeg, centerLonDeg, n))
+                }
+            }
+        }
+
+        // Спочатку більші вулиці (більше сегментів), щоб основна частина вулиці мала пріоритет
+        result.sortByDescending { it.segmentCount }
+        return result
+    }
 }

@@ -893,84 +893,182 @@ object MapDownloadManager {
         fileIndex: Int,
         totalFiles: Int
     ): Boolean {
-        var conn: HttpURLConnection? = null
-        var inputStream: InputStream? = null
-        val tmpFile = File(destFile.parentFile, "${destFile.name}.${System.currentTimeMillis()}.tmp")
+        destFile.parentFile?.mkdirs()
+        val partFile = File(destFile.parentFile, "${destFile.name}.part")
+        var consecutiveFailures = 0
+        var totalAttempts = 0
+        val maxConsecutiveFailures = 8
+        val maxTotalAttempts = 50
+        var lastAttemptMadeProgress = false
 
-        return try {
-            var redirectUrl = urlStr
-            var redirects = 0
-            while (redirects < 5) {
-                val url = URL(redirectUrl)
-                conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", USER_AGENT)
+        while (consecutiveFailures < maxConsecutiveFailures && totalAttempts < maxTotalAttempts) {
+            totalAttempts++
+            if (totalAttempts > 1) {
+                var waited = 0L
+                val pauseMs = if (lastAttemptMadeProgress) {
+                    2500L
+                } else {
+                    (3000L * consecutiveFailures).coerceIn(3000L, 15000L)
                 }
+                val step = 200L
+                while (waited < pauseMs) {
+                    if (cancelFlag.get()) return false
+                    try { Thread.sleep(step) } catch (_: Exception) { return false }
+                    waited += step
+                }
+            }
+            if (cancelFlag.get()) return false
+            lastAttemptMadeProgress = false
+            var bytesReadThisAttempt = 0L
+            var conn: HttpURLConnection? = null
+            var inputStream: InputStream? = null
+
+            try {
+                val existingLen = if (partFile.exists()) partFile.length() else 0L
+                var redirectUrl = urlStr
+                var redirects = 0
+                while (redirects < 5) {
+                    val url = URL(redirectUrl)
+                    conn = (url.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 20000
+                        readTimeout = 45000
+                        instanceFollowRedirects = true
+                        setRequestProperty("User-Agent", USER_AGENT)
+                        setRequestProperty("Connection", "keep-alive")
+                        if (existingLen > 0L) {
+                            setRequestProperty("Range", "bytes=$existingLen-")
+                        }
+                    }
+                    val code = conn.responseCode
+                    if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
+                        val location = conn.getHeaderField("Location")
+                        conn.disconnect()
+                        if (location != null) {
+                            redirectUrl = location
+                            redirects++
+                            continue
+                        }
+                    }
+                    break
+                }
+
+                if (conn == null) {
+                    consecutiveFailures++
+                    continue
+                }
+
                 val code = conn.responseCode
-                if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
-                    val location = conn.getHeaderField("Location")
+                if (code == 416) {
+                    val cr = conn.getHeaderField("Content-Range")
+                    val totalFromCr = cr?.substringAfterLast('/')?.trim()?.toLongOrNull()
+                    if (totalFromCr != null && totalFromCr > 0L && partFile.length() == totalFromCr) {
+                        if (destFile.exists()) destFile.delete()
+                        if (!partFile.renameTo(destFile)) {
+                            partFile.copyTo(destFile, overwrite = true)
+                            partFile.delete()
+                        }
+                        val lastMod = conn.lastModified.takeIf { it > 0L } ?: System.currentTimeMillis()
+                        try { destFile.setLastModified(lastMod) } catch (_: Exception) {}
+                        recordDownloadedFile(destFile.name, lastMod, destFile.length())
+                        return true
+                    }
+                    partFile.delete()
                     conn.disconnect()
-                    if (location != null) {
-                        redirectUrl = location
-                        redirects++
-                        continue
+                    continue
+                }
+
+                val isResume = (code == HttpURLConnection.HTTP_PARTIAL)
+                if (code != HttpURLConnection.HTTP_OK && !isResume) {
+                    AppLogger.log(TAG, "downloadFile", false, "HTTP $code for $urlStr (attempt #$totalAttempts)")
+                    consecutiveFailures++
+                    conn.disconnect()
+                    continue
+                }
+
+                val serverLen = conn.contentLengthLong
+                val totalBytes = if (isResume) {
+                    val cr = conn.getHeaderField("Content-Range")
+                    val totalFromCr = cr?.substringAfterLast('/')?.trim()?.toLongOrNull()
+                    if (totalFromCr != null && totalFromCr > 0L) {
+                        totalFromCr
+                    } else if (serverLen > 0L) {
+                        existingLen + serverLen
+                    } else -1L
+                } else {
+                    serverLen
+                }
+
+                val append = isResume && existingLen > 0L
+                if (!append && partFile.exists()) {
+                    partFile.delete()
+                }
+
+                var bytesRead = if (append) existingLen else 0L
+                inputStream = conn.inputStream
+                FileOutputStream(partFile, append).use { out ->
+                    val buffer = ByteArray(32768)
+                    var len: Int
+                    while (inputStream.read(buffer).also { len = it } != -1) {
+                        if (cancelFlag.get()) {
+                            return false
+                        }
+                        out.write(buffer, 0, len)
+                        bytesReadThisAttempt += len
+                        bytesRead += len
+                        val pct = if (totalBytes > 0) ((bytesRead * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
+                        val p = DownloadProgress(countryName, fileName, fileIndex, totalFiles, bytesRead, totalBytes, pct)
+                        currentProgress = p
+                        onProgressUpdate?.invoke(p)
                     }
+                    out.flush()
                 }
-                break
-            }
 
-            if (conn == null || conn.responseCode != HttpURLConnection.HTTP_OK) {
-                AppLogger.log(TAG, "downloadFile", false, "HTTP ${conn?.responseCode} for $urlStr")
-                return false
-            }
+                if (bytesReadThisAttempt >= 65536L) {
+                    lastAttemptMadeProgress = true
+                    consecutiveFailures = 0
+                } else {
+                    consecutiveFailures++
+                }
 
-            val totalBytes = conn.contentLengthLong
-            var bytesRead = 0L
+                val isComplete = if (totalBytes > 0L) {
+                    partFile.length() == totalBytes
+                } else {
+                    partFile.length() > 0L
+                }
 
-            destFile.parentFile?.mkdirs()
-            inputStream = conn.inputStream
-            FileOutputStream(tmpFile).use { out ->
-                val buffer = ByteArray(16384)
-                var len: Int
-                while (inputStream.read(buffer).also { len = it } != -1) {
-                    if (cancelFlag.get()) {
-                        tmpFile.delete()
-                        return false
+                if (isComplete) {
+                    if (destFile.exists()) destFile.delete()
+                    if (!partFile.renameTo(destFile)) {
+                        partFile.copyTo(destFile, overwrite = true)
+                        partFile.delete()
                     }
-                    out.write(buffer, 0, len)
-                    bytesRead += len
-                    val pct = if (totalBytes > 0) ((bytesRead * 100) / totalBytes).toInt() else 0
-                    val p = DownloadProgress(countryName, fileName, fileIndex, totalFiles, bytesRead, totalBytes, pct)
-                    currentProgress = p
-                    onProgressUpdate?.invoke(p)
+                    val serverLastMod = conn.lastModified
+                    if (serverLastMod > 0L) {
+                        try { destFile.setLastModified(serverLastMod) } catch (_: Exception) {}
+                    }
+                    recordDownloadedFile(destFile.name, serverLastMod, destFile.length())
+                    return true
+                } else if (totalBytes > 0L && partFile.length() > totalBytes) {
+                    partFile.delete()
                 }
+            } catch (e: Exception) {
+                if (bytesReadThisAttempt >= 65536L) {
+                    lastAttemptMadeProgress = true
+                    consecutiveFailures = 0
+                } else {
+                    consecutiveFailures++
+                }
+                AppLogger.log(
+                    TAG,
+                    "downloadFile",
+                    false,
+                    "Exception downloading $fileName (attempt #$totalAttempts, read ${bytesReadThisAttempt / 1024} KB): ${e.message}"
+                )
+            } finally {
+                try { inputStream?.close() } catch (_: Exception) {}
+                try { conn?.disconnect() } catch (_: Exception) {}
             }
-
-            if (tmpFile.exists() && tmpFile.length() > 0) {
-                if (destFile.exists()) destFile.delete()
-                if (!tmpFile.renameTo(destFile)) {
-                    tmpFile.copyTo(destFile, overwrite = true)
-                    tmpFile.delete()
-                }
-                val serverLastMod = conn.lastModified
-                if (serverLastMod > 0L) {
-                    try { destFile.setLastModified(serverLastMod) } catch (_: Exception) {}
-                }
-                recordDownloadedFile(destFile.name, serverLastMod, destFile.length())
-                true
-            } else {
-                tmpFile.delete()
-                false
-            }
-        } catch (e: Exception) {
-            AppLogger.log(TAG, "downloadFile", false, "Exception downloading $fileName: ${e.message}")
-            tmpFile.delete()
-            false
-        } finally {
-            try { inputStream?.close() } catch (_: Exception) {}
-            try { conn?.disconnect() } catch (_: Exception) {}
         }
+        return false
     }
 }

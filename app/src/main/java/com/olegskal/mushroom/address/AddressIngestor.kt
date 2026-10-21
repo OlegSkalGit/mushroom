@@ -30,7 +30,7 @@ class AddressIngestor(
     )
 
     private val housesBatch = ArrayList<HouseRecord>(10000)
-    private val batchCoords = HashSet<Long>(10000)
+    private val batchKeys = HashSet<String>(10000)
 
     private var stmtInsertPlace: SQLiteStatement? = null
     private var stmtInsertStreetName: SQLiteStatement? = null
@@ -251,12 +251,11 @@ class AddressIngestor(
     }
 
     fun addHouse(streetId: Long, houseNumber: String, latI: Int, lonI: Int) {
+        if (streetId <= 0L || (latI == 0 && lonI == 0)) return
         val num = houseNumber.trim()
-        if (num.isBlank()) return
 
-        val coordKey = (latI.toLong() shl 32) or (lonI.toLong() and 0xFFFFFFFFL)
-        val batchKey = coordKey xor (streetId shl 16)
-        if (!batchCoords.add(batchKey)) {
+        val batchKey = if (num.isEmpty()) "$streetId|" else "$streetId|${num.lowercase()}|$latI|$lonI"
+        if (!batchKeys.add(batchKey)) {
             return
         }
 
@@ -285,7 +284,7 @@ class AddressIngestor(
         } finally {
             if (ownTx) db.endTransaction()
             housesBatch.clear()
-            batchCoords.clear()
+            batchKeys.clear()
         }
     }
 

@@ -457,7 +457,7 @@ object AddressDownloadManager {
         var hasStreets = false
 
         if (region.relId > 0) {
-            hasStreets = client.queryToFile(qArea, tempFile, timeoutSec = 185, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
+            hasStreets = client.queryToFile(qArea, tempFile, timeoutSec = 185, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
         }
 
         val fileHasData = hasStreets && tempFile.exists() && tempFile.length() > 500L
@@ -1542,8 +1542,183 @@ object AddressDownloadManager {
                                     }
                                     i = j
                                 }
-                                regionHouses.clear()
                             }
+
+                            // Додавання всіх іменованих вулиць з файлу доріг у таблицю будинків (number = "", координата = центр вулиці)
+                            val streetClusters = streetGrid.extractStreetClusters()
+                            if (streetClusters.isNotEmpty()) {
+                                data class KnownSettlement(
+                                    val cityPlaceId: Long,
+                                    val regPlaceId: Long,
+                                    val regionName: String,
+                                    val cityName: String,
+                                    val latI: Int,
+                                    val lonI: Int
+                                )
+
+                                val knownByCityName = HashMap<String, ArrayList<KnownSettlement>>()
+                                val seenCityPlaceIds = HashSet<Long>()
+                                for (h in regionHouses) {
+                                    if (h.cityName.isNotBlank() && seenCityPlaceIds.add(h.cityPlaceId)) {
+                                        val key = h.cityName.trim().lowercase(Locale.ROOT)
+                                        knownByCityName.getOrPut(key) { ArrayList(2) }.add(
+                                            KnownSettlement(h.cityPlaceId, h.regPlaceId, h.regionName, h.cityName, h.latI, h.lonI)
+                                        )
+                                    }
+                                }
+
+                                val addedStreetCenters = HashSet<Long>(streetClusters.size)
+                                val houseTotal = regionHouses.size
+                                val maxHouseSearchMeters = 300.0
+                                val maxHouseSearchSq = maxHouseSearchMeters * maxHouseSearchMeters
+                                val dLatLimit300 = (maxHouseSearchMeters / 1.1132).toInt() + 1
+
+                                for (cluster in streetClusters) {
+                                    val lat = cluster.centerLat
+                                    val lon = cluster.centerLon
+                                    if (lat == 0.0 && lon == 0.0) continue
+
+                                    var targetRegion = curRegion
+                                    val matcher = boundaryMatcher
+                                    if (usedBbox && matcher != null) {
+                                        val ptCode = matcher.findRegionCode(lat, lon) ?: continue
+                                        val matchedReg = regionByCode[ptCode]
+                                        if (matchedReg != null) {
+                                            val isCurrent = if (curRegion.code.isNotBlank() && matchedReg.code.isNotBlank()) {
+                                                matchedReg.code.equals(curRegion.code, ignoreCase = true)
+                                            } else {
+                                                matchedReg.name.trim().equals(curRegion.name.trim(), ignoreCase = true)
+                                            }
+                                            if (!isCurrent) {
+                                                continue
+                                            }
+                                            targetRegion = matchedReg
+                                        }
+                                    }
+
+                                    val latI = (lat * 100_000.0).roundToInt()
+                                    val lonI = (lon * 100_000.0).roundToInt()
+                                    val cosLat = kotlin.math.cos(Math.toRadians(lat))
+
+                                    // 1. Шукаємо найближчий будинок у радіусі 300м для точного успадкування населеного пункту та району/громади
+                                    var nearestHouse: PreparedHouse? = null
+                                    if (houseTotal > 0) {
+                                        val dLonLimit300 = (maxHouseSearchMeters / (1.1132 * kotlin.math.max(0.1, cosLat))).toInt() + 1
+                                        var bestDistSq = maxHouseSearchSq
+
+                                        var low = 0
+                                        var high = houseTotal - 1
+                                        var midIdx = 0
+                                        while (low <= high) {
+                                            val mid = (low + high) ushr 1
+                                            val midLat = regionHouses[mid].latI
+                                            if (midLat < latI) {
+                                                low = mid + 1
+                                            } else if (midLat > latI) {
+                                                high = mid - 1
+                                            } else {
+                                                midIdx = mid
+                                                break
+                                            }
+                                            midIdx = low.coerceIn(0, houseTotal - 1)
+                                        }
+
+                                        var prev = midIdx
+                                        while (prev >= 0) {
+                                            val cand = regionHouses[prev]
+                                            val dLat = latI - cand.latI
+                                            if (dLat > dLatLimit300) break
+                                            if (cand.cityName.isNotBlank() && kotlin.math.abs(lonI - cand.lonI) <= dLonLimit300) {
+                                                val dy = dLat * 1.1132
+                                                val dx = (lonI - cand.lonI) * 1.1132 * cosLat
+                                                val d2 = dy * dy + dx * dx
+                                                if (d2 < bestDistSq) {
+                                                    bestDistSq = d2
+                                                    nearestHouse = cand
+                                                }
+                                            }
+                                            prev--
+                                        }
+
+                                        var next = midIdx + 1
+                                        while (next < houseTotal) {
+                                            val cand = regionHouses[next]
+                                            val dLat = cand.latI - latI
+                                            if (dLat > dLatLimit300) break
+                                            if (cand.cityName.isNotBlank() && kotlin.math.abs(lonI - cand.lonI) <= dLonLimit300) {
+                                                val dy = dLat * 1.1132
+                                                val dx = (cand.lonI - lonI) * 1.1132 * cosLat
+                                                val d2 = dy * dy + dx * dx
+                                                if (d2 < bestDistSq) {
+                                                    bestDistSq = d2
+                                                    nearestHouse = cand
+                                                }
+                                            }
+                                            next++
+                                        }
+                                    }
+
+                                    val cityPlaceId: Long
+                                    val regPlaceId: Long
+                                    val targetRegionName: String
+                                    val cityName: String
+
+                                    if (nearestHouse != null) {
+                                        cityPlaceId = nearestHouse.cityPlaceId
+                                        regPlaceId = nearestHouse.regPlaceId
+                                        targetRegionName = nearestHouse.regionName
+                                        cityName = nearestHouse.cityName
+                                    } else {
+                                        val resolvedCity = settlementIndex.resolve(lat, lon).trim()
+                                        val candidates = if (resolvedCity.isNotBlank()) {
+                                            knownByCityName[resolvedCity.lowercase(Locale.ROOT)]
+                                        } else null
+
+                                        var matchedKnown: KnownSettlement? = null
+                                        if (!candidates.isNullOrEmpty()) {
+                                            // Якщо в області є населений пункт з такою назвою в радіусі ~10 км, використовуємо його ієрархію
+                                            var bestKnownDistSq = 10_000.0 * 10_000.0
+                                            for (ks in candidates) {
+                                                val dy = (latI - ks.latI) * 1.1132
+                                                val dx = (lonI - ks.lonI) * 1.1132 * cosLat
+                                                val d2 = dy * dy + dx * dx
+                                                if (d2 < bestKnownDistSq) {
+                                                    bestKnownDistSq = d2
+                                                    matchedKnown = ks
+                                                }
+                                            }
+                                        }
+
+                                        if (matchedKnown != null) {
+                                            cityPlaceId = matchedKnown.cityPlaceId
+                                            regPlaceId = matchedKnown.regPlaceId
+                                            targetRegionName = matchedKnown.regionName
+                                            cityName = matchedKnown.cityName
+                                        } else {
+                                            regPlaceId = if (targetRegion.name == curRegion.name) defaultRegPlaceId else getRegionPlaceId(targetRegion)
+                                            targetRegionName = targetRegion.name
+                                            cityName = resolvedCity
+                                            cityPlaceId = ingestor.getOrCreatePlace(regPlaceId, cityName, level = 8)
+                                        }
+                                    }
+
+                                    if (cluster.canonicalName.isBlank() || cluster.canonicalName.equals(cityName, ignoreCase = true)) {
+                                        continue
+                                    }
+
+                                    val streetId = ingestor.getOrCreateStreet(
+                                        cityPlaceId,
+                                        cluster.canonicalName,
+                                        targetRegionName,
+                                        cityName,
+                                        regPlaceId
+                                    )
+                                    if (streetId > 0L && addedStreetCenters.add(streetId)) {
+                                        ingestor.addHouse(streetId, "", latI, lonI)
+                                    }
+                                }
+                            }
+                            regionHouses.clear()
 
                             ingestor.flush()
                             db.setTransactionSuccessful()

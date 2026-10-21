@@ -563,10 +563,71 @@ object ItemEditDialog {
                         addressTv.visibility = View.VISIBLE
                     }
 
-                    // Render 5 nearest addresses
+                    // Render up to 15 nearest streets
+                    if (info.nearestStreets.isNotEmpty()) {
+                        val streetHeader = TextView(activity).apply {
+                            text = if (isUk) "🛣️ Найближчі вулиці (до 15):" else "🛣️ Nearest streets (up to 15):"
+                            setTextColor(Color.parseColor("#4CAF50"))
+                            textSize = 14f
+                            setTypeface(null, Typeface.BOLD)
+                            setPadding(dp(4), dp(8), dp(4), dp(4))
+                        }
+                        listsContainer.addView(streetHeader)
+
+                        for ((st, dist) in info.nearestStreets) {
+                            val row = LinearLayout(activity).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                                setBackgroundColor(Color.parseColor("#222A22"))
+                                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    setMargins(0, 0, 0, dp(4))
+                                }
+                                layoutParams = p
+                                setPadding(dp(10), dp(8), dp(10), dp(8))
+                                isClickable = true
+                                isFocusable = true
+                            }
+
+                            val tCol = LinearLayout(activity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                            }
+                            val distPrefix = "(${AddressSearchManager.formatDistance(dist)}) "
+                            val title = "$distPrefix${st.streetName.ifBlank { st.cityName }}"
+                            val sub = listOf(st.cityName, st.regionName).filter { it.isNotBlank() }.joinToString(", ")
+
+                            val rTitle = TextView(activity).apply {
+                                text = title
+                                setTextColor(Color.WHITE)
+                                textSize = 13.5f
+                                setTypeface(null, Typeface.BOLD)
+                            }
+                            val rSub = TextView(activity).apply {
+                                text = sub
+                                setTextColor(Color.GRAY)
+                                textSize = 11.5f
+                            }
+                            tCol.addView(rTitle)
+                            if (sub.isNotBlank()) tCol.addView(rSub)
+                            row.addView(tCol)
+
+                            row.setOnClickListener {
+                                infoDialog.dismiss()
+                                onItemSelected(
+                                    st.getFullTitle(),
+                                    if (isUk) "🛣️ Вулиця" else "🛣️ Street",
+                                    st.lat,
+                                    st.lon
+                                )
+                            }
+                            listsContainer.addView(row)
+                        }
+                    }
+
+                    // Render up to 15 nearest addresses
                     if (info.nearestAddresses.isNotEmpty()) {
                         val addrHeader = TextView(activity).apply {
-                            text = if (isUk) "📍 Найближчі адреси (до 5):" else "📍 Nearest addresses (up to 5):"
+                            text = if (isUk) "📍 Найближчі адреси (до 15):" else "📍 Nearest addresses (up to 15):"
                             setTextColor(Color.parseColor("#4CAF50"))
                             textSize = 14f
                             setTypeface(null, Typeface.BOLD)
@@ -593,7 +654,7 @@ object ItemEditDialog {
                                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                             }
                             val distPrefix = "(${AddressSearchManager.formatDistance(dist)}) "
-                            val streetPart = if (addr.houseNumber.isNotBlank()) "${addr.streetName}, ${addr.houseNumber}" else addr.streetName
+                            val streetPart = listOf(addr.streetName.ifBlank { addr.cityName }, addr.houseNumber).filter { it.isNotBlank() }.joinToString(", ")
                             val title = "$distPrefix${streetPart.ifBlank { addr.cityName }}"
                             val sub = listOf(addr.cityName, addr.regionName).filter { it.isNotBlank() }.joinToString(", ")
 
@@ -625,10 +686,10 @@ object ItemEditDialog {
                         }
                     }
 
-                    // Render 10 nearest POIs
+                    // Render up to 15 nearest POIs
                     if (info.nearestPois.isNotEmpty()) {
                         val poiHeader = TextView(activity).apply {
-                            text = if (isUk) "✨ Найближчі точки інтересу (до 10):" else "✨ Nearest POIs (up to 10):"
+                            text = if (isUk) "✨ Найближчі точки інтересу (до 15):" else "✨ Nearest POIs (up to 15):"
                             setTextColor(Color.parseColor("#4CAF50"))
                             textSize = 14f
                             setTypeface(null, Typeface.BOLD)

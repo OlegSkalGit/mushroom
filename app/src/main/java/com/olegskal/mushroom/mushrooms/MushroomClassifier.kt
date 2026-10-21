@@ -134,7 +134,6 @@ class MushroomClassifier(private val context: Context? = null) {
                     }
 
                     var success = false
-                    var attempts = 0
                     val urlsToTry = listOf(
                         "$MODEL_BASE_DOWNLOAD_URL$fileName",
                         "$MODEL_FALLBACK_DOWNLOAD_URL$fileName"
@@ -144,9 +143,22 @@ class MushroomClassifier(private val context: Context? = null) {
 
                     for (urlCandidate in urlsToTry) {
                         if (success) break
+                        var consecutiveFailures = 0
+                        var totalAttempts = 0
+                        var lastAttemptMadeProgress = false
 
-                        while (!success && attempts < 3) {
-                            attempts++
+                        while (!success && consecutiveFailures < 8 && totalAttempts < 50) {
+                            totalAttempts++
+                            if (totalAttempts > 1) {
+                                val pauseMs = if (lastAttemptMadeProgress) {
+                                    2500L
+                                } else {
+                                    (3000L * consecutiveFailures).coerceIn(3000L, 15000L)
+                                }
+                                try { Thread.sleep(pauseMs) } catch (_: Exception) {}
+                            }
+                            lastAttemptMadeProgress = false
+                            var bytesReadThisAttempt = 0L
                             var conn: HttpURLConnection? = null
                             var input: InputStream? = null
                             var output: FileOutputStream? = null
@@ -161,9 +173,10 @@ class MushroomClassifier(private val context: Context? = null) {
                                     val url = URL(currentUrl)
                                     conn = url.openConnection() as HttpURLConnection
                                     conn.instanceFollowRedirects = false
-                                    conn.connectTimeout = 15000
-                                    conn.readTimeout = 30000
+                                    conn.connectTimeout = 20000
+                                    conn.readTimeout = 45000
                                     conn.setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
+                                    conn.setRequestProperty("Connection", "keep-alive")
 
                                     if (existingLength > 0) {
                                         conn.setRequestProperty("Range", "bytes=$existingLength-")
@@ -179,7 +192,7 @@ class MushroomClassifier(private val context: Context? = null) {
                                         conn.disconnect()
                                         currentUrl = newUrl
                                         redirects++
-                                    } else if (responseCode == 200 || responseCode == 206) {
+                                    } else if (responseCode == 200 || responseCode == 206 || responseCode == 416) {
                                         break
                                     } else {
                                         throw Exception("HTTP $responseCode from $currentUrl")
@@ -187,8 +200,13 @@ class MushroomClassifier(private val context: Context? = null) {
                                 }
 
                                 if (responseCode == 416) {
+                                    if (expectedSize > 0L && partFile.length() == expectedSize) {
+                                        downloadedTotalBytes += expectedSize
+                                        success = true
+                                        break
+                                    }
                                     partFile.delete()
-                                    break
+                                    continue
                                 }
 
                                 if (responseCode != 200 && responseCode != 206) {
@@ -206,6 +224,7 @@ class MushroomClassifier(private val context: Context? = null) {
 
                                 while (input.read(data).also { count = it } != -1) {
                                     output.write(data, 0, count)
+                                    bytesReadThisAttempt += count
                                     val currentPartLen = partFile.length()
                                     val overallProgressBytes = downloadedTotalBytes + currentPartLen
                                     val percent = ((overallProgressBytes * 85) / MODEL_TOTAL_ARCHIVE_SIZE).toInt().coerceIn(0, 85)
@@ -224,14 +243,27 @@ class MushroomClassifier(private val context: Context? = null) {
                                 input = null
                                 activeConn.disconnect()
 
+                                if (bytesReadThisAttempt >= 65536L) {
+                                    lastAttemptMadeProgress = true
+                                    consecutiveFailures = 0
+                                } else {
+                                    consecutiveFailures++
+                                }
+
                                 if (expectedSize <= 0L || partFile.length() == expectedSize) {
                                     downloadedTotalBytes += expectedSize
                                     success = true
-                                } else {
+                                } else if (expectedSize > 0L && partFile.length() > expectedSize) {
                                     partFile.delete()
                                 }
                             } catch (e: Exception) {
                                 lastError = e.localizedMessage ?: e.toString()
+                                if (bytesReadThisAttempt >= 65536L) {
+                                    lastAttemptMadeProgress = true
+                                    consecutiveFailures = 0
+                                } else {
+                                    consecutiveFailures++
+                                }
                             } finally {
                                 try { input?.close() } catch (ignored: Exception) {}
                                 try { output?.close() } catch (ignored: Exception) {}

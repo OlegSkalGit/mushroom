@@ -592,10 +592,11 @@ object InitialSetupDialog {
                     "База адрес", "Address database",
                     "${if (isUk) country.nameUk else country.name} ($regDisplay, addr.db)",
                     35_000_000L
-                ) { onBytes, onSizeDiscovered, isCancel ->
+                ) { onBytes, _, isCancel ->
                     var lastReported = 0L
                     fun reportProgress(ratio: Float, statusMsg: String) {
-                        val curBytes = (ratio * 35_000_000L).toLong()
+                        val clamped = ratio.coerceIn(0f, 1f)
+                        val curBytes = (clamped * 35_000_000L).toLong()
                         val delta = curBytes - lastReported
                         if (delta > 0L) {
                             lastReported = curBytes
@@ -604,15 +605,15 @@ object InitialSetupDialog {
                         val mapAct = context as? MushroomMapActivity
                         val rem = pendingQueue.size
                         val remSuffix = if (rem > 0) (if (isUk) " (у черзі: $rem)" else " (in queue: $rem)") else ""
-                        mapAct?.updateBottomDownloadProgress(true, -1, 1000, "$statusMsg$remSuffix")
+                        mapAct?.updateBottomDownloadProgress(true, (clamped * 1000).toInt(), 1000, "$statusMsg$remSuffix")
                     }
 
                     // 1. Спроба завантажити та консолідувати готову прекомпільовану базу країни (.zip / .z01 або локальний файл)
                     val prebuiltInstalled = AddressPrebuiltManager.tryInstallPrebuiltCountry(
                         context = context,
                         country = country,
-                        onBytes = onBytes,
-                        onSizeDiscovered = onSizeDiscovered,
+                        onBytes = {},
+                        onSizeDiscovered = {},
                         onProgress = { ratio, statusMsg -> reportProgress(ratio, statusMsg) },
                         isCancelled = isCancel
                     )
@@ -724,7 +725,8 @@ object InitialSetupDialog {
                             part.fileName,
                             part.exactSize
                         ) { onBytes, onSizeDiscovered, isCancel ->
-                            downloadFileWithResume("${MushroomDataConfig.MODEL_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, onSizeDiscovered, isCancel)
+                            downloadFileWithResume("${MushroomDataConfig.MODEL_BASE_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, onSizeDiscovered, isCancel) ||
+                                (!isCancel() && downloadFileWithResume("${MushroomDataConfig.MODEL_FALLBACK_DOWNLOAD_URL}${part.fileName}", partFile, part.exactSize, onBytes, onSizeDiscovered, isCancel))
                         }
                     )
                 }
@@ -997,34 +999,49 @@ object InitialSetupDialog {
                     mapActivity?.updateBottomDownloadProgress(true, 0, 1000, formatStatus(0.0))
                 }
 
-                val ok = try {
-                    item.downloadAction(
-                        { bRead ->
-                            itemBytes += bRead
-                            val ratio = (itemBytes.toDouble() / itemExpected.toDouble()).coerceIn(0.0, 1.0)
-                            val pVal = (ratio * 1000).toInt()
-                            val status = if (item.id.startsWith("addr_")) null else formatStatus(ratio)
-                            activity.runOnUiThread {
-                                mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
-                            }
-                        },
-                        { actualSize ->
-                            if (actualSize > 0L) {
-                                itemExpected = actualSize
-                                item.expectedBytes = actualSize
+                var ok = false
+                var itemTry = 0
+                while (!ok && itemTry < 3 && !cancelFlag.get()) {
+                    itemTry++
+                    if (itemTry > 1) {
+                        var waited = 0L
+                        val pauseMs = 4000L * (itemTry - 1)
+                        while (waited < pauseMs && !cancelFlag.get()) {
+                            try { Thread.sleep(250L) } catch (_: Exception) { break }
+                            waited += 250L
+                        }
+                        if (cancelFlag.get()) break
+                        itemBytes = 0L
+                    }
+                    ok = try {
+                        item.downloadAction(
+                            { bRead ->
+                                itemBytes = (itemBytes + bRead).coerceAtLeast(0L)
                                 val ratio = (itemBytes.toDouble() / itemExpected.toDouble()).coerceIn(0.0, 1.0)
                                 val pVal = (ratio * 1000).toInt()
                                 val status = if (item.id.startsWith("addr_")) null else formatStatus(ratio)
                                 activity.runOnUiThread {
                                     mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
                                 }
-                            }
-                        },
-                        { cancelFlag.get() }
-                    )
-                } catch (e: Throwable) {
-                    AppLogger.log(TAG, "runQueuePipeline", false, "Error downloading ${item.id}: ${e.message}")
-                    false
+                            },
+                            { actualSize ->
+                                if (actualSize > 0L) {
+                                    itemExpected = actualSize
+                                    item.expectedBytes = actualSize
+                                    val ratio = (itemBytes.toDouble() / itemExpected.toDouble()).coerceIn(0.0, 1.0)
+                                    val pVal = (ratio * 1000).toInt()
+                                    val status = if (item.id.startsWith("addr_")) null else formatStatus(ratio)
+                                    activity.runOnUiThread {
+                                        mapActivity?.updateBottomDownloadProgress(true, pVal, 1000, status)
+                                    }
+                                }
+                            },
+                            { cancelFlag.get() }
+                        )
+                    } catch (e: Throwable) {
+                        AppLogger.log(TAG, "runQueuePipeline", false, "Error downloading ${item.id} (try $itemTry): ${e.message}")
+                        false
+                    }
                 }
 
                 if (ok && !cancelFlag.get()) {
@@ -1209,15 +1226,30 @@ object InitialSetupDialog {
             return true
         }
 
-        var attempts = 0
+        var consecutiveFailures = 0
+        var totalAttempts = 0
+        val maxConsecutiveFailures = 8
+        val maxTotalAttempts = 60
+        var lastAttemptMadeProgress = false
+        var reportedBytes = 0L
         var totalBytesFromServer = -1L
 
-        while (attempts < 3) {
-            attempts++
-            if (attempts > 1) {
+        while (consecutiveFailures < maxConsecutiveFailures && totalAttempts < maxTotalAttempts) {
+            totalAttempts++
+            if (totalAttempts > 1) {
                 var waited = 0L
-                val pauseMs = 2500L
+                val pauseMs = if (lastAttemptMadeProgress) {
+                    2500L
+                } else {
+                    (3000L * consecutiveFailures).coerceIn(3000L, 15000L)
+                }
                 val step = 200L
+                AppLogger.log(
+                    TAG,
+                    "downloadFileWithResume",
+                    true,
+                    "Пауза ${pauseMs}мс перед спробою #$totalAttempts (помилок поспіль: $consecutiveFailures) для ${destFile.name}"
+                )
                 while (waited < pauseMs) {
                     if (isCancelled()) return false
                     try { Thread.sleep(step) } catch (_: Exception) { return false }
@@ -1225,6 +1257,8 @@ object InitialSetupDialog {
                 }
             }
             if (isCancelled()) return false
+            lastAttemptMadeProgress = false
+            var bytesReadThisAttempt = 0L
             var conn: HttpURLConnection? = null
             try {
                 val existingLen = if (partFile.exists()) partFile.length() else 0L
@@ -1233,10 +1267,11 @@ object InitialSetupDialog {
                 while (redirects < 5) {
                     val url = URL(currentUrl)
                     conn = (url.openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 15000
-                        readTimeout = 30000
+                        connectTimeout = 20000
+                        readTimeout = 45000
                         instanceFollowRedirects = true
                         setRequestProperty("User-Agent", USER_AGENT)
+                        setRequestProperty("Connection", "keep-alive")
                         if (existingLen > 0L) {
                             setRequestProperty("Range", "bytes=$existingLen-")
                         }
@@ -1253,7 +1288,10 @@ object InitialSetupDialog {
                     }
                     break
                 }
-                if (conn == null) continue
+                if (conn == null) {
+                    consecutiveFailures++
+                    continue
+                }
 
                 val code = conn.responseCode
                 if (code == 416) {
@@ -1289,6 +1327,10 @@ object InitialSetupDialog {
                         return true
                     }
                     partFile.delete()
+                    if (reportedBytes > 0L) {
+                        onBytesRead(-reportedBytes)
+                        reportedBytes = 0L
+                    }
                     conn.disconnect()
                     continue
                 }
@@ -1304,6 +1346,7 @@ object InitialSetupDialog {
                     if (allowHttpErrors) {
                         return true
                     }
+                    consecutiveFailures++
                     conn.disconnect()
                     continue
                 }
@@ -1327,8 +1370,17 @@ object InitialSetupDialog {
                 }
 
                 val append = isResume && existingLen > 0L
-                if (!isResume && partFile.exists()) {
-                    partFile.delete()
+                if (!append) {
+                    if (partFile.exists()) {
+                        partFile.delete()
+                    }
+                    if (reportedBytes > 0L) {
+                        onBytesRead(-reportedBytes)
+                        reportedBytes = 0L
+                    }
+                } else if (existingLen > reportedBytes) {
+                    onBytesRead(existingLen - reportedBytes)
+                    reportedBytes = existingLen
                 }
 
                 conn.inputStream.use { input ->
@@ -1338,10 +1390,20 @@ object InitialSetupDialog {
                         while (input.read(buffer).also { len = it } != -1) {
                             if (isCancelled()) return false
                             out.write(buffer, 0, len)
-                            onBytesRead(len.toLong())
+                            val chunk = len.toLong()
+                            bytesReadThisAttempt += chunk
+                            reportedBytes += chunk
+                            onBytesRead(chunk)
                         }
                         out.flush()
                     }
+                }
+
+                if (bytesReadThisAttempt >= 65536L) {
+                    lastAttemptMadeProgress = true
+                    consecutiveFailures = 0
+                } else {
+                    consecutiveFailures++
                 }
 
                 val isComplete = if (totalBytesFromServer > 0L) {
@@ -1365,6 +1427,12 @@ object InitialSetupDialog {
                     }
                     MapDownloadManager.recordDownloadedFile(destFile.name, lastMod, destFile.length())
                     return true
+                } else if (finalExpectedSize > 0L && partFile.length() > finalExpectedSize) {
+                    partFile.delete()
+                    if (reportedBytes > 0L) {
+                        onBytesRead(-reportedBytes)
+                        reportedBytes = 0L
+                    }
                 }
             } catch (e: Exception) {
                 if (allowHttpErrors && (e is java.io.FileNotFoundException || e.message?.contains("404") == true)) {
@@ -1372,6 +1440,18 @@ object InitialSetupDialog {
                     onSizeDiscovered(0L)
                     return true
                 }
+                if (bytesReadThisAttempt >= 65536L) {
+                    lastAttemptMadeProgress = true
+                    consecutiveFailures = 0
+                } else {
+                    consecutiveFailures++
+                }
+                AppLogger.log(
+                    TAG,
+                    "downloadFileWithResume",
+                    false,
+                    "Обрив з'єднання для ${destFile.name} (зчитано за спробу: ${bytesReadThisAttempt / 1024} КБ, всього у .part: ${if (partFile.exists()) partFile.length() / 1024 else 0} КБ): ${e.message}"
+                )
             } finally {
                 try { conn?.disconnect() } catch (_: Exception) {}
             }

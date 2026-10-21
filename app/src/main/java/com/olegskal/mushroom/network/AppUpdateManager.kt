@@ -522,76 +522,14 @@ object AppUpdateManager {
         }
     }
 
-    private fun downloadFileWithRedirects(urlStr: String, destFile: File, redirectCount: Int = 0): Boolean {
-        if (redirectCount > 5) {
-            AppLogger.log("AppUpdateManager", "downloadFileWithRedirects", false, "Too many HTTP redirects for $urlStr")
-            return false
-        }
-        var conn: HttpURLConnection? = null
-        return try {
-            val url = URL(urlStr)
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15000
-                readTimeout = 60000
-                setRequestProperty("User-Agent", "Mushroom-Updater/1.0")
-                instanceFollowRedirects = true
-            }
-
-            val responseCode = conn.responseCode
-            if (responseCode == HttpURLConnection.HTTP_MOVED_PERM ||
-                responseCode == HttpURLConnection.HTTP_MOVED_TEMP ||
-                responseCode == 307 ||
-                responseCode == 308
-            ) {
-                val newUrl = conn.getHeaderField("Location")
-                conn.disconnect()
-                if (!newUrl.isNullOrEmpty()) {
-                    return downloadFileWithRedirects(newUrl, destFile, redirectCount + 1)
-                }
-                return false
-            }
-
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                AppLogger.log("AppUpdateManager", "downloadFileWithRedirects", false, "HTTP download status error $responseCode for $urlStr")
-                return false
-            }
-
-            val totalBytes = conn.contentLengthLong
-            val tempFile = File(destFile.parentFile, "${destFile.name}.tmp")
-
-            conn.inputStream.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var downloadedBytes = 0L
-                    var lastLoggedPercent = -1
-
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        downloadedBytes += bytesRead
-                        if (totalBytes > 0) {
-                            val percent = ((downloadedBytes * 100) / totalBytes).toInt()
-                            if (percent % 25 == 0 && percent != lastLoggedPercent) {
-                                lastLoggedPercent = percent
-                                AppLogger.log("AppUpdateManager", "downloadFileWithRedirects", true, "Download progress: $percent% ($downloadedBytes / $totalBytes bytes)")
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (tempFile.exists() && tempFile.length() > 0) {
-                if (destFile.exists()) destFile.delete()
-                tempFile.renameTo(destFile)
-                return true
-            }
-            false
-        } catch (e: Exception) {
-            AppLogger.log("AppUpdateManager", "downloadFileWithRedirects", false, "Exception downloading $urlStr: ${e.message}")
-            false
-        } finally {
-            conn?.disconnect()
-        }
+    private fun downloadFileWithRedirects(urlStr: String, destFile: File): Boolean {
+        return com.olegskal.mushroom.ui.InitialSetupDialog.downloadFileWithResume(
+            urlStr = urlStr,
+            destFile = destFile,
+            onBytesRead = {},
+            onSizeDiscovered = {},
+            isCancelled = { false }
+        )
     }
 
     fun downloadApkDirect(
@@ -599,80 +537,14 @@ object AppUpdateManager {
         destFile: File,
         onBytesRead: (Long) -> Unit,
         onSizeDiscovered: (Long) -> Unit = {},
-        isCancelled: () -> Boolean = { false },
-        redirectCount: Int = 0
+        isCancelled: () -> Boolean = { false }
     ): Boolean {
-        if (redirectCount > 5) {
-            AppLogger.log("AppUpdateManager", "downloadApkDirect", false, "Too many HTTP redirects for $urlStr")
-            return false
-        }
-        var conn: HttpURLConnection? = null
-        return try {
-            val url = URL(urlStr)
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15000
-                readTimeout = 60000
-                setRequestProperty("User-Agent", "Mushroom-Updater/1.0")
-                instanceFollowRedirects = true
-            }
-
-            val responseCode = conn.responseCode
-            if (responseCode == HttpURLConnection.HTTP_MOVED_PERM ||
-                responseCode == HttpURLConnection.HTTP_MOVED_TEMP ||
-                responseCode == 307 ||
-                responseCode == 308
-            ) {
-                val newUrl = conn.getHeaderField("Location")
-                conn.disconnect()
-                if (!newUrl.isNullOrEmpty()) {
-                    return downloadApkDirect(newUrl, destFile, onBytesRead, onSizeDiscovered, isCancelled, redirectCount + 1)
-                }
-                return false
-            }
-
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                AppLogger.log("AppUpdateManager", "downloadApkDirect", false, "HTTP status $responseCode for $urlStr")
-                return false
-            }
-
-            val serverLen = conn.contentLengthLong
-            if (serverLen > 0L) {
-                onSizeDiscovered(serverLen)
-            }
-
-            destFile.parentFile?.mkdirs()
-            val tempFile = File(destFile.parentFile, "${destFile.name}.tmp")
-
-            conn.inputStream.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buffer = ByteArray(16384)
-                    var bytesRead: Int
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        if (isCancelled()) {
-                            tempFile.delete()
-                            return false
-                        }
-                        output.write(buffer, 0, bytesRead)
-                        onBytesRead(bytesRead.toLong())
-                    }
-                }
-            }
-
-            if (tempFile.exists() && tempFile.length() > 0) {
-                if (destFile.exists()) destFile.delete()
-                val ok = tempFile.renameTo(destFile)
-                if (!ok) {
-                    tempFile.copyTo(destFile, overwrite = true)
-                    tempFile.delete()
-                }
-                return true
-            }
-            false
-        } catch (e: Exception) {
-            AppLogger.log("AppUpdateManager", "downloadApkDirect", false, "Exception downloading APK: ${e.message}")
-            false
-        } finally {
-            conn?.disconnect()
-        }
+        return com.olegskal.mushroom.ui.InitialSetupDialog.downloadFileWithResume(
+            urlStr = urlStr,
+            destFile = destFile,
+            onBytesRead = onBytesRead,
+            onSizeDiscovered = onSizeDiscovered,
+            isCancelled = isCancelled
+        )
     }
 }

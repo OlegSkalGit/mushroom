@@ -63,7 +63,7 @@ data class AddressSearchResult(
             return if (cityPart.isNotBlank()) "$iconPrefix${poiName ?: ""} ($cityPart)" else "$iconPrefix${poiName ?: ""}"
         }
 
-        val streetPart = if (houseNumber.isNotBlank()) "$streetName, $houseNumber" else streetName
+        val streetPart = listOf(streetName, houseNumber).filter { it.isNotBlank() }.joinToString(", ")
         val cityPart = if (cityName.isNotBlank()) cityName else regionName
         val base = if (streetPart.isNotBlank() && cityPart.isNotBlank()) "$streetPart ($cityPart)" else streetPart.ifBlank { cityPart }
         return if (!poiName.isNullOrBlank()) {
@@ -321,15 +321,36 @@ object AddressSearchManager {
         }
 
         val addressFtsQuery = addressTokens.joinToString(" ")
+        val streetFtsQuery = if (houseNum != null && addressTokens.isNotEmpty()) {
+            (addressTokens + listOf("${houseNum.lowercase()}*")).joinToString(" ")
+        } else {
+            addressFtsQuery
+        }
         val poiFtsQuery = poiTokens.joinToString(" ")
 
         if (addressFtsQuery.isBlank() && poiFtsQuery.isBlank() && tokens.isEmpty()) return emptyList()
 
+        val blockLimit = 15
+        val streetResults = mutableListOf<AddressSearchResult>()
         val addressResults = mutableListOf<AddressSearchResult>()
         val poiResults = mutableListOf<AddressSearchResult>()
         val settlementResults = mutableListOf<AddressSearchResult>()
         val hasPoi = AddressDb.hasPoiTables(db)
         val hasPoiFts = hasPoi && AddressDb.hasTable(db, "poi_fts")
+
+        val streetOrderByClause = if (userLoc != null) {
+            """
+                ORDER BY
+                  (CASE WHEN h.lat IS NULL OR h.lat = 0 THEN 1 ELSE 0 END) ASC,
+                  ((h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) *
+                   (h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) +
+                   (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon) *
+                   (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon)) ASC,
+                  sn.name ASC
+            """.trimIndent()
+        } else {
+            "ORDER BY sn.name ASC"
+        }
 
         val hVarsList: List<String>
         val inPlaceholders: String
@@ -367,7 +388,57 @@ object AddressSearchManager {
         }
 
         try {
-            // 1. ADDRESS SEARCH (with optional linked POI info)
+            // 0. STREET SEARCH (h.number = '')
+            if (streetFtsQuery.isNotBlank()) {
+                val streetSql = """
+                    SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.lat, h.lon
+                    FROM search_fts f
+                    JOIN streets s ON s.id = f.rowid
+                    JOIN street_names sn ON sn.id = s.name_id
+                    JOIN admin_places city ON city.id = s.place_id
+                    LEFT JOIN admin_places reg ON reg.id = s.region_id
+                    LEFT JOIN admin_places country ON country.id = s.country_id
+                    JOIN houses h ON h.street_id = s.id
+                    WHERE search_fts MATCH ?
+                      AND h.number = ''
+                      AND sn.name != ''
+                    GROUP BY s.id
+                    $streetOrderByClause
+                    LIMIT ?;
+                """.trimIndent()
+
+                val streetCursor = db.rawQuery(streetSql, arrayOf(streetFtsQuery, blockLimit.toString()))
+                streetCursor.use {
+                    while (it.moveToNext()) {
+                        val cCode = it.getString(0) ?: ""
+                        val rName = it.getString(1) ?: ""
+                        val cName = it.getString(2) ?: ""
+                        val sName = it.getString(3) ?: ""
+                        val latRaw = it.getInt(4)
+                        val lonRaw = it.getInt(5)
+
+                        val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
+                        val dLat = latRaw / div
+                        val dLon = lonRaw / div
+
+                        streetResults.add(
+                            AddressSearchResult(
+                                countryCode = cCode,
+                                regionName = rName,
+                                cityName = cName,
+                                streetName = sName,
+                                houseNumber = "",
+                                lat = dLat,
+                                lon = dLon,
+                                isPoiOnly = false,
+                                isSettlement = false
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 1. ADDRESS SEARCH (houses with h.number != '' and optional linked POI info)
             if (addressFtsQuery.isNotBlank()) {
                 if (houseNum != null) {
 
@@ -388,6 +459,7 @@ object AddressSearchManager {
                             LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
                             LEFT JOIN poi_types pt ON pt.id = pp.category_id
                             WHERE search_fts MATCH ?
+                              AND h.number != ''
                               AND (h.number IN ($inPlaceholders) OR h.number LIKE ? OR h.number LIKE ?)
                             GROUP BY h.street_id, h.number
                             $orderByClause
@@ -404,6 +476,7 @@ object AddressSearchManager {
                             LEFT JOIN admin_places country ON country.id = s.country_id
                             JOIN houses h ON h.street_id = s.id
                             WHERE search_fts MATCH ?
+                              AND h.number != ''
                               AND (h.number IN ($inPlaceholders) OR h.number LIKE ? OR h.number LIKE ?)
                             $orderByClause
                             LIMIT ?;
@@ -415,7 +488,7 @@ object AddressSearchManager {
                     args.addAll(hVarsList)
                     args.add("$hUp%")
                     args.add("$hLow%")
-                    args.add(limit.toString())
+                    args.add(blockLimit.toString())
 
                     val cursor = db.rawQuery(sql, args.toTypedArray())
                 cursor.use {
@@ -473,6 +546,7 @@ object AddressSearchManager {
                         LEFT JOIN poi_places pp ON pp.street_id = h.street_id AND (pp.house_number = h.number OR LOWER(pp.house_number) = LOWER(h.number))
                         LEFT JOIN poi_types pt ON pt.id = pp.category_id
                         WHERE search_fts MATCH ?
+                          AND h.number != ''
                         GROUP BY h.street_id, h.number
                         $orderByClause
                         LIMIT ?;
@@ -488,12 +562,13 @@ object AddressSearchManager {
                         LEFT JOIN admin_places country ON country.id = s.country_id
                         JOIN houses h ON h.street_id = s.id
                         WHERE search_fts MATCH ?
+                          AND h.number != ''
                         $orderByClause
                         LIMIT ?;
                     """.trimIndent()
                 }
 
-                    val cursor = db.rawQuery(sql, arrayOf(addressFtsQuery, limit.toString()))
+                    val cursor = db.rawQuery(sql, arrayOf(addressFtsQuery, blockLimit.toString()))
                     cursor.use {
                         while (it.moveToNext()) {
                             val cCode = it.getString(0) ?: ""
@@ -578,7 +653,7 @@ object AddressSearchManager {
                         poiArgs.add("%$hUp%")
                         poiArgs.add("%$hLow%")
                     }
-                    poiArgs.add(limit.toString())
+                    poiArgs.add((blockLimit * 2).toString())
 
                     val addressPoiKeys = addressResults.mapNotNull { addr ->
                         val name = addr.poiName?.trim()?.lowercase()
@@ -594,6 +669,7 @@ object AddressSearchManager {
                     val poiCursor = db.rawQuery(poiSql, poiArgs.toTypedArray())
                     poiCursor.use {
                         while (it.moveToNext()) {
+                            if (poiResults.size >= blockLimit) break
                             val pName = it.getString(0) ?: ""
                             val pDescLocal = it.getString(1) ?: ""
                             val pGroupCat = it.getString(2) ?: ""
@@ -664,7 +740,7 @@ object AddressSearchManager {
                         setArgs.add("$cap%")
                         setArgs.add("%$low%")
                     }
-                    setArgs.add(limit.toString())
+                    setArgs.add("50")
 
                     val whereSql = whereClauses.joinToString(" AND ")
                     val setSql = """
@@ -680,6 +756,7 @@ object AddressSearchManager {
                         LIMIT ?;
                     """.trimIndent()
                     try {
+                        val rawSettlements = mutableListOf<AddressSearchResult>()
                         val cSet = db.rawQuery(setSql, setArgs.toTypedArray())
                         cSet.use {
                             while (it.moveToNext()) {
@@ -694,7 +771,7 @@ object AddressSearchManager {
                                     val cLat = if (latAvg != 0.0) latAvg / div else 0.0
                                     val cLon = if (lonAvg != 0.0) lonAvg / div else 0.0
 
-                                    settlementResults.add(
+                                    rawSettlements.add(
                                         AddressSearchResult(
                                             countryCode = "UA",
                                             regionName = rName,
@@ -711,6 +788,23 @@ object AddressSearchManager {
                                 }
                             }
                         }
+                        val sortedSettlements = if (userLoc != null) {
+                            val uLatDeg = userLoc.latitude
+                            val uLonDeg = userLoc.longitude
+                            val cosLat = Math.cos(Math.toRadians(uLatDeg))
+                            rawSettlements.sortedWith(
+                                compareBy<AddressSearchResult> { res ->
+                                    if (res.lat == 0.0 && res.lon == 0.0) 1 else 0
+                                }.thenBy { res ->
+                                    val dLat = res.lat - uLatDeg
+                                    val dLon = (res.lon - uLonDeg) * cosLat
+                                    dLat * dLat + dLon * dLon
+                                }
+                            )
+                        } else {
+                            rawSettlements
+                        }
+                        settlementResults.addAll(sortedSettlements.take(blockLimit))
                     } catch (se: Exception) {
                         AppLogger.log(TAG, "search", false, "Settlement search warning: ${se.message}")
                     }
@@ -722,60 +816,11 @@ object AddressSearchManager {
             throw e
         }
 
-        // 4. Dynamic Quota Allocation (15 addresses / 10 POIs / 5 settlements when limit = 30)
-        val targetAddrQuota = (limit * 15) / 30
-        val targetPoiQuota = (limit * 10) / 30
-        val targetSetQuota = maxOf(1, limit - targetAddrQuota - targetPoiQuota)
-
-        val addrAvailable = addressResults.size
-        val poiAvailable = poiResults.size
-        val setAvailable = settlementResults.size
-
-        var addrTake = minOf(targetAddrQuota, addrAvailable)
-        var poiTake = minOf(targetPoiQuota, poiAvailable)
-        var setTake = minOf(targetSetQuota, setAvailable)
-
-        var remainingSlots = limit - (addrTake + poiTake + setTake)
-        while (remainingSlots > 0) {
-            val canTakeAddr = addrAvailable - addrTake
-            val canTakePoi = poiAvailable - poiTake
-            val canTakeSet = setAvailable - setTake
-            if (canTakeAddr <= 0 && canTakePoi <= 0 && canTakeSet <= 0) break
-
-            if (canTakeAddr > 0 && remainingSlots > 0) {
-                addrTake++
-                remainingSlots--
-            }
-            if (canTakePoi > 0 && remainingSlots > 0) {
-                poiTake++
-                remainingSlots--
-            }
-            if (canTakeSet > 0 && remainingSlots > 0) {
-                setTake++
-                remainingSlots--
-            }
-        }
-
-        val combined = addressResults.take(addrTake) + poiResults.take(poiTake) + settlementResults.take(setTake)
-
-        val sortedResults = if (userLoc != null) {
-            val uLatDeg = userLoc.latitude
-            val uLonDeg = userLoc.longitude
-            val cosLat = Math.cos(Math.toRadians(uLatDeg))
-            combined.sortedWith(
-                compareBy<AddressSearchResult> { res ->
-                    if (res.lat == 0.0 && res.lon == 0.0) 1 else 0
-                }.thenBy { res ->
-                    val dLat = res.lat - uLatDeg
-                    val dLon = (res.lon - uLonDeg) * cosLat
-                    dLat * dLat + dLon * dLon
-                }
-            )
-        } else {
-            combined
-        }
-
-        return sortedResults
+        // Strict max 15 items per category without dynamic substitution across blocks
+        return settlementResults.take(blockLimit) +
+            streetResults.take(blockLimit) +
+            addressResults.take(blockLimit) +
+            poiResults.take(blockLimit)
     }
 
     fun formatDistance(distMeters: Float): String {
@@ -801,8 +846,9 @@ object AddressSearchManager {
         val settlementName: String,
         val nearestHouseAddress: String?, // Only if distance < 30m
         val nearestHouseDistanceMeters: Float?,
-        val nearestAddresses: List<Pair<AddressSearchResult, Float>>, // 5 items
-        val nearestPois: List<Pair<AddressSearchResult, Float>> // 10 items
+        val nearestStreets: List<Pair<AddressSearchResult, Float>>, // up to 15 items
+        val nearestAddresses: List<Pair<AddressSearchResult, Float>>, // up to 15 items
+        val nearestPois: List<Pair<AddressSearchResult, Float>> // up to 15 items
     )
 
     fun findMarkerLocationInfo(context: Context, lat: Double, lon: Double): MarkerLocationInfo? {
@@ -817,15 +863,80 @@ object AddressSearchManager {
         var districtName = ""
         var communityName = ""
         var settlementName = ""
+        var bestAdminDist = Float.MAX_VALUE
         var nearestHouseAddress: String? = null
         var nearestHouseDist: Float? = null
 
+        val nearestStreets = mutableListOf<Pair<AddressSearchResult, Float>>()
         val nearestAddresses = mutableListOf<Pair<AddressSearchResult, Float>>()
         val nearestPois = mutableListOf<Pair<AddressSearchResult, Float>>()
 
         try {
-            // 1. NEAREST 5 HOUSES
             val houseRadii = listOf(5000L, 25000L, 100000L)
+
+            // 1. NEAREST 15 STREETS (h.number = '' AND sn.name != '')
+            for (radius in houseRadii) {
+                if (nearestStreets.isNotEmpty()) break
+                val streetSql = """
+                    SELECT h.street_id, h.lat, h.lon, sn.name, city.name, COALESCE(reg.name, ''),
+                           COALESCE(dist.name, ''), COALESCE(subdist.name, '')
+                    FROM houses h
+                    JOIN streets s ON s.id = h.street_id
+                    JOIN street_names sn ON sn.id = s.name_id
+                    JOIN admin_places city ON city.id = s.place_id
+                    LEFT JOIN admin_places subdist ON subdist.id = city.parent_id AND subdist.level = 7
+                    LEFT JOIN admin_places dist ON (dist.id = city.parent_id AND dist.level = 6) OR (dist.id = subdist.parent_id AND dist.level = 6)
+                    LEFT JOIN admin_places reg ON reg.id = s.region_id
+                    WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
+                      AND h.number = ''
+                      AND sn.name != ''
+                    ORDER BY ((h.lat - $uLatH) * (h.lat - $uLatH) + (h.lon - $uLonH) * (h.lon - $uLonH)) ASC
+                    LIMIT 15;
+                """.trimIndent()
+
+                val streetCursor = db.rawQuery(
+                    streetSql,
+                    arrayOf((uLatH - radius).toString(), (uLatH + radius).toString(), (uLonH - radius).toString(), (uLonH + radius).toString())
+                )
+                streetCursor.use {
+                    while (it.moveToNext()) {
+                        val hLatI = it.getInt(1)
+                        val hLonI = it.getInt(2)
+                        val sName = it.getString(3) ?: ""
+                        val cName = it.getString(4) ?: ""
+                        val rName = it.getString(5) ?: ""
+                        val dName = it.getString(6) ?: ""
+                        val subName = it.getString(7) ?: ""
+
+                        val div = if (kotlin.math.abs(hLatI) < 10_000_000) 100_000.0 else 1_000_000.0
+                        val dLat = hLatI / div
+                        val dLon = hLonI / div
+                        val distM = calculateDistanceMeters(lat, lon, dLat, dLon)
+
+                        if (distM < bestAdminDist && cName.isNotBlank()) {
+                            bestAdminDist = distM
+                            regionName = rName
+                            districtName = dName
+                            communityName = subName
+                            settlementName = cName
+                        }
+
+                        val res = AddressSearchResult(
+                            countryCode = "UA",
+                            regionName = rName,
+                            cityName = cName,
+                            streetName = sName,
+                            houseNumber = "",
+                            lat = dLat,
+                            lon = dLon,
+                            isPoiOnly = false
+                        )
+                        nearestStreets.add(Pair(res, distM))
+                    }
+                }
+            }
+
+            // 2. NEAREST 15 HOUSES (h.number != '')
             for (radius in houseRadii) {
                 if (nearestAddresses.isNotEmpty()) break
                 val houseSql = """
@@ -839,8 +950,9 @@ object AddressSearchManager {
                     LEFT JOIN admin_places dist ON (dist.id = city.parent_id AND dist.level = 6) OR (dist.id = subdist.parent_id AND dist.level = 6)
                     LEFT JOIN admin_places reg ON reg.id = s.region_id
                     WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
+                      AND h.number != ''
                     ORDER BY ((h.lat - $uLatH) * (h.lat - $uLatH) + (h.lon - $uLonH) * (h.lon - $uLonH)) ASC
-                    LIMIT 5;
+                    LIMIT 15;
                 """.trimIndent()
 
                 val cursor = db.rawQuery(
@@ -863,15 +975,17 @@ object AddressSearchManager {
                         val dLon = hLonI / div
                         val distM = calculateDistanceMeters(lat, lon, dLat, dLon)
 
-                        if (nearestAddresses.isEmpty()) {
+                        if (distM < bestAdminDist && cName.isNotBlank()) {
+                            bestAdminDist = distM
                             regionName = rName
                             districtName = dName
                             communityName = subName
                             settlementName = cName
-                            if (distM < 30.0f) {
-                                nearestHouseAddress = if (hNum.isNotBlank()) "$sName, $hNum" else sName
-                                nearestHouseDist = distM
-                            }
+                        }
+
+                        if (nearestAddresses.isEmpty() && distM < 30.0f) {
+                            nearestHouseAddress = if (sName.isNotBlank()) "$sName, $hNum" else hNum
+                            nearestHouseDist = distM
                         }
 
                         val res = AddressSearchResult(
@@ -889,7 +1003,7 @@ object AddressSearchManager {
                 }
             }
 
-            // Fallback for admin hierarchy if no houses found in range:
+            // Fallback for admin hierarchy if no houses or streets found in range:
             if (settlementName.isBlank()) {
                 val setSql = """
                     SELECT ap.name, COALESCE(reg.name, '')
@@ -910,7 +1024,7 @@ object AddressSearchManager {
                 } catch (_: Exception) {}
             }
 
-            // 2. NEAREST 10 POIS
+            // 3. NEAREST 15 POIS
             val poiRadii = listOf(50000L, 250000L, 1000000L)
             for (radius in poiRadii) {
                 if (nearestPois.isNotEmpty()) break
@@ -926,7 +1040,7 @@ object AddressSearchManager {
                     LEFT JOIN admin_places reg ON reg.id = s.region_id
                     WHERE pp.lat BETWEEN ? AND ? AND pp.lon BETWEEN ? AND ?
                     ORDER BY ((pp.lat - $uLatMicro) * (pp.lat - $uLatMicro) + (pp.lon - $uLonMicro) * (pp.lon - $uLonMicro)) ASC
-                    LIMIT 10;
+                    LIMIT 15;
                 """.trimIndent()
 
                 val cPoi = db.rawQuery(
@@ -980,6 +1094,7 @@ object AddressSearchManager {
             settlementName = settlementName,
             nearestHouseAddress = nearestHouseAddress,
             nearestHouseDistanceMeters = nearestHouseDist,
+            nearestStreets = nearestStreets,
             nearestAddresses = nearestAddresses,
             nearestPois = nearestPois
         )

@@ -156,11 +156,24 @@ object MushroomDatabaseManager {
                 }
 
                 var success = false
-                var attempts = 0
+                var consecutiveFailures = 0
+                var totalAttempts = 0
+                var lastAttemptMadeProgress = false
+                var lastErr: String? = null
                 val partUrl = "$BASE_DOWNLOAD_URL$fileName"
 
-                while (!success && attempts < 3) {
-                    attempts++
+                while (!success && consecutiveFailures < 8 && totalAttempts < 50) {
+                    totalAttempts++
+                    if (totalAttempts > 1) {
+                        val pauseMs = if (lastAttemptMadeProgress) {
+                            2500L
+                        } else {
+                            (3000L * consecutiveFailures).coerceIn(3000L, 15000L)
+                        }
+                        try { Thread.sleep(pauseMs) } catch (_: Exception) {}
+                    }
+                    lastAttemptMadeProgress = false
+                    var bytesReadThisAttempt = 0L
                     var conn: HttpURLConnection? = null
                     var input: InputStream? = null
                     var output: FileOutputStream? = null
@@ -169,9 +182,10 @@ object MushroomDatabaseManager {
                         val existingLen = if (partFile.exists()) partFile.length() else 0L
                         val url = URL(partUrl)
                         conn = url.openConnection() as HttpURLConnection
-                        conn.connectTimeout = 15000
-                        conn.readTimeout = 30000
+                        conn.connectTimeout = 20000
+                        conn.readTimeout = 45000
                         conn.setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
+                        conn.setRequestProperty("Connection", "keep-alive")
 
                         if (existingLen > 0) {
                             conn.setRequestProperty("Range", "bytes=$existingLen-")
@@ -180,6 +194,12 @@ object MushroomDatabaseManager {
 
                         val code = conn.responseCode
                         if (code == 416) {
+                            if (expectedSize > 0L && partFile.length() == expectedSize) {
+                                downloadedTotalBytes += expectedSize
+                                success = true
+                                conn.disconnect()
+                                break
+                            }
                             partFile.delete()
                             conn.disconnect()
                             continue
@@ -198,6 +218,7 @@ object MushroomDatabaseManager {
 
                         while (input.read(buffer).also { readCount = it } != -1) {
                             output.write(buffer, 0, readCount)
+                            bytesReadThisAttempt += readCount
                             val currentPartLen = partFile.length()
                             val overallProgressBytes = downloadedTotalBytes + currentPartLen
                             val percent = ((overallProgressBytes * 85) / TOTAL_ARCHIVE_SIZE).toInt().coerceIn(0, 85)
@@ -216,25 +237,34 @@ object MushroomDatabaseManager {
                         input = null
                         conn.disconnect()
 
+                        if (bytesReadThisAttempt >= 65536L) {
+                            lastAttemptMadeProgress = true
+                            consecutiveFailures = 0
+                        } else {
+                            consecutiveFailures++
+                        }
+
                         if (expectedSize <= 0L || partFile.length() == expectedSize) {
                             downloadedTotalBytes += expectedSize
                             success = true
-                        } else {
+                        } else if (expectedSize > 0L && partFile.length() > expectedSize) {
                             partFile.delete()
                         }
                     } catch (e: Exception) {
+                        lastErr = e.message
+                        if (bytesReadThisAttempt >= 65536L) {
+                            lastAttemptMadeProgress = true
+                            consecutiveFailures = 0
+                        } else {
+                            consecutiveFailures++
+                        }
                         try { output?.close() } catch (_: Exception) {}
                         try { input?.close() } catch (_: Exception) {}
                         try { conn?.disconnect() } catch (_: Exception) {}
-                        if (attempts >= 3) {
-                            onComplete(false, "Помилка завантаження $fileName: ${e.message}")
-                            return@Thread
-                        }
                     }
                 }
-                // Одразу після закриття блоку while (!success && attempts < 3):
                 if (!success) {
-                    onComplete(false, "Не вдалося повністю завантажити $fileName")
+                    onComplete(false, "Помилка завантаження $fileName: ${lastErr ?: "Не вдалося повністю завантажити"}")
                     return@Thread
                 }
             }
