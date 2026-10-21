@@ -1124,6 +1124,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
         container.addView(btnLocationsMenu)
 
+        // Divider after Locations
+        container.addView(UiUtils.createDialogDivider(this))
+
         // 2. Tracks
         val isRec = MushroomTrackingService.instance?.isRecording == true
         val trackText = if (currentLang == "uk") {
@@ -1163,6 +1166,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
         container.addView(btnDownloadMaps)
+
+        // Divider after Maps
+        container.addView(UiUtils.createDialogDivider(this))
 
         // 4. Background work without battery optimization
         if (!ServiceUtils.isIgnoringBatteryOptimizations(this)) {
