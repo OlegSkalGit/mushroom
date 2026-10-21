@@ -68,14 +68,6 @@ object AddressDb {
                         rebuildPoiFtsIndex(db)
                     }
                 }
-                if (canWrite) {
-                    try {
-                        val walFile = File(file.parentFile, "${file.name}-wal")
-                        if (walFile.exists() && walFile.length() > 5 * 1024 * 1024L) {
-                            db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE);", null).use { it.moveToFirst() }
-                        }
-                    } catch (_: Exception) {}
-                }
                 openDb = db
                 db
             } catch (e: Exception) {
@@ -240,24 +232,6 @@ object AddressDb {
             }
             if (hasTable(db, "admin_places")) {
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_name ON admin_places(name COLLATE NOCASE);")
-            }
-            if (hasTable(db, "houses")) {
-                db.execSQL("""
-                    INSERT OR IGNORE INTO houses (street_id, number, lat, lon)
-                    SELECT street_id, '', CAST(round(avg(lat)) AS INTEGER), CAST(round(avg(lon)) AS INTEGER)
-                    FROM houses
-                    WHERE number != ''
-                    GROUP BY street_id;
-                """.trimIndent())
-            }
-            if (hasTable(db, "poi_places") && hasTable(db, "houses")) {
-                db.execSQL("""
-                    INSERT OR IGNORE INTO houses (street_id, number, lat, lon)
-                    SELECT street_id, '', CAST(round(avg(lat)) AS INTEGER), CAST(round(avg(lon)) AS INTEGER)
-                    FROM poi_places
-                    WHERE street_id IS NOT NULL AND street_id NOT IN (SELECT street_id FROM houses WHERE number = '')
-                    GROUP BY street_id;
-                """.trimIndent())
             }
         } catch (_: Exception) {}
     }
@@ -457,10 +431,10 @@ object AddressDb {
             db.execSQL("INSERT INTO poi_fts(poi_fts) VALUES('optimize');")
         } catch (_: Exception) {}
         try {
-            db.execSQL("VACUUM;")
+            db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE);", null).use { it.moveToFirst() }
         } catch (_: Exception) {}
         try {
-            db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE);", null).use { it.moveToFirst() }
+            db.execSQL("VACUUM;")
         } catch (_: Exception) {}
     }
 

@@ -423,25 +423,12 @@ object AddressPrebuiltManager {
         }
     }
 
-    private fun hasOtherCountriesInDatabase(dbFile: File, country: MapCountry): Boolean {
+    private fun hasAnyCountriesInDatabase(dbFile: File): Boolean {
         if (!dbFile.exists() || dbFile.length() < 1024L) return false
-        val code = country.code.trim().uppercase(Locale.US)
-        val nameEn = country.name.trim().uppercase(Locale.US)
-        val nameUk = country.nameUk.trim().uppercase(Locale.US)
         return try {
             val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
             db.use {
-                val c = it.rawQuery(
-                    """
-                    SELECT 1 FROM admin_places 
-                    WHERE level = 2 
-                      AND UPPER(COALESCE(code, '')) != ? 
-                      AND UPPER(COALESCE(name, '')) != ? 
-                      AND UPPER(COALESCE(name, '')) != ?
-                    LIMIT 1;
-                    """.trimIndent(),
-                    arrayOf(code, nameEn, nameUk)
-                )
+                val c = it.rawQuery("SELECT 1 FROM admin_places WHERE level = 2 LIMIT 1;", null)
                 c.use { cur -> cur.moveToFirst() }
             }
         } catch (_: Exception) {
@@ -452,7 +439,7 @@ object AddressPrebuiltManager {
     /**
      * Консолідація (злиття) розпакованої готової бази країни з основною addr.db.
      *
-     * 1. Якщо addr.db відсутня або в ній немає інших країн (чисте оновлення) -> пряма заміна файлу (миттєво, 0 байт WAL).
+     * 1. Якщо addr.db відсутня або в ній немає жодної країни -> пряме перейменування/заміна (миттєво).
      * 2. Якщо addr.db вже існує з іншими країнами -> підключення через SQLite ATTACH, тимчасовий дроп індексів,
      *    зміщення ID (Shift Offset) первинних та зовнішніх ключів, усунення дублікатів назв вулиць,
      *    переливання даних у єдиній транзакції та відновлення індексів.
@@ -464,10 +451,10 @@ object AddressPrebuiltManager {
         onProgress: (Float, String) -> Unit = { _, _ -> }
     ): Boolean {
         val targetFile = AddressDb.getDatabaseFile(context)
-        val hasOtherCountries = hasOtherCountriesInDatabase(targetFile, country)
+        val hasExistingCountries = hasAnyCountriesInDatabase(targetFile)
 
-        // СЦЕНАРІЙ А: Бази немає або в ній немає інших країн — пряма заміна файлу
-        if (!hasOtherCountries) {
+        // СЦЕНАРІЙ А: Бази немає або в ній немає жодної країни — просте перейменування
+        if (!hasExistingCountries) {
             onProgress(0.92f, "Ініціалізація нової бази адрес...")
             AddressDb.closeDatabase()
             targetFile.parentFile?.mkdirs()
@@ -490,7 +477,7 @@ object AddressPrebuiltManager {
 
             val db = AddressDb.openDatabase(context, writable = true) ?: return false
             AddressDb.ensureTablesExist(db)
-            AddressDb.closeDatabase()
+            AddressDb.optimizeAndVacuum(db)
             return true
         }
 
@@ -735,17 +722,14 @@ object AddressPrebuiltManager {
             onProgress(0.98f, "Відновлення індексів...")
             restoreIndices(targetDb)
             targetDb.execSQL("PRAGMA foreign_keys = ON;")
-            AddressDb.ensureTablesExist(targetDb)
 
             // 7. Оптимізація та збереження
             AddressDb.optimizeAndVacuum(targetDb)
-            AddressDb.closeDatabase()
             return true
         } catch (e: Exception) {
             AppLogger.log(TAG, "consolidatePrebuiltDatabase", false, "Помилка консолідації: ${e.message}")
             try { targetDb.execSQL("DETACH DATABASE src;") } catch (_: Exception) {}
             restoreIndices(targetDb)
-            AddressDb.closeDatabase()
             return false
         }
     }

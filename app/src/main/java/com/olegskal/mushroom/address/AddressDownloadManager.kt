@@ -1545,26 +1545,6 @@ object AddressDownloadManager {
                                 regionHouses.clear()
                             }
 
-                            // Додаємо точки центру для всіх іменованих вулиць сітки доріг (навіть тих, де немає номерів будинків)
-                            val centroids = streetGrid.getStreetCentroids()
-                            if (centroids.isNotEmpty()) {
-                                for ((stName, coords) in centroids) {
-                                    val latDeg = coords.first
-                                    val lonDeg = coords.second
-                                    val latI = (latDeg * 100_000.0).roundToInt()
-                                    val lonI = (lonDeg * 100_000.0).roundToInt()
-                                    val resolvedCity = settlementIndex.resolve(latDeg, lonDeg)
-                                    val cityName = if (resolvedCity.isNotBlank()) resolvedCity else curRegion.name
-                                    val cityPlaceId = if (cityName != curRegion.name) {
-                                        ingestor.getOrCreatePlace(defaultRegPlaceId, cityName, level = 8)
-                                    } else {
-                                        defaultRegPlaceId
-                                    }
-                                    val streetId = ingestor.getOrCreateStreet(cityPlaceId, stName, curRegion.name, cityName, defaultRegPlaceId)
-                                    ingestor.addHouse(streetId, "", latI, lonI)
-                                }
-                            }
-
                             ingestor.flush()
                             db.setTransactionSuccessful()
                             if (region.relId > 0) loadedOsmIds.add(region.relId)

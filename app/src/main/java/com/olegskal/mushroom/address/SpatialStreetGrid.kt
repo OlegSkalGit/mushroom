@@ -39,9 +39,6 @@ class SpatialStreetGrid {
     private val streetNames = ArrayList<String>()
     private val nameToId = HashMap<String, Int>()
 
-    private val streetCentroidLats = HashMap<String, Double>()
-    private val streetCentroidLons = HashMap<String, Double>()
-
     // cellKey -> список індексів відрізків
     private val cells = HashMap<Long, ArrayList<Int>>()
 
@@ -244,13 +241,8 @@ class SpatialStreetGrid {
 
                             if (streetName.isNotBlank() && ptsLat.size >= 2) {
                                 loadedWays++
-                                val cleanStName = streetName.trim()
-                                if (!streetCentroidLats.containsKey(cleanStName)) {
-                                    streetCentroidLats[cleanStName] = ptsLat.average()
-                                    streetCentroidLons[cleanStName] = ptsLon.average()
-                                }
                                 for (i in 0 until ptsLat.size - 1) {
-                                    addSegment(ptsLat[i], ptsLon[i], ptsLat[i + 1], ptsLon[i + 1], cleanStName)
+                                    addSegment(ptsLat[i], ptsLon[i], ptsLat[i + 1], ptsLon[i + 1], streetName)
                                 }
                             }
                         }
@@ -268,22 +260,11 @@ class SpatialStreetGrid {
         return loadedWays
     }
 
-    fun getStreetCentroids(): Map<String, Pair<Double, Double>> {
-        val result = HashMap<String, Pair<Double, Double>>(streetCentroidLats.size)
-        for ((name, lat) in streetCentroidLats) {
-            val lon = streetCentroidLons[name] ?: continue
-            result[name] = Pair(lat, lon)
-        }
-        return result
-    }
-
     fun clear() {
         count = 0
         cells.clear()
         streetNames.clear()
         nameToId.clear()
-        streetCentroidLats.clear()
-        streetCentroidLons.clear()
         lat1s = IntArray(1024)
         lon1s = IntArray(1024)
         lat2s = IntArray(1024)
