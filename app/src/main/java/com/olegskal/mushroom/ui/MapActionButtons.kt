@@ -595,4 +595,107 @@ class RulerButton(context: Context) : View(context) {
     }
 }
 
+/**
+ * Action button for quick address / POI search.
+ * Features a circular body with a sleek magnifying glass search icon.
+ */
+class SearchAddressButton(context: Context) : View(context) {
+
+    private var isTouchPressed: Boolean = false
+
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
+    private val searchPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    init {
+        isClickable = true
+        isFocusable = true
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val density = resources.displayMetrics.density
+        val defaultSize = (44 * density).toInt()
+        val w = resolveSize(defaultSize, widthMeasureSpec)
+        val h = resolveSize(defaultSize, heightMeasureSpec)
+        val size = min(w, h).coerceAtLeast(defaultSize)
+        setMeasuredDimension(size, size)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                isTouchPressed = true
+                invalidate()
+            }
+            MotionEvent.ACTION_UP -> {
+                isTouchPressed = false
+                invalidate()
+                performClick()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isTouchPressed = false
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val cx = w / 2f
+        val cy = h / 2f
+        val density = resources.displayMetrics.density
+        val padding = 3f * density
+        val radius = min(cx, cy) - padding
+
+        canvas.save()
+        if (isTouchPressed) {
+            canvas.scale(0.92f, 0.92f, cx, cy)
+        }
+
+        // Circular background
+        bgPaint.color = if (isTouchPressed) Color.parseColor("#80111111") else Color.parseColor("#4D222222")
+        canvas.drawCircle(cx, cy, radius, bgPaint)
+
+        // Subtle border
+        borderPaint.color = Color.parseColor("#33FFFFFF")
+        borderPaint.strokeWidth = 1.2f * density
+        canvas.drawCircle(cx, cy, radius, borderPaint)
+
+        // Magnifying glass lens
+        val lensCx = cx - 2.5f * density
+        val lensCy = cy - 2.5f * density
+        val lensR = 6.2f * density
+
+        searchPaint.color = Color.parseColor("#ECEFF1")
+        searchPaint.strokeWidth = 2.0f * density
+        canvas.drawCircle(lensCx, lensCy, lensR, searchPaint)
+
+        // Magnifying glass handle (45-degree angle pointing down-right)
+        val hStartX = lensCx + lensR * 0.7071f
+        val hStartY = lensCy + lensR * 0.7071f
+        val handleLen = 7.0f * density
+        val hEndX = hStartX + handleLen * 0.7071f
+        val hEndY = hStartY + handleLen * 0.7071f
+        canvas.drawLine(hStartX, hStartY, hEndX, hEndY, searchPaint)
+
+        canvas.restore()
+    }
+}
+
 

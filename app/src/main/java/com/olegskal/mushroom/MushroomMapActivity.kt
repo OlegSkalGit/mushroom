@@ -67,6 +67,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     // UI overlays
     private lateinit var tvRecordingBadge: TextView
     private lateinit var compassButton: CompassButton
+    private lateinit var btnSearch: SearchAddressButton
     private lateinit var btnRuler: RulerButton
     private lateinit var btnAddMarker: FlagMarkerButton
     private lateinit var btnRecordTrack: TrackRecordButton
@@ -224,6 +225,16 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
+        btnSearch = SearchAddressButton(this).apply {
+            layoutParams = ctrlParams
+            contentDescription = "Search Address"
+            setOnClickListener {
+                AddAddressDialog.show(this@MushroomMapActivity, dbHelper) {
+                    mapView.reloadMarkers()
+                }
+            }
+        }
+
         btnRuler = RulerButton(this).apply {
             layoutParams = ctrlParams
             contentDescription = "Ruler"
@@ -277,6 +288,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         topHeaderRow.addView(View(this).apply {
             layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
         })
+        topHeaderRow.addView(btnSearch)
         topHeaderRow.addView(btnRuler)
         topHeaderRow.addView(btnAddMarker)
         topHeaderRow.addView(btnRecordTrack)
