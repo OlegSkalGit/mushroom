@@ -9,6 +9,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
