@@ -182,6 +182,10 @@ object GeoDataExchange {
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
             parser.setInput(inputStream, "UTF-8")
 
+            val trkPoints = mutableListOf<TrackPoint>()
+            val rtePoints = mutableListOf<TrackPoint>()
+            val wptPoints = mutableListOf<TrackPoint>()
+
             var eventType = parser.eventType
             var currentLat: Double? = null
             var currentLon: Double? = null
@@ -189,7 +193,9 @@ object GeoDataExchange {
             var currentTime: Long = 0L
             var currentTag = ""
             var insideTrk = false
+            var insideRte = false
             var insideTrkpt = false
+            var insideRtept = false
             var insideWpt = false
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
@@ -198,9 +204,23 @@ object GeoDataExchange {
                         currentTag = parser.name.lowercase(Locale.US)
                         when (currentTag) {
                             "trk" -> insideTrk = true
-                            "trkpt", "wpt" -> {
-                                insideTrkpt = (currentTag == "trkpt")
-                                insideWpt = (currentTag == "wpt")
+                            "rte" -> insideRte = true
+                            "trkpt" -> {
+                                insideTrkpt = true
+                                currentLat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull()
+                                currentLon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull()
+                                currentEle = 0.0
+                                currentTime = 0L
+                            }
+                            "rtept" -> {
+                                insideRtept = true
+                                currentLat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull()
+                                currentLon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull()
+                                currentEle = 0.0
+                                currentTime = 0L
+                            }
+                            "wpt" -> {
+                                insideWpt = true
                                 currentLat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull()
                                 currentLon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull()
                                 currentEle = 0.0
@@ -213,20 +233,24 @@ object GeoDataExchange {
                         if (!text.isNullOrEmpty()) {
                             when (currentTag) {
                                 "name" -> {
-                                    if (insideTrk && trackName == defaultTitle) {
+                                    if ((insideTrk || insideRte) && trackName == defaultTitle) {
                                         trackName = text
                                     }
                                 }
                                 "ele" -> {
-                                    if (insideTrkpt || insideWpt) {
+                                    if (insideTrkpt || insideRtept || insideWpt) {
                                         currentEle = text.toDoubleOrNull() ?: 0.0
                                     }
                                 }
                                 "time" -> {
-                                    if (insideTrkpt || insideWpt) {
+                                    if (insideTrkpt || insideRtept || insideWpt) {
                                         try {
-                                            // Normalize ISO 8601 string
-                                            val clean = text.replace("Z", "").substringBefore(".")
+                                            // Normalize ISO 8601 string: strip milliseconds and timezone offset
+                                            var clean = text.replace("Z", "")
+                                            if (clean.contains(".")) clean = clean.substringBefore(".")
+                                            if (clean.length > 19 && (clean[19] == '+' || clean[19] == '-')) {
+                                                clean = clean.substring(0, 19)
+                                            }
                                             val parsed = sdf.parse(clean)
                                             if (parsed != null) currentTime = parsed.time
                                         } catch (_: Exception) {}
@@ -237,20 +261,38 @@ object GeoDataExchange {
                     }
                     XmlPullParser.END_TAG -> {
                         val tag = parser.name.lowercase(Locale.US)
-                        if (tag == "trkpt" || tag == "wpt") {
+                        if (tag == "trkpt" || tag == "rtept" || tag == "wpt") {
                             if (currentLat != null && currentLon != null && isValidCoord(currentLat, currentLon)) {
                                 val t = if (currentTime > 0L) currentTime else System.currentTimeMillis()
-                                points.add(TrackPoint(currentLat, currentLon, currentEle, t, 0f))
+                                val pt = TrackPoint(currentLat, currentLon, currentEle, t, 0f)
+                                when (tag) {
+                                    "trkpt" -> trkPoints.add(pt)
+                                    "rtept" -> rtePoints.add(pt)
+                                    "wpt" -> wptPoints.add(pt)
+                                }
                             }
                             insideTrkpt = false
+                            insideRtept = false
                             insideWpt = false
                         } else if (tag == "trk") {
                             insideTrk = false
+                        } else if (tag == "rte") {
+                            insideRte = false
                         }
                         currentTag = ""
                     }
                 }
                 eventType = parser.next()
+            }
+
+            // Route line only: prefer trkpt, fallback to rtept, or wpt if no track points exist
+            points.clear()
+            if (trkPoints.isNotEmpty()) {
+                points.addAll(trkPoints)
+            } else if (rtePoints.isNotEmpty()) {
+                points.addAll(rtePoints)
+            } else {
+                points.addAll(wptPoints)
             }
         } catch (e: Exception) {
             AppLogger.log("GeoDataExchange", "parseGpx", false, "GPX parsing error: ${e.message}")

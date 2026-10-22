@@ -178,7 +178,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     // --- TRACKS CRUD ---
 
-    fun insertTrack(track: MushroomTrack) {
+    fun insertTrack(track: MushroomTrack, syncToDisk: Boolean = true) {
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -195,24 +195,28 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             db.insertWithOnConflict(TABLE_TRACKS, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
 
             db.delete(TABLE_TRACK_POINTS, "$COL_PT_TRACK_ID = ?", arrayOf(track.id.toString()))
-            val stmt = db.compileStatement(
+            db.compileStatement(
                 "INSERT INTO $TABLE_TRACK_POINTS ($COL_PT_TRACK_ID, $COL_PT_LAT, $COL_PT_LON, $COL_PT_ALT, $COL_PT_TIME, $COL_PT_SPEED) VALUES (?, ?, ?, ?, ?, ?)"
-            )
-            for (p in track.points) {
-                stmt.clearBindings()
-                stmt.bindLong(1, track.id)
-                stmt.bindDouble(2, p.lat)
-                stmt.bindDouble(3, p.lon)
-                stmt.bindDouble(4, p.alt)
-                stmt.bindLong(5, p.time)
-                stmt.bindDouble(6, p.speed.toDouble())
-                stmt.executeInsert()
+            ).use { stmt ->
+                for (p in track.points) {
+                    stmt.clearBindings()
+                    stmt.bindLong(1, track.id)
+                    stmt.bindDouble(2, p.lat)
+                    stmt.bindDouble(3, p.lon)
+                    stmt.bindDouble(4, p.alt)
+                    stmt.bindLong(5, p.time)
+                    stmt.bindDouble(6, p.speed.toDouble())
+                    stmt.executeInsert()
+                }
             }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
         }
-        syncTracksToStorage()
+        if (syncToDisk) {
+            syncTracksToStorage()
+            MushroomStorageManager.saveTrackToGpx(track)
+        }
     }
 
     fun updateTrack(track: MushroomTrack) {
@@ -362,10 +366,12 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     fun syncTracksToStorage() {
-        try {
-            val list = getAllTracks()
-            MushroomStorageManager.saveTracks(list)
-        } catch (_: Exception) {}
+        Thread {
+            try {
+                val list = getAllTracks()
+                MushroomStorageManager.saveTracks(list)
+            } catch (_: Exception) {}
+        }.start()
     }
 
     fun restoreDataFromExternalStorageIfDbEmpty() {
@@ -374,8 +380,9 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             if (currentTracks.isEmpty()) {
                 val loadedTracks = MushroomStorageManager.loadTracks()
                 for (t in loadedTracks) {
-                    insertTrack(t)
+                    insertTrack(t, syncToDisk = false)
                 }
+                syncTracksToStorage()
             }
         } catch (e: Exception) {
             AppLogger.log("DatabaseHelper", "restoreDataFromExternalStorage", false, "Error: ${e.message}")

@@ -301,6 +301,7 @@ object AddressDb {
         try {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_place_id ON streets(place_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_region_id ON streets(region_id);")
         } catch (_: Exception) {}
 
         try {

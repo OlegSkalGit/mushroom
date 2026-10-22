@@ -63,6 +63,7 @@ class MushroomClassifierTab(
 
     private val loadedPhotos = mutableListOf<ClassifierPhoto>()
     private var activeIndex = 0
+    var cameraPhotoUri: Uri? = null
 
     private fun showPhotoZoom() {
         if (loadedPhotos.isEmpty()) return
@@ -586,7 +587,21 @@ class MushroomClassifierTab(
         }
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
         if (intent.resolveActivity(activity.packageManager) != null) {
-            activity.startActivityForResult(intent, REQ_CAMERA)
+            try {
+                val photoFile = java.io.File(activity.cacheDir, "camera_mushroom_${System.currentTimeMillis()}.jpg")
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    activity,
+                    "${activity.packageName}.fileprovider",
+                    photoFile
+                )
+                cameraPhotoUri = uri
+                intent.putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                activity.startActivityForResult(intent, REQ_CAMERA)
+            } catch (_: Exception) {
+                cameraPhotoUri = null
+                activity.startActivityForResult(intent, REQ_CAMERA)
+            }
         } else {
             Toast.makeText(activity, "Camera app not found", Toast.LENGTH_SHORT).show()
         }

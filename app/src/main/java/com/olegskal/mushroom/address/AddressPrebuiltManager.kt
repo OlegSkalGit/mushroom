@@ -657,6 +657,7 @@ object AddressPrebuiltManager {
             onProgress(0.94f, "Оптимізація індексів для масової вставки...")
             targetDb.execSQL("DROP INDEX IF EXISTS idx_streets_place_id;")
             targetDb.execSQL("DROP INDEX IF EXISTS idx_streets_name_id;")
+            targetDb.execSQL("DROP INDEX IF EXISTS idx_streets_region_id;")
             targetDb.execSQL("DROP INDEX IF EXISTS idx_admin_places_parent;")
             targetDb.execSQL("DROP INDEX IF EXISTS idx_admin_places_name;")
             targetDb.execSQL("DROP INDEX IF EXISTS idx_houses_coords;")
@@ -877,6 +878,7 @@ object AddressPrebuiltManager {
         try {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_place_id ON streets(place_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_name_id ON streets(name_id);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_streets_region_id ON streets(region_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_parent ON admin_places(parent_id);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_admin_places_name ON admin_places(name COLLATE NOCASE);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")

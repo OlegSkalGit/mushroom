@@ -267,16 +267,21 @@ object MushroomStorageManager {
         return list
     }
 
-    fun saveTracks(tracks: List<MushroomTrack>) {
+    fun saveTracks(tracks: List<MushroomTrack>, exportGpx: Boolean = false) {
         try {
             val arr = JSONArray()
             for (t in tracks) {
                 arr.put(t.toJson())
-                // Also export GPX per track
-                saveTrackToGpx(t)
+                if (exportGpx) {
+                    saveTrackToGpx(t)
+                }
             }
             val file = tracksFile
-            file.writeText(arr.toString(2), Charsets.UTF_8)
+            val tmp = File(file.parentFile, "${file.name}.tmp")
+            tmp.writeText(arr.toString(2), Charsets.UTF_8)
+            if (tmp.exists() && tmp.length() > 0) {
+                tmp.renameTo(file)
+            }
             AppLogger.log(TAG, "saveTracks", true, "Saved ${tracks.size} tracks to ${file.absolutePath}")
         } catch (e: Exception) {
             AppLogger.log(TAG, "saveTracks", false, "Error saving tracks: ${e.message}")

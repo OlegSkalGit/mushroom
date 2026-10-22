@@ -694,35 +694,67 @@ object BRouterEngine {
         }
     }
 
-    private fun minDistToPath(pt: Pair<Double, Double>, path: List<Pair<Double, Double>>): Float {
-        if (path.isEmpty()) return Float.MAX_VALUE
-        if (path.size == 1) return GeoMath.calculateDistance(pt.first, pt.second, path[0].first, path[0].second)
-        var minD = Float.MAX_VALUE
-        val cosLat = kotlin.math.cos(Math.toRadians(pt.first))
-        val px = pt.second * cosLat * 111320.0
-        val py = pt.first * 110574.0
+    private class PathDistanceFinder(val path: List<Pair<Double, Double>>) {
+        val size = path.size
+        val minLats = DoubleArray(maxOf(0, size - 1))
+        val maxLats = DoubleArray(maxOf(0, size - 1))
+        val minLons = DoubleArray(maxOf(0, size - 1))
+        val maxLons = DoubleArray(maxOf(0, size - 1))
 
-        for (i in 0 until path.size - 1) {
-            val p1 = path[i]
-            val p2 = path[i + 1]
-            val x1 = p1.second * cosLat * 111320.0
-            val y1 = p1.first * 110574.0
-            val x2 = p2.second * cosLat * 111320.0
-            val y2 = p2.first * 110574.0
-            val vx = x2 - x1
-            val vy = y2 - y1
-            val l2 = vx * vx + vy * vy
-            val d = if (l2 < 1e-4) {
-                kotlin.math.hypot(px - x1, py - y1).toFloat()
-            } else {
-                val t = (((px - x1) * vx + (py - y1) * vy) / l2).coerceIn(0.0, 1.0)
-                val projX = x1 + t * vx
-                val projY = y1 + t * vy
-                kotlin.math.hypot(px - projX, py - projY).toFloat()
+        init {
+            for (i in 0 until size - 1) {
+                val p1 = path[i]
+                val p2 = path[i + 1]
+                minLats[i] = minOf(p1.first, p2.first)
+                maxLats[i] = maxOf(p1.first, p2.first)
+                minLons[i] = minOf(p1.second, p2.second)
+                maxLons[i] = maxOf(p1.second, p2.second)
             }
-            if (d < minD) minD = d
         }
-        return minD
+
+        fun minDistTo(pt: Pair<Double, Double>, maxSearchDistMeters: Float = Float.MAX_VALUE): Float {
+            if (size == 0) return Float.MAX_VALUE
+            if (size == 1) return GeoMath.calculateDistance(pt.first, pt.second, path[0].first, path[0].second)
+
+            val marginLat = (maxSearchDistMeters / 110574.0).coerceAtLeast(0.0004)
+            val cosLat = kotlin.math.cos(Math.toRadians(pt.first))
+            val marginLon = (maxSearchDistMeters / (111320.0 * cosLat.coerceAtLeast(0.2))).coerceAtLeast(0.0004)
+
+            val px = pt.second * cosLat * 111320.0
+            val py = pt.first * 110574.0
+
+            var minD = maxSearchDistMeters
+            for (i in 0 until size - 1) {
+                if (pt.first < minLats[i] - marginLat || pt.first > maxLats[i] + marginLat) continue
+                if (pt.second < minLons[i] - marginLon || pt.second > maxLons[i] + marginLon) continue
+
+                val p1 = path[i]
+                val p2 = path[i + 1]
+                val x1 = p1.second * cosLat * 111320.0
+                val y1 = p1.first * 110574.0
+                val x2 = p2.second * cosLat * 111320.0
+                val y2 = p2.first * 110574.0
+                val vx = x2 - x1
+                val vy = y2 - y1
+                val l2 = vx * vx + vy * vy
+                val d = if (l2 < 1e-4) {
+                    kotlin.math.hypot(px - x1, py - y1).toFloat()
+                } else {
+                    val t = (((px - x1) * vx + (py - y1) * vy) / l2).coerceIn(0.0, 1.0)
+                    val projX = x1 + t * vx
+                    val projY = y1 + t * vy
+                    kotlin.math.hypot(px - projX, py - projY).toFloat()
+                }
+                if (d < minD) {
+                    minD = d
+                }
+            }
+            return minD
+        }
+    }
+
+    private fun minDistToPath(pt: Pair<Double, Double>, path: List<Pair<Double, Double>>): Float {
+        return PathDistanceFinder(path).minDistTo(pt)
     }
 
     private fun findAllIntersectionPoints(
@@ -752,6 +784,12 @@ object BRouterEngine {
             for (b in a + 1 until alternatives.size) {
                 val path2 = alternatives[b].points
                 if (path2.size < 3) continue
+                val finder2 = PathDistanceFinder(path2)
+
+                val distToPath2 = FloatArray(path1.size)
+                for (i in path1.indices) {
+                    distToPath2[i] = finder2.minDistTo(path1[i], 60f)
+                }
 
                 for (i in 1 until path1.size - 1) {
                     val p1 = path1[i]
@@ -760,14 +798,14 @@ object BRouterEngine {
                     if (distToStart < endpointThreshold || distToEnd < endpointThreshold) continue
 
                     // 1. Check divergence / convergence at shared road junction
-                    val dToPath2 = minDistToPath(p1, path2)
+                    val dToPath2 = distToPath2[i]
                     if (dToPath2 <= 14f) {
                         val pBehind = pointAlongPath(path1, i, 35f, -1)
                         val pAhead = pointAlongPath(path1, i, 35f, +1)
-                        val prevDist = minDistToPath(pBehind, path2)
-                        val nextDist = minDistToPath(pAhead, path2)
-                        val immPrevDist = minDistToPath(path1[i - 1], path2)
-                        val immNextDist = minDistToPath(path1[i + 1], path2)
+                        val prevDist = finder2.minDistTo(pBehind, 60f)
+                        val nextDist = finder2.minDistTo(pAhead, 60f)
+                        val immPrevDist = distToPath2[i - 1]
+                        val immNextDist = distToPath2[i + 1]
 
                         val isDivergence = nextDist > 22f && immNextDist > 3.5f
                         val isConvergence = prevDist > 22f && immPrevDist > 3.5f

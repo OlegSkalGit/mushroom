@@ -15,7 +15,7 @@ import kotlin.math.exp
 class TurboMushroomClassifier(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val executor = Executors.newSingleThreadExecutor()
+    private var executor = Executors.newSingleThreadExecutor()
     private var env: OrtEnvironment? = null
     private var sessionBeit: OrtSession? = null
     private var sessionSwin: OrtSession? = null
@@ -88,6 +88,9 @@ class TurboMushroomClassifier(private val context: Context) {
         if (bitmaps.isEmpty()) {
             mainHandler.post { callback(emptyList()) }
             return
+        }
+        if (executor.isShutdown) {
+            executor = Executors.newSingleThreadExecutor()
         }
 
         executor.execute {
@@ -224,16 +227,19 @@ class TurboMushroomClassifier(private val context: Context) {
     }
 
     fun close() {
-        executor.execute {
+        val exec = executor
+        exec.execute {
             try {
                 sessionBeit?.close()
                 sessionSwin?.close()
-                env?.close()
             } catch (_: Exception) {}
             sessionBeit = null
             sessionSwin = null
             env = null
             isInitialized = false
+            try {
+                exec.shutdown()
+            } catch (_: Exception) {}
         }
     }
 }

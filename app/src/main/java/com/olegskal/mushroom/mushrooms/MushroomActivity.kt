@@ -243,7 +243,11 @@ class MushroomActivity : Activity() {
         if (resultCode == RESULT_OK) {
             when (requestCode) {
                 MushroomClassifierTab.REQ_CAMERA -> {
-                    val bmp = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    val photoUri = classifierTab.cameraPhotoUri
+                    val bmp = if (photoUri != null) {
+                        classifierTab.cameraPhotoUri = null
+                        decodeOrientedBitmap(photoUri)
+                    } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                         data?.extras?.getParcelable("data", Bitmap::class.java)
                     } else {
                         @Suppress("DEPRECATION")
@@ -282,10 +286,36 @@ class MushroomActivity : Activity() {
         }
     }
 
-    private fun decodeOrientedBitmap(uri: Uri): Bitmap? {
+    private fun decodeOrientedBitmap(uri: Uri, maxDimension: Int = 2048): Bitmap? {
+        val boundsOptions = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        try {
+            contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, boundsOptions)
+            }
+        } catch (_: Exception) {
+            return null
+        }
+
+        var sampleSize = 1
+        val w = boundsOptions.outWidth
+        val h = boundsOptions.outHeight
+        if (w > 0 && h > 0) {
+            val maxEdge = maxOf(w, h)
+            while (maxEdge / sampleSize > maxDimension * 1.5) {
+                sampleSize *= 2
+            }
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+
         val original = try {
             contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream)
+                BitmapFactory.decodeStream(stream, null, decodeOptions)
             }
         } catch (_: Exception) {
             null

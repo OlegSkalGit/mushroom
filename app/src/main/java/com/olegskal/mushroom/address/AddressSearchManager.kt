@@ -1003,26 +1003,6 @@ object AddressSearchManager {
                 }
             }
 
-            // Fallback for admin hierarchy if no houses or streets found in range:
-            if (settlementName.isBlank()) {
-                val setSql = """
-                    SELECT ap.name, COALESCE(reg.name, '')
-                    FROM admin_places ap
-                    LEFT JOIN admin_places reg ON reg.id = ap.parent_id
-                    WHERE ap.level = 8
-                    ORDER BY ap.id ASC
-                    LIMIT 1;
-                """.trimIndent()
-                try {
-                    val cSet = db.rawQuery(setSql, null)
-                    cSet.use {
-                        if (it.moveToFirst()) {
-                            settlementName = it.getString(0) ?: ""
-                            regionName = it.getString(1) ?: ""
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
 
             // 3. NEAREST 15 POIS
             val poiRadii = listOf(50000L, 250000L, 1000000L)
