@@ -3,6 +3,7 @@ package com.olegskal.mushroom.mushrooms
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.os.Environment
+import android.os.PowerManager
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -126,10 +127,15 @@ object MushroomDatabaseManager {
         onComplete: (success: Boolean, errorMsg: String?) -> Unit
     ) {
         Thread {
-            if (!forceDownload && isDatabaseUpToDate(context)) {
-                onComplete(true, null)
-                return@Thread
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mushroom:DatabaseDownloadWakeLock")?.apply {
+                try { acquire(45 * 60 * 1000L) } catch (_: Exception) {}
             }
+            try {
+                if (!forceDownload && isDatabaseUpToDate(context)) {
+                    onComplete(true, null)
+                    return@Thread
+                }
 
             val targetDir = getDatabaseDirectory(context)
             if (!targetDir.exists()) targetDir.mkdirs()
@@ -280,7 +286,12 @@ object MushroomDatabaseManager {
             onProgress(100, "Готово!")
             closeDatabase()
             onComplete(true, null)
-        }.start()
+        } finally {
+            try {
+                if (wakeLock?.isHeld == true) wakeLock.release()
+            } catch (_: Exception) {}
+        }
+    }.start()
     }
 
     /**

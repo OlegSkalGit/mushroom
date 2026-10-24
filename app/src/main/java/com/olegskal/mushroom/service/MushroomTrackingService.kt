@@ -10,10 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -40,7 +36,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class MushroomTrackingService : Service(), LocationListener, SensorEventListener {
+class MushroomTrackingService : Service(), LocationListener {
 
     companion object {
         const val CHANNEL_ID = "mushroom_tracker_channel"
@@ -54,7 +50,10 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         const val EXTRA_TRACK_TITLE = "extra_track_title"
         const val EXTRA_TRACK_COLOR = "extra_track_color"
 
-        const val GPS_FULL_UPDATE_INTERVAL_MS = 1000L // 1 second full rate
+        const val GPS_FOREGROUND_INTERVAL_MS = 1000L // 1s active on screen
+        const val GPS_FOREGROUND_MIN_DIST = 0f
+        const val GPS_BACKGROUND_INTERVAL_MS = 5000L // 5s in pocket when recording
+        const val GPS_BACKGROUND_MIN_DIST = 15f      // 15m in pocket when recording
 
         @Volatile
         var isRunning = false
@@ -62,6 +61,16 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         var instance: MushroomTrackingService? = null
         @Volatile
         var isAppInForeground = false
+            set(value) {
+                field = value
+                instance?.let { s ->
+                    s.updateGpsState(force = true)
+                    if (value) {
+                        s.requestSingleNetworkLocation()
+                        s.restoreForegroundNotification()
+                    }
+                }
+            }
         @Volatile
         var isNotificationDismissed = false
         @Volatile
@@ -92,26 +101,13 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
     }
 
     private lateinit var locationManager: LocationManager
-    private lateinit var sensorManager: SensorManager
     private lateinit var dbHelper: DatabaseHelper
 
     private var wakeLock: PowerManager.WakeLock? = null
     var lastLocation: Location? = null
         private set
     private var trajectoryFilter = TrajectoryFilter()
-
-    // Compass
-    private var rotationVectorSensor: Sensor? = null
-    private var accelerometerSensor: Sensor? = null
-    private var magneticSensor: Sensor? = null
-
-    private val rotationMatrix = FloatArray(9)
-    private val orientationAngles = FloatArray(3)
-    private val gravityData = FloatArray(3)
-    private val geomagneticData = FloatArray(3)
-    private var hasGravity = false
-    private var hasGeomagnetic = false
-    private var currentAzimuth = 0f
+    private var lastNotificationText: String? = null
 
     // Track recording
     @Volatile
@@ -129,12 +125,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         AppPrefs.setUserStopped(this, false)
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         dbHelper = DatabaseHelper(this)
-
-        rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        magneticSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
         createNotificationChannel()
         val initialNotif = AppPrefs.t(this, "Пошук супутників GPS...", "Searching for GPS satellites...")
@@ -152,8 +143,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
             registerReceiver(gpsSwitchReceiver, filter)
         }
 
-        registerSensors()
-        registerGpsUpdates()
+        updateGpsState(force = true)
         requestSingleNetworkLocation()
 
         // Resume track recording if was active prior to process kill
@@ -167,6 +157,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
                     isRecording = true
                     lastRecordedPoint = found.points.lastOrNull()
                     acquireWakeLock()
+                    updateGpsState(force = true)
                     updateNotification()
                     AppLogger.log("TrackingService", "onCreate", true, "Resumed track recording: ${found.id}")
                 }
@@ -174,7 +165,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         }
 
         serviceStateListener?.invoke(true)
-        AppLogger.log("TrackingService", "onCreate", true, "MushroomTrackingService started. GPS at full 1-sec rate.")
+        AppLogger.log("TrackingService", "onCreate", true, "MushroomTrackingService started.")
     }
 
     private fun fetchInitialLocationCascade() {
@@ -193,8 +184,10 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == LocationManager.PROVIDERS_CHANGED_ACTION) {
                 AppLogger.log("TrackingService", "gpsSwitchReceiver", true, "Location providers changed, checking GPS")
-                registerGpsUpdates(force = true)
-                requestSingleNetworkLocation()
+                updateGpsState(force = true)
+                if (isAppInForeground) {
+                    requestSingleNetworkLocation()
+                }
             }
         }
     }
@@ -202,38 +195,52 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
     private var hasUpdatedActiveNotification = false
     private var isGpsRegistered = false
 
-    private fun registerSensors() {
-        if (rotationVectorSensor != null) {
-            sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_UI)
-        }
-        accelerometerSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-        magneticSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-    }
-
-    fun registerGpsUpdates(force: Boolean = false) {
-        if (isGpsRegistered && !force) return
+    fun updateGpsState(force: Boolean = false) {
+        if (!isRunning) return
         try {
-            if (force) {
-                try { locationManager.removeUpdates(this) } catch (_: Exception) {}
-                isGpsRegistered = false
+            locationManager.removeUpdates(this)
+            isGpsRegistered = false
+
+            if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                AppLogger.log("TrackingService", "updateGpsState", false, "GPS provider disabled.")
+                return
             }
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+
+            if (isAppInForeground) {
+                // Foreground / Screen active: 1s, 0m
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
-                    GPS_FULL_UPDATE_INTERVAL_MS,
-                    0f,
+                    GPS_FOREGROUND_INTERVAL_MS,
+                    GPS_FOREGROUND_MIN_DIST,
                     this
                 )
                 isGpsRegistered = true
-                AppLogger.log("TrackingService", "registerGpsUpdates", true, "GPS updates registered.")
+                AppLogger.log("TrackingService", "updateGpsState", true, "GPS set to FOREGROUND (1s, 0m).")
+            } else if (isRecording) {
+                // Background & Recording: 5s, 15m
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    GPS_BACKGROUND_INTERVAL_MS,
+                    GPS_BACKGROUND_MIN_DIST,
+                    this
+                )
+                isGpsRegistered = true
+                AppLogger.log("TrackingService", "updateGpsState", true, "GPS set to BACKGROUND RECORDING (5s, 15m).")
+            } else {
+                // Background & NOT recording: keep updates removed!
+                AppLogger.log("TrackingService", "updateGpsState", true, "GPS paused in background (not recording).")
             }
         } catch (e: SecurityException) {
             isGpsRegistered = false
-            AppLogger.log("TrackingService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
+            AppLogger.log("TrackingService", "updateGpsState", false, "Location permission missing: ${e.message}")
         } catch (e: Exception) {
             isGpsRegistered = false
-            AppLogger.log("TrackingService", "registerGpsUpdates", false, "Error: ${e.message}")
+            AppLogger.log("TrackingService", "updateGpsState", false, "Error: ${e.message}")
         }
+    }
+
+    fun registerGpsUpdates(force: Boolean = false) {
+        updateGpsState(force)
     }
 
     fun requestSingleNetworkLocation() {
@@ -302,6 +309,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         isRecording = true
         AppPrefs.setRecordingTrack(this, true)
         acquireWakeLock()
+        updateGpsState(force = true)
 
         val now = System.currentTimeMillis()
         val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
@@ -348,6 +356,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         lastRecordedPoint = null
 
         releaseWakeLock()
+        updateGpsState(force = true)
         updateNotification()
         Toast.makeText(this, AppPrefs.t(this, "Трек збережено", "Track recording saved"), Toast.LENGTH_SHORT).show()
     }
@@ -430,7 +439,7 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
             location = loc,
             speedKmh = speedKmh,
             trajectoryBearing = bearing,
-            compassHeading = currentAzimuth,
+            compassHeading = if (loc.hasBearing()) loc.bearing else 0f,
             isStationary = isStationary,
             isGpsDisabled = isGpsDisabled,
             isDeepSleep = false,
@@ -441,69 +450,6 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         lastMetrics = metrics
         metricsListener?.invoke(metrics)
     }
-
-    private var lastSentAzimuth = -999f
-    private var lastAzimuthTime = 0L
-
-    private fun dispatchAzimuthUpdate(azDeg: Float) {
-        currentAzimuth = azDeg
-        val now = System.currentTimeMillis()
-        var diff = kotlin.math.abs(azDeg - lastSentAzimuth)
-        if (diff > 180f) diff = 360f - diff
-        if (diff >= 5.0f && (now - lastAzimuthTime >= 500L)) {
-            lastSentAzimuth = azDeg
-            lastAzimuthTime = now
-            val m = lastMetrics
-            if (m != null) {
-                metricsListener?.invoke(m.copy(compassHeading = currentAzimuth))
-            } else {
-                val loc = lastLocation
-                if (loc != null) {
-                    publishMetrics(loc, 0f, currentAzimuth, isStationary = true)
-                }
-            }
-        }
-    }
-
-    override fun onSensorChanged(event: SensorEvent?) {
-        if (event == null) return
-        when (event.sensor.type) {
-            Sensor.TYPE_ROTATION_VECTOR -> {
-                SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                SensorManager.getOrientation(rotationMatrix, orientationAngles)
-                val azRad = orientationAngles[0]
-                var azDeg = Math.toDegrees(azRad.toDouble()).toFloat()
-                if (azDeg < 0f) azDeg += 360f
-                dispatchAzimuthUpdate(azDeg)
-            }
-            Sensor.TYPE_ACCELEROMETER -> {
-                System.arraycopy(event.values, 0, gravityData, 0, 3)
-                hasGravity = true
-                computeOrientationFallback()
-            }
-            Sensor.TYPE_MAGNETIC_FIELD -> {
-                System.arraycopy(event.values, 0, geomagneticData, 0, 3)
-                hasGeomagnetic = true
-                computeOrientationFallback()
-            }
-        }
-    }
-
-    private fun computeOrientationFallback() {
-        if (hasGravity && hasGeomagnetic) {
-            val r = FloatArray(9)
-            val i = FloatArray(9)
-            if (SensorManager.getRotationMatrix(r, i, gravityData, geomagneticData)) {
-                val actualOrientation = FloatArray(3)
-                SensorManager.getOrientation(r, actualOrientation)
-                var az = Math.toDegrees(actualOrientation[0].toDouble()).toFloat()
-                if (az < 0f) az += 360f
-                dispatchAzimuthUpdate(az)
-            }
-        }
-    }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -574,6 +520,12 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         } else {
             AppPrefs.t(this, "Пошук супутників GPS...", "Searching for GPS satellites...")
         }
+
+        if (notifText == lastNotificationText && !forceForeground && !isNotificationDismissed) {
+            return
+        }
+        lastNotificationText = notifText
+
         val notification = buildNotification(notifText)
         if (forceForeground || isNotificationDismissed) {
             try {
@@ -611,9 +563,6 @@ class MushroomTrackingService : Service(), LocationListener, SensorEventListener
         isRunning = false
         AppPrefs.setUserStopped(this, true)
         releaseWakeLock()
-        try {
-            sensorManager.unregisterListener(this)
-        } catch (_: Exception) {}
         try {
             locationManager.removeUpdates(this)
             isGpsRegistered = false

@@ -586,6 +586,24 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     }
 
     fun startTrackRecording(title: String, color: Int) {
+        val isUk = AppPrefs.isUk(this)
+        val titleText = if (isUk) "⚠️ Увага!" else "⚠️ Attention!"
+        val messageText = if (isUk) {
+            "Запис треку автоматично не зупиняється!\nНе забудьте зупинити запис треку, для збереження заряду акумулятора!"
+        } else {
+            "Track recording does not stop automatically!\nDo not forget to stop track recording to preserve battery power!"
+        }
+        AlertDialog.Builder(this)
+            .setTitle(titleText)
+            .setMessage(messageText)
+            .setPositiveButton(if (isUk) "Почати запис" else "Start recording") { _, _ ->
+                performStartTrackRecording(title, color)
+            }
+            .setNegativeButton(if (isUk) "Скасувати" else "Cancel", null)
+            .show()
+    }
+
+    private fun performStartTrackRecording(title: String, color: Int) {
         if (!ServiceUtils.isIgnoringBatteryOptimizations(this)) {
             ServiceUtils.requestIgnoreBatteryOptimizations(this)
         }
@@ -2086,6 +2104,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     override fun onStop() {
         super.onStop()
+        sensorManager.unregisterListener(this)
         if (::mapView.isInitialized) {
             mapView.saveMapState()
         }
@@ -3621,7 +3640,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             val trajectoryDiff = kotlin.math.abs(trajectoryBearing - metrics.trajectoryBearing)
 
             currentLocation = metrics.location
-            compassHeading = metrics.compassHeading
+            if (compassHeading == null && metrics.compassHeading != 0f) {
+                compassHeading = metrics.compassHeading
+            }
             trajectoryBearing = metrics.trajectoryBearing
 
             if (isFollowLocation && locChanged) {
