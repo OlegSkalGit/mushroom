@@ -3697,7 +3697,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
 
             // 1. Draw OSM Map Tiles
-            drawOsmTiles(canvas, cx, cy, baseZoom, scale)
+            val tilesDrawn = drawOsmTiles(canvas, cx, cy, baseZoom, scale)
+
+            // 1b. Draw OSM Map Labels (overlay pass across full screen Canvas)
+            drawOsmLabels(canvas, cx, cy, baseZoom, tilesDrawn)
 
             // 2. Draw Recorded Tracks
             drawTracks(canvas, cx, cy, baseZoom, scale)
@@ -3989,7 +3992,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
-        private fun drawOsmTiles(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float) {
+        private fun drawOsmTiles(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float): List<Pair<Int, Int>> {
             val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
             val tileSize = OsmTileEngine.TILE_SIZE
 
@@ -4079,6 +4082,45 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         }
                     }
                 }
+            }
+            return tilesToDraw
+        }
+
+        private var lastLabelZoom: Int = -1
+        private var lastLabelTiles: List<Pair<Int, Int>> = emptyList()
+        private var lastLabelStoreVersion: Int = -1
+        private var cachedLabelsToDraw: List<org.mapsforge.core.mapelements.MapElementContainer> = emptyList()
+        private val labelMatrix = org.mapsforge.map.android.graphics.AndroidGraphicFactory.INSTANCE.createMatrix()
+
+        private fun drawOsmLabels(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, tilesToDraw: List<Pair<Int, Int>>) {
+            val store = OsmTileEngine.labelStore ?: return
+            val currentVersion = store.version
+
+            if (baseZoom != lastLabelZoom || tilesToDraw != lastLabelTiles || currentVersion != lastLabelStoreVersion) {
+                val rawItems = OsmTileEngine.getLabelsForTiles(tilesToDraw, baseZoom)
+                cachedLabelsToDraw = if (rawItems.isNotEmpty()) {
+                    org.mapsforge.map.util.LayerUtil.collisionFreeOrdered(rawItems, org.mapsforge.core.model.Rotation.NULL_ROTATION)
+                } else {
+                    emptyList()
+                }
+                lastLabelZoom = baseZoom
+                lastLabelTiles = tilesToDraw
+                lastLabelStoreVersion = currentVersion
+            }
+
+            if (cachedLabelsToDraw.isEmpty()) return
+
+            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
+            val origin = org.mapsforge.core.model.Point(
+                (centerWorld.first - cx).toDouble(),
+                (centerWorld.second - cy).toDouble()
+            )
+
+            val gCanvas = org.mapsforge.map.android.graphics.AndroidGraphicFactory.createGraphicContext(canvas)
+            for (item in cachedLabelsToDraw) {
+                try {
+                    item.draw(gCanvas, origin, labelMatrix, org.mapsforge.core.model.Rotation.NULL_ROTATION)
+                } catch (_: Throwable) {}
             }
         }
 

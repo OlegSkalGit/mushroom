@@ -63,6 +63,10 @@ object OsmTileEngine {
     private var renderThemeFuture: RenderThemeFuture? = null
     private val loadedMapFiles = mutableListOf<String>()
 
+    @Volatile
+    var labelStore: TileBasedLabelStore? = null
+        private set
+
     private val workerCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 3)
     private val workerRenderers = arrayOfNulls<DatabaseRenderer>(workerCount)
 
@@ -333,9 +337,10 @@ object OsmTileEngine {
                 rThemeFuture.run()
 
                 val tCache = InMemoryTileCache(256)
-                val lStore = TileBasedLabelStore(256)
+                val lStore = TileBasedLabelStore(512)
+                labelStore = lStore
                 for (i in 0 until workerCount) {
-                    workerRenderers[i] = CleanDatabaseRenderer(newStore, AndroidGraphicFactory.INSTANCE, tCache, lStore, true, true, null)
+                    workerRenderers[i] = CleanDatabaseRenderer(newStore, AndroidGraphicFactory.INSTANCE, tCache, lStore, false, true, null)
                 }
 
                 displayModel = dModel
@@ -495,8 +500,29 @@ object OsmTileEngine {
         return null
     }
 
+    fun getLabelsForTiles(tiles: List<Pair<Int, Int>>, zoom: Int): List<org.mapsforge.core.mapelements.MapElementContainer> {
+        val store = labelStore ?: return emptyList()
+        val maxCoord = 1 shl zoom
+        val result = mutableListOf<org.mapsforge.core.mapelements.MapElementContainer>()
+        synchronized(store) {
+            for ((tx, ty) in tiles) {
+                val clampedTx = (tx % maxCoord + maxCoord) % maxCoord
+                val tile = org.mapsforge.core.model.Tile(clampedTx, ty, zoom.toByte(), TILE_SIZE)
+                if (store.containsKey(tile)) {
+                    store.get(tile)?.let { result.addAll(it) }
+                }
+            }
+        }
+        return result
+    }
+
     fun clearRamCache() {
         ramCache.evictAll()
+        labelStore?.let {
+            synchronized(it) {
+                it.clear()
+            }
+        }
         val it = requestQueue.iterator()
         while (it.hasNext()) {
             val req = it.next()

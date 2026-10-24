@@ -129,7 +129,7 @@ object AddAddressDialog {
                 val distM = if (refLocation != null && (addr.lat != 0.0 || addr.lon != 0.0)) {
                     AddressSearchManager.calculateDistanceMeters(refLocation.latitude, refLocation.longitude, addr.lat, addr.lon)
                 } else null
-                val distPrefix = if (distM != null) "(${AddressSearchManager.formatDistance(distM)}) " else ""
+                val distStr = if (distM != null) AddressSearchManager.formatDistance(distM) else null
 
                 val itemRow = LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -158,15 +158,15 @@ object AddAddressDialog {
                 }
 
                 val titleText = if (addr.isSettlement) {
-                    "$distPrefix${addr.cityName}"
+                    addr.cityName
                 } else if (addr.isPoiOnly) {
-                    "$distPrefix${addr.poiName ?: addr.getFullTitle()}"
+                    addr.poiName ?: addr.getFullTitle()
                 } else {
                     val streetPart = listOf(addr.streetName.ifBlank { addr.cityName }, addr.houseNumber).filter { it.isNotBlank() }.joinToString(", ")
                     if (!addr.poiName.isNullOrBlank()) {
-                        "$distPrefix$streetPart • ${addr.poiName}"
+                        "$streetPart • ${addr.poiName}"
                     } else {
-                        "$distPrefix${streetPart.ifBlank { addr.cityName }}"
+                        streetPart.ifBlank { addr.cityName }
                     }
                 }
 
@@ -175,7 +175,7 @@ object AddAddressDialog {
                     setTextColor(Color.WHITE)
                     textSize = 14f
                     setTypeface(null, Typeface.BOLD)
-                    maxLines = 1
+                    maxLines = 2
                     ellipsize = TextUtils.TruncateAt.END
                 }
 
@@ -197,7 +197,7 @@ object AddAddressDialog {
                     text = subtitleText
                     setTextColor(Color.parseColor("#9CA3AF"))
                     textSize = 11.5f
-                    maxLines = 1
+                    maxLines = 2
                     ellipsize = TextUtils.TruncateAt.END
                 }
 
@@ -206,6 +206,18 @@ object AddAddressDialog {
                     textCol.addView(subtitleTv)
                 }
                 itemRow.addView(textCol)
+
+                if (!distStr.isNullOrBlank()) {
+                    val distTv = TextView(activity).apply {
+                        text = distStr
+                        setTextColor(Color.parseColor("#10B981"))
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setPadding(dp(8), 0, 0, 0)
+                        gravity = Gravity.CENTER_VERTICAL or Gravity.END
+                    }
+                    itemRow.addView(distTv)
+                }
 
                 itemRow.setOnClickListener {
                     dialog.dismiss()
