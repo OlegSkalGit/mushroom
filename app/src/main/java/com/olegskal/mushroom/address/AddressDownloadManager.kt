@@ -448,7 +448,7 @@ object AddressDownloadManager {
         filePrefix: String,
         fileExt: String,
         timeoutSec: Int,
-        maxCycles: Int = 3,
+        maxCycles: Int = 2,
         logFn: (String) -> Unit,
         isCancelled: () -> Boolean,
         queryBuilder: (clause: String, target: String) -> String
@@ -462,10 +462,10 @@ object AddressDownloadManager {
         val tempFile = File(AddressDb.getAddressesDir(context), "${filePrefix}_${region.relId}_${System.currentTimeMillis()}.$fileExt")
         var ok = false
 
-        // Рівень 1: Точна полігональна зона (area)
+        // Рівень 1: Точна полігональна зона (area) — 1 прохід, якщо на сервері немає шару area, миттєво переходимо на bbox
         if (region.relId > 0) {
             val qArea = queryBuilder(areaClause, "(area.a)")
-            ok = client.queryToFile(qArea, tempFile, timeoutSec = timeoutSec, logFn = logFn, isCancelled = isCancelled, maxCycles = maxCycles)
+            ok = client.queryToFile(qArea, tempFile, timeoutSec = timeoutSec, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
         }
 
         val fileHasData = ok && tempFile.exists() && tempFile.length() > 300L

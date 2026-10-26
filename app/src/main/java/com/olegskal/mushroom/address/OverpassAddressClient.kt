@@ -27,8 +27,7 @@ class OverpassAddressClient(
             "https://gall.openstreetmap.de/api/interpreter",
             "https://lambert.openstreetmap.de/api/interpreter",
             "https://z.overpass-api.de/api/interpreter",
-            "https://lz4.overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter"
+            "https://lz4.overpass-api.de/api/interpreter"
         )
         private val pool = Executors.newFixedThreadPool(DEFAULT_MIRRORS.size) { r ->
             Thread(r, "OverpassMirrorCheck").apply { isDaemon = true }
@@ -45,8 +44,8 @@ class OverpassAddressClient(
         val statusUrl = mirror.replace("/interpreter", "/status")
         return try {
             val conn = (URL(statusUrl).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 3000
-                readTimeout = 3000
+                connectTimeout = 2000
+                readTimeout = 2000
                 setRequestProperty("User-Agent", USER_AGENT)
             }
             val code = conn.responseCode
@@ -57,35 +56,31 @@ class OverpassAddressClient(
             }
             if (code !in 200..299) {
                 conn.disconnect()
-                return MirrorRank(mirror, 10, 1)
+                return MirrorRank(mirror, 9999, 0)
             }
             val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             conn.disconnect()
 
+            val lines = text.lines()
             var avail = 0
-            val mAvail = Pattern.compile("(\\d+)\\s+slots?\\s+available\\s+now", Pattern.CASE_INSENSITIVE).matcher(text)
-            if (mAvail.find()) {
-                avail = mAvail.group(1)?.toIntOrNull() ?: 0
-            }
-
             var waitSec = 0
-            val mWait = Pattern.compile("in\\s+(\\d+)\\s+seconds", Pattern.CASE_INSENSITIVE).matcher(text)
-            if (mWait.find()) {
-                waitSec = mWait.group(1)?.toIntOrNull() ?: 0
+            for (line in lines) {
+                val mAvail = Pattern.compile("(\\d+)\\s+slots?\\s+available").matcher(line)
+                if (mAvail.find()) avail = mAvail.group(1)?.toIntOrNull() ?: 0
+                val mWait = Pattern.compile("Slot available after:\\s+.*in\\s+(\\d+)\\s+seconds").matcher(line)
+                if (mWait.find()) waitSec = mWait.group(1)?.toIntOrNull() ?: 0
             }
-
             val effWait = if (avail > 0) 0 else (if (waitSec > 0) waitSec else 60)
             MirrorRank(mirror, effWait, avail)
         } catch (_: Exception) {
-            // Якщо статус тимчасово не відповів, ставимо помірний пріоритет замість повного вилучення
-            MirrorRank(mirror, 15, 1)
+            MirrorRank(mirror, 9999, 0)
         }
     }
 
     fun findBestMirrors(): List<MirrorRank> {
         val tasks = mirrors.map { m -> Callable { checkMirrorStatus(m) } }
         val results = try {
-            val futures = pool.invokeAll(tasks, 3500, TimeUnit.MILLISECONDS)
+            val futures = pool.invokeAll(tasks, 2500, TimeUnit.MILLISECONDS)
             futures.mapNotNull {
                 try { it.get() } catch (_: Exception) { null }
             }
@@ -94,11 +89,11 @@ class OverpassAddressClient(
         }
 
         val alive = results.filter { it.effectiveWaitSec < 9999 }.sortedBy { it.effectiveWaitSec }
-        if (alive.isNotEmpty()) {
+        if (alive.isNotEmpty() && alive.any { it.effectiveWaitSec == 0 }) {
             return alive
         }
 
-        // Якщо статус висить (таймаут) або всі зайняті/недоступні — пробуємо без статусу для усіх серверів
+        // Якщо всі зайняті (таймаут) або без слотів — пробуємо всі відомі сервери
         return mirrors.map { MirrorRank(it, 0, 1) }
     }
 
