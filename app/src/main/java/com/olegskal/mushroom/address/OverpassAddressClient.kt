@@ -32,6 +32,10 @@ class OverpassAddressClient(
         private val pool = Executors.newFixedThreadPool(DEFAULT_MIRRORS.size) { r ->
             Thread(r, "OverpassMirrorCheck").apply { isDaemon = true }
         }
+
+        @Volatile
+        var lastSuccessfulMirror: String? = null
+            private set
     }
 
     data class MirrorRank(
@@ -88,13 +92,15 @@ class OverpassAddressClient(
             emptyList()
         }
 
-        val alive = results.filter { it.effectiveWaitSec < 9999 }.sortedBy { it.effectiveWaitSec }
+        val pref = lastSuccessfulMirror
+        val alive = results.filter { it.effectiveWaitSec < 9999 }
+            .sortedWith(compareBy({ it.effectiveWaitSec }, { if (it.mirror == pref) 0 else 1 }))
         if (alive.isNotEmpty() && alive.any { it.effectiveWaitSec == 0 }) {
             return alive
         }
 
-        // Якщо всі зайняті (таймаут) або без слотів — пробуємо всі відомі сервери
-        return mirrors.map { MirrorRank(it, 0, 1) }
+        // Якщо всі зайняті (таймаут) або без слотів — пробуємо всі відомі сервери (з пріоритетом останнього успішного)
+        return mirrors.sortedWith(compareBy { if (it == pref) 0 else 1 }).map { MirrorRank(it, 0, 1) }
     }
 
     private fun escalateQueryMemory(query: String): Pair<String?, String?> {
@@ -219,6 +225,7 @@ class OverpassAddressClient(
                     }
 
                     AppLogger.log(TAG, "query", true, "$mirror: HTTP $responseCode OK — отримано ${text.lines().size} рядків (слотів: $freeSlots)")
+                    lastSuccessfulMirror = mirror
                     return text
 
                 } catch (e: Exception) {
@@ -388,6 +395,7 @@ class OverpassAddressClient(
                     }
 
                     AppLogger.log(TAG, "queryToFile", true, "$mirror: HTTP $responseCode OK — збережено ${targetFile.length()} байт (слотів: $freeSlots)")
+                    lastSuccessfulMirror = mirror
                     return true
 
                 } catch (e: Exception) {
