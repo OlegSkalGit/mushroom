@@ -456,7 +456,6 @@ class MushroomEncyclopediaTab(
                 currentHymeniumFilter = "all"
                 AppPrefs.setMushroomEdibilityFilter(activity, "all")
                 AppPrefs.setMushroomHymeniumFilter(activity, "all")
-                AppPrefs.setMushroomFilter(activity, "all")
                 updateFilterButtonText()
                 resetAndReload()
             }
@@ -467,7 +466,6 @@ class MushroomEncyclopediaTab(
                     currentHymeniumFilter = tempHymenium
                     AppPrefs.setMushroomEdibilityFilter(activity, currentEdibilityFilter)
                     AppPrefs.setMushroomHymeniumFilter(activity, currentHymeniumFilter)
-                    AppPrefs.setMushroomFilter(activity, currentEdibilityFilter)
                     updateFilterButtonText()
                     resetAndReload()
                 }
@@ -533,19 +531,19 @@ class MushroomEncyclopediaTab(
 
         val msg = if (isUpdate) {
             if (currentLang == "uk") {
-                "Розмір встановленої бази не співпадає з актуальною версією (538 МБ).\n\n" +
+                "Розмір встановленої бази не співпадає з актуальною версією (~100 МБ).\n\n" +
                 "Оновлення виправляє дублювання фотографій та містить актуалізовані описи видів.\n\n" +
                 "Оновити базу даних зараз?"
             } else {
-                "Installed database size differs from current version (538 MB).\n\n" +
+                "Installed database size differs from current version (~100 MB).\n\n" +
                 "The update fixes duplicate photos and contains refreshed descriptions.\n\n" +
                 "Update database now?"
             }
         } else {
             if (currentLang == "uk") {
-                "Для роботи енциклопедії без інтернету потрібна локальна база даних (~538 МБ). Завантажити зараз?"
+                "Для роботи енциклопедії без інтернету потрібна локальна база даних (~100 МБ). Завантажити зараз?"
             } else {
-                "Offline mushroom encyclopedia requires local database (~538 MB). Download now?"
+                "Offline mushroom encyclopedia requires local database (~100 MB). Download now?"
             }
         }
 
@@ -679,7 +677,6 @@ class MushroomEncyclopediaTab(
         currentHymeniumFilter = "all"
         AppPrefs.setMushroomEdibilityFilter(activity, "all")
         AppPrefs.setMushroomHymeniumFilter(activity, "all")
-        AppPrefs.setMushroomFilter(activity, "all")
         updateFilterButtonText()
         searchEditText.setText(clean)
         searchEditText.setSelection(clean.length)
@@ -863,8 +860,10 @@ class MushroomEncyclopediaTab(
             ellipsize = TextUtils.TruncateAt.END
         }
 
-        val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = if (meta.edibility != "unknown") meta.edibility else taxon.edibility
+        val fallbackMeta = if (taxon.edibility == "unknown" || taxon.hymenium == "other") {
+            MycoKnowledge.resolveMetadata(taxon.scientificName)
+        } else null
+        val edibility = if (taxon.edibility != "unknown") taxon.edibility else (fallbackMeta?.edibility ?: "unknown")
 
         val badgeRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -882,7 +881,7 @@ class MushroomEncyclopediaTab(
         }
         badgeRow.addView(tvBadge)
 
-        if (!meta.lookalikesUk.isNullOrEmpty()) {
+        if (!taxon.lookalikesUk.isNullOrEmpty() || !fallbackMeta?.lookalikesUk.isNullOrEmpty()) {
             val tvLookalikeAlert = TextView(activity).apply {
                 text = "⚠️"
                 textSize = 11f
@@ -891,7 +890,7 @@ class MushroomEncyclopediaTab(
             badgeRow.addView(tvLookalikeAlert)
         }
 
-        val effectiveHymenium = if (meta.hymenium != "other") meta.hymenium else if (!taxon.hymenium.isNullOrBlank()) taxon.hymenium else "other"
+        val effectiveHymenium = if (taxon.hymenium.isNotBlank() && taxon.hymenium != "other") taxon.hymenium else (fallbackMeta?.hymenium ?: "other")
         val hymeniumIcon = MycoKnowledge.getHymeniumIcon(effectiveHymenium)
         val tvHymenium = TextView(activity).apply {
             text = hymeniumIcon
@@ -960,8 +959,10 @@ class MushroomEncyclopediaTab(
             setTypeface(null, Typeface.ITALIC)
         }
 
-        val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = if (meta.edibility != "unknown") meta.edibility else taxon.edibility
+        val fallbackMeta = if (taxon.edibility == "unknown" || taxon.hymenium == "other") {
+            MycoKnowledge.resolveMetadata(taxon.scientificName)
+        } else null
+        val edibility = if (taxon.edibility != "unknown") taxon.edibility else (fallbackMeta?.edibility ?: "unknown")
 
         val badgeRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -979,7 +980,7 @@ class MushroomEncyclopediaTab(
         }
         badgeRow.addView(tvBadge)
 
-        if (!meta.lookalikesUk.isNullOrEmpty()) {
+        if (!taxon.lookalikesUk.isNullOrEmpty() || !fallbackMeta?.lookalikesUk.isNullOrEmpty()) {
             val tvLookalikeAlert = TextView(activity).apply {
                 text = if (currentLang == "uk") "⚠️ Двійники" else "⚠️ Lookalikes"
                 setTextColor(Color.parseColor("#FCA5A5"))
@@ -994,7 +995,7 @@ class MushroomEncyclopediaTab(
             badgeRow.addView(tvLookalikeAlert)
         }
 
-        val effectiveHymenium = if (meta.hymenium != "other") meta.hymenium else if (!taxon.hymenium.isNullOrBlank()) taxon.hymenium else "other"
+        val effectiveHymenium = if (taxon.hymenium.isNotBlank() && taxon.hymenium != "other") taxon.hymenium else (fallbackMeta?.hymenium ?: "other")
         val hymeniumIcon = MycoKnowledge.getHymeniumIcon(effectiveHymenium)
         val tvHymenium = TextView(activity).apply {
             text = hymeniumIcon

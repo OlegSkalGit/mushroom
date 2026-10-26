@@ -99,8 +99,9 @@ object PoiTranslationService {
 
         // 3. Зберігаємо в poi_types
         db.beginTransaction()
+        var stmt: android.database.sqlite.SQLiteStatement? = null
         try {
-            val stmt = db.compileStatement("""
+            stmt = db.compileStatement("""
                 INSERT OR REPLACE INTO poi_types (group_category, tag, desc_en, desc_local, country_code)
                 VALUES (?, ?, ?, ?, ?);
             """.trimIndent())
@@ -121,6 +122,7 @@ object PoiTranslationService {
         } catch (e: Exception) {
             AppLogger.log(TAG, "ensureTranslationsForCountry", false, "Error inserting poi_types: ${e.message}")
         } finally {
+            try { stmt?.close() } catch (_: Exception) {}
             db.endTransaction()
         }
 

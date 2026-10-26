@@ -93,11 +93,6 @@ object InitialSetupDialog {
 
     fun isDownloading(): Boolean = isDownloadRunning.get() || activeItem.get() != null || pendingQueue.isNotEmpty()
 
-    fun isItemInQueue(idPrefix: String): Boolean {
-        if (activeItem.get()?.id?.startsWith(idPrefix) == true) return true
-        return pendingQueue.any { it.id.startsWith(idPrefix) }
-    }
-
     fun isCountryInQueue(countryCode: String): Boolean {
         val curId = activeItem.get()?.id ?: ""
         if (curId == "map_$countryCode" || curId == "poi_$countryCode" || curId == "addr_$countryCode") return true
@@ -551,18 +546,25 @@ object InitialSetupDialog {
         }
 
         // 4. Файли маршрутизації
+        val brouterMeta = MapDownloadManager.brouterIndexCache.ifEmpty { MapDownloadManager.fetchBRouterSegmentsIndex() }
         for (seg in country.getRd5Segments()) {
-            if (MapDownloadManager.isSegmentNeeded(seg)) {
+            if (MapDownloadManager.checkRd5SegmentUpdate(seg, brouterMeta)) {
                 val segFile = File(MushroomStorageManager.navigationDir, seg)
+                val expectedSize = brouterMeta?.get(seg)?.second ?: 18_000_000L
+                val serverMod = brouterMeta?.get(seg)?.first ?: 0L
                 list.add(
                     UpdateItem(
                         "rd5_$seg",
                         BlockType.MAPS,
                         "Файли маршрутизації", "Routing files",
                         seg,
-                        18_000_000L
+                        expectedSize
                     ) { onBytes, onSizeDiscovered, isCancel ->
-                        val ok = downloadFileWithResume("https://brouter.de/brouter/segments4/$seg", segFile, 18_000_000L, onBytes, onSizeDiscovered, isCancel, allowHttpErrors = true)
+                        val ok = downloadFileWithResume("https://brouter.de/brouter/segments4/$seg", segFile, expectedSize, onBytes, onSizeDiscovered, isCancel, allowHttpErrors = true)
+                        if (ok && segFile.exists() && segFile.length() > 0) {
+                            val timeToSave = if (serverMod > 0L) serverMod else System.currentTimeMillis()
+                            MapDownloadManager.recordDownloadedFile(seg, timeToSave, segFile.length())
+                        }
                         ok || (!segFile.exists() && MapDownloadManager.isSegmentUnavailable(seg))
                     }
                 )
@@ -867,14 +869,6 @@ object InitialSetupDialog {
         val wasRunning = isDownloadRunning.get()
         enqueueItems(activity, items, onFinished)
         return if (wasRunning) EnqueueResult.ENQUEUED else EnqueueResult.STARTED
-    }
-
-    fun startCountryDownload(
-        activity: Activity,
-        country: MapCountry,
-        onFinished: () -> Unit = {}
-    ) {
-        enqueueCountry(activity, country, onFinished)
     }
 
     fun checkDiskSpace(activity: Activity, requiredBytes: Long, onProceed: () -> Unit) {

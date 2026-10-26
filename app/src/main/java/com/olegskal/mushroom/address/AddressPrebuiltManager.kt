@@ -644,6 +644,9 @@ object AddressPrebuiltManager {
 
             if (oldCountryId != null) {
                 onProgress(0.93f, "Очищення попередньої версії ${country.name}...")
+                if (AddressDb.hasTable(targetDb, "street_geometries")) {
+                    targetDb.execSQL("DELETE FROM street_geometries WHERE street_id IN (SELECT s.id FROM streets s WHERE s.country_id = ?);", arrayOf(oldCountryId.toString()))
+                }
                 targetDb.execSQL("DELETE FROM houses WHERE street_id IN (SELECT s.id FROM streets s WHERE s.country_id = ?);", arrayOf(oldCountryId.toString()))
                 targetDb.execSQL("DELETE FROM search_fts WHERE rowid IN (SELECT s.id FROM streets s WHERE s.country_id = ?);", arrayOf(oldCountryId.toString()))
                 targetDb.execSQL("DELETE FROM poi_fts WHERE rowid IN (SELECT id FROM poi_places WHERE country_code = ?);", arrayOf(inCountryCode))
@@ -746,6 +749,15 @@ object AddressPrebuiltManager {
                     SELECT street_id + $streetOffset, number, lat, lon
                     FROM src.houses;
                 """.trimIndent())
+
+                val hasSrcGeom = hasTableInSchema(targetDb, "src", "street_geometries")
+                if (hasSrcGeom && AddressDb.hasTable(targetDb, "street_geometries")) {
+                    targetDb.execSQL("""
+                        INSERT OR REPLACE INTO street_geometries (street_id, min_lat, max_lat, min_lon, max_lon, geom)
+                        SELECT street_id + $streetOffset, min_lat, max_lat, min_lon, max_lon, geom
+                        FROM src.street_geometries;
+                    """.trimIndent())
+                }
 
                 // Д. poi_types (переливаємо типи точок та мапимо ID)
                 if (hasSrcPoiTypes) {

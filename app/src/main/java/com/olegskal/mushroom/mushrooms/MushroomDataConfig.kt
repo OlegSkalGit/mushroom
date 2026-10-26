@@ -12,20 +12,14 @@ object MushroomDataConfig {
     // =========================================================================
     const val DB_FILE_NAME = "mushrooms.db"
     const val DB_DIR_NAME = "mushrooms"
-    const val DB_MIN_SIZE = 400 * 1024 * 1024L
-    const val DB_FULL_SIZE = 570396672L // Розмір розпакованого mushrooms.db
+    const val DB_MIN_SIZE = 100 * 1024 * 1024L
+    const val DB_FULL_SIZE = 115671040L // Розмір розпакованого mushrooms.db
 
     const val DB_BASE_DOWNLOAD_URL = "https://raw.githubusercontent.com/OlegSkalGit/mushroom/main/downloads/"
 
     val DB_PARTS = listOf(
-        DataFileItem("mushrooms.z01", 70254592L),
-        DataFileItem("mushrooms.z02", 70254592L),
-        DataFileItem("mushrooms.z03", 70254592L),
-        DataFileItem("mushrooms.z04", 70254592L),
-        DataFileItem("mushrooms.z05", 70254592L),
-        DataFileItem("mushrooms.z06", 70254592L),
-        DataFileItem("mushrooms.z07", 70254592L),
-        DataFileItem("mushrooms.zip", 62675013L)
+        DataFileItem("mushrooms.z01", 52428800L),
+        DataFileItem("mushrooms.zip", 51888778L)
     )
     val DB_TOTAL_ARCHIVE_SIZE = DB_PARTS.sumOf { it.exactSize }
 

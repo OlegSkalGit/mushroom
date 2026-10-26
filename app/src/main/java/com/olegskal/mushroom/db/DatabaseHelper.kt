@@ -9,12 +9,16 @@ import com.olegskal.mushroom.model.MushroomTrack
 import com.olegskal.mushroom.model.TrackPoint
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
+import java.util.concurrent.Executors
 
 class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "mushroom.db"
         private const val DATABASE_VERSION = 5
+        private val syncExecutor = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "TrackStorageSync").apply { isDaemon = true }
+        }
 
         // Tracks table
         const val TABLE_TRACKS = "tracks"
@@ -73,63 +77,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_TRACKS, $TABLE_TRACK_POINTS) created.")
     }
 
-    override fun onOpen(db: SQLiteDatabase) {
-        super.onOpen(db)
-        migrateMarkersFromSqliteIfPresent(db)
-    }
-
-    private fun migrateMarkersFromSqliteIfPresent(db: SQLiteDatabase) {
-        try {
-            val cursor = db.rawQuery(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='markers'",
-                null
-            )
-            val tableExists = cursor.use { it.moveToFirst() }
-            if (tableExists) {
-                val existingJsonMarkers = MushroomStorageManager.loadMarkers()
-                if (existingJsonMarkers.isEmpty()) {
-                    val sqliteMarkers = ArrayList<MushroomMarker>()
-                    db.query("markers", null, null, null, null, null, "timestamp DESC").use { c ->
-                        val idIdx = c.getColumnIndexOrThrow("id")
-                        val nameIdx = c.getColumnIndexOrThrow("name")
-                        val typeIdx = c.getColumnIndexOrThrow("type")
-                        val latIdx = c.getColumnIndexOrThrow("lat")
-                        val lonIdx = c.getColumnIndexOrThrow("lon")
-                        val altIdx = c.getColumnIndexOrThrow("altitude")
-                        val timeIdx = c.getColumnIndexOrThrow("timestamp")
-                        val noteIdx = c.getColumnIndexOrThrow("note")
-                        val colorIdx = c.getColumnIndexOrThrow("color")
-                        val visIdx = c.getColumnIndexOrThrow("is_visible")
-                        while (c.moveToNext()) {
-                            sqliteMarkers.add(
-                                MushroomMarker(
-                                    id = c.getLong(idIdx),
-                                    name = c.getString(nameIdx),
-                                    type = c.getString(typeIdx),
-                                    lat = c.getDouble(latIdx),
-                                    lon = c.getDouble(lonIdx),
-                                    altitude = c.getDouble(altIdx),
-                                    timestamp = c.getLong(timeIdx),
-                                    note = c.getString(noteIdx) ?: "",
-                                    color = c.getInt(colorIdx),
-                                    isVisible = c.getInt(visIdx) == 1
-                                )
-                            )
-                        }
-                    }
-                    if (sqliteMarkers.isNotEmpty()) {
-                        MushroomStorageManager.saveMarkers(sqliteMarkers)
-                        AppLogger.log("DatabaseHelper", "migrateMarkers", true, "Migrated ${sqliteMarkers.size} markers to markers.json")
-                    }
-                }
-                db.execSQL("DROP TABLE IF EXISTS markers")
-                AppLogger.log("DatabaseHelper", "migrateMarkers", true, "Dropped markers table from SQLite")
-            }
-        } catch (e: Exception) {
-            AppLogger.log("DatabaseHelper", "migrateMarkers", false, "Migration error: ${e.message}")
-        }
-    }
-
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         db.execSQL("DROP TABLE IF EXISTS markers")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_TRACKS")
@@ -152,10 +99,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         MushroomStorageManager.deleteMarker(markerId)
     }
 
-    fun updateMarkerName(markerId: Long, newName: String) {
-        MushroomStorageManager.updateMarkerName(markerId, newName)
-    }
-
     fun updateMarker(markerId: Long, newName: String, newColor: Int) {
         MushroomStorageManager.updateMarker(markerId, newName, newColor)
     }
@@ -170,10 +113,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     fun getMarker(markerId: Long): MushroomMarker? {
         return MushroomStorageManager.getMarker(markerId)
-    }
-
-    fun syncMarkersToStorage() {
-        // No-op: markers are always saved directly to /storage/emulated/0/mushroom/markers/markers.json
     }
 
     // --- TRACKS CRUD ---
@@ -286,17 +225,9 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         syncTracksToStorage()
     }
 
-    fun updateTrackTitle(trackId: Long, newTitle: String) {
-        val db = writableDatabase
-        val cv = ContentValues().apply {
-            put(COL_TRACK_TITLE, newTitle)
-        }
-        db.update(TABLE_TRACKS, cv, "$COL_TRACK_ID = ?", arrayOf(trackId.toString()))
-        syncTracksToStorage()
-    }
-
     fun getAllTracks(): List<MushroomTrack> {
         val list = ArrayList<MushroomTrack>()
+        val trackById = HashMap<Long, MushroomTrack>()
         val db = readableDatabase
         db.query(
             TABLE_TRACKS,
@@ -325,10 +256,35 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
                     isVisible = c.getInt(visIdx) == 1
                 )
                 list.add(track)
+                trackById[tId] = track
             }
         }
-        for (track in list) {
-            track.points.addAll(getPointsForTrack(track.id))
+        if (list.isNotEmpty()) {
+            db.query(
+                TABLE_TRACK_POINTS,
+                null, null, null, null, null,
+                "$COL_PT_TRACK_ID ASC, $COL_PT_TIME ASC"
+            ).use { c ->
+                val trkIdx = c.getColumnIndexOrThrow(COL_PT_TRACK_ID)
+                val latIdx = c.getColumnIndexOrThrow(COL_PT_LAT)
+                val lonIdx = c.getColumnIndexOrThrow(COL_PT_LON)
+                val altIdx = c.getColumnIndexOrThrow(COL_PT_ALT)
+                val timeIdx = c.getColumnIndexOrThrow(COL_PT_TIME)
+                val spdIdx = c.getColumnIndexOrThrow(COL_PT_SPEED)
+
+                while (c.moveToNext()) {
+                    val track = trackById[c.getLong(trkIdx)] ?: continue
+                    track.points.add(
+                        TrackPoint(
+                            lat = c.getDouble(latIdx),
+                            lon = c.getDouble(lonIdx),
+                            alt = c.getDouble(altIdx),
+                            time = c.getLong(timeIdx),
+                            speed = c.getFloat(spdIdx)
+                        )
+                    )
+                }
+            }
         }
         return list
     }
@@ -366,23 +322,24 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     fun syncTracksToStorage() {
-        Thread {
+        syncExecutor.execute {
             try {
                 val list = getAllTracks()
                 MushroomStorageManager.saveTracks(list)
             } catch (_: Exception) {}
-        }.start()
+        }
     }
 
     fun restoreDataFromExternalStorageIfDbEmpty() {
         try {
-            val currentTracks = getAllTracks()
-            if (currentTracks.isEmpty()) {
+            val hasAnyTracks = readableDatabase.rawQuery("SELECT 1 FROM $TABLE_TRACKS LIMIT 1", null).use {
+                it.moveToFirst()
+            }
+            if (!hasAnyTracks) {
                 val loadedTracks = MushroomStorageManager.loadTracks()
                 for (t in loadedTracks) {
                     insertTrack(t, syncToDisk = false)
                 }
-                syncTracksToStorage()
             }
         } catch (e: Exception) {
             AppLogger.log("DatabaseHelper", "restoreDataFromExternalStorage", false, "Error: ${e.message}")

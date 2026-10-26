@@ -113,15 +113,13 @@ object MushroomStorageManager {
     }
 
     fun isPoiEnabled(): Boolean {
-        val f = File(settingsDir, "poi_enabled.txt")
-        if (!f.exists()) return true
-        return f.readText(Charsets.UTF_8).trim() != "false"
+        return getSettingsJson().optBoolean("poi_enabled", true)
     }
 
     fun setPoiEnabled(enabled: Boolean) {
-        try {
-            File(settingsDir, "poi_enabled.txt").writeText(enabled.toString(), Charsets.UTF_8)
-        } catch (_: Exception) {}
+        val json = getSettingsJson()
+        json.put("poi_enabled", enabled)
+        saveSettingsJson(json)
     }
 
     // --- Markers (Primary & Only Storage: /storage/emulated/0/mushroom/markers/markers.json) ---
@@ -211,16 +209,6 @@ object MushroomStorageManager {
     }
 
     @Synchronized
-    fun updateMarkerName(markerId: Long, newName: String) {
-        val list = loadMarkers().toMutableList()
-        val index = list.indexOfFirst { it.id == markerId }
-        if (index != -1) {
-            list[index].name = newName
-            saveMarkers(list)
-        }
-    }
-
-    @Synchronized
     fun setMarkerVisibility(markerId: Long, isVisible: Boolean) {
         val list = loadMarkers().toMutableList()
         val index = list.indexOfFirst { it.id == markerId }
@@ -249,6 +237,7 @@ object MushroomStorageManager {
     private val tracksFile: File
         get() = File(tracksDir, "tracks.json")
 
+    @Synchronized
     fun loadTracks(): List<MushroomTrack> {
         val list = ArrayList<MushroomTrack>()
         try {
@@ -267,6 +256,7 @@ object MushroomStorageManager {
         return list
     }
 
+    @Synchronized
     fun saveTracks(tracks: List<MushroomTrack>, exportGpx: Boolean = false) {
         try {
             val arr = JSONArray()
@@ -278,9 +268,16 @@ object MushroomStorageManager {
             }
             val file = tracksFile
             val tmp = File(file.parentFile, "${file.name}.tmp")
-            tmp.writeText(arr.toString(2), Charsets.UTF_8)
+            val jsonText = arr.toString(2)
+            tmp.writeText(jsonText, Charsets.UTF_8)
             if (tmp.exists() && tmp.length() > 0) {
-                tmp.renameTo(file)
+                if (file.exists()) {
+                    file.delete()
+                }
+                if (!tmp.renameTo(file)) {
+                    file.writeText(jsonText, Charsets.UTF_8)
+                    tmp.delete()
+                }
             }
             AppLogger.log(TAG, "saveTracks", true, "Saved ${tracks.size} tracks to ${file.absolutePath}")
         } catch (e: Exception) {
@@ -318,21 +315,85 @@ object MushroomStorageManager {
     private val settingsFile: File
         get() = File(settingsDir, "settings.json")
 
-    fun loadSettingsJson(): JSONObject? {
+    private var inMemorySettings: JSONObject? = null
+
+    @Synchronized
+    fun loadSettingsJson(forceReload: Boolean = false): JSONObject? {
+        if (!forceReload && inMemorySettings != null) return inMemorySettings
         return try {
             val file = settingsFile
             if (!file.exists()) return null
-            JSONObject(file.readText(Charsets.UTF_8))
+            val json = JSONObject(file.readText(Charsets.UTF_8))
+            inMemorySettings = json
+            json
         } catch (e: Exception) {
             null
         }
     }
 
+    @Synchronized
+    fun getSettingsJson(): JSONObject {
+        return loadSettingsJson() ?: inMemorySettings ?: JSONObject().also { inMemorySettings = it }
+    }
+
+    @Synchronized
     fun saveSettingsJson(json: JSONObject) {
+        inMemorySettings = json
         try {
+            settingsFile.parentFile?.mkdirs()
             settingsFile.writeText(json.toString(2), Charsets.UTF_8)
         } catch (e: Exception) {
             AppLogger.log(TAG, "saveSettingsJson", false, "Error saving settings: ${e.message}")
         }
+    }
+
+    // --- Search History in settings.json ---
+    fun getAddressSearchHistory(): List<String> {
+        val json = getSettingsJson()
+        val arr = json.optJSONArray("address_search_history") ?: return emptyList()
+        val list = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            val q = arr.optString(i, "").trim()
+            if (q.isNotEmpty()) list.add(q)
+        }
+        return list
+    }
+
+    fun addAddressSearchQuery(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return
+        val current = getAddressSearchHistory().toMutableList()
+        current.removeAll { it.equals(trimmed, ignoreCase = true) }
+        current.add(0, trimmed)
+        val limited = current.take(15)
+
+        val json = getSettingsJson()
+        val arr = org.json.JSONArray()
+        for (item in limited) {
+            arr.put(item)
+        }
+        json.put("address_search_history", arr)
+        saveSettingsJson(json)
+    }
+
+    // --- Downloaded files metadata in settings.json ---
+    fun getDownloadedFileMeta(name: String): Pair<Long, Long>? {
+        val json = getSettingsJson()
+        val filesObj = json.optJSONObject("downloaded_files") ?: return null
+        val itemObj = filesObj.optJSONObject(name) ?: return null
+        val mod = itemObj.optLong("m", 0L)
+        val len = itemObj.optLong("s", 0L)
+        return if (mod > 0L || len > 0L) Pair(mod, len) else null
+    }
+
+    fun recordDownloadedFile(name: String, lastMod: Long, size: Long) {
+        if (lastMod <= 0L && size <= 0L) return
+        val json = getSettingsJson()
+        val filesObj = json.optJSONObject("downloaded_files") ?: JSONObject().also { json.put("downloaded_files", it) }
+        filesObj.put(name, JSONObject().apply {
+            put("m", lastMod)
+            put("s", size)
+        })
+        saveSettingsJson(json)
     }
 }

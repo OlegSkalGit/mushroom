@@ -117,184 +117,6 @@ object MushroomDatabaseManager {
     }
 
     /**
-     * Завантаження багатотомного архіву з докачуванням та потоковим розпакуванням
-     */
-    fun downloadDatabase(
-        context: Context,
-        forceDownload: Boolean = false,
-        onProgress: (percent: Int, statusText: String) -> Unit,
-        onDetailedProgress: ((fileName: String, bytesDownloaded: Long, totalBytes: Long, fileIndex: Int, totalFiles: Int, percent: Int) -> Unit)? = null,
-        onComplete: (success: Boolean, errorMsg: String?) -> Unit
-    ) {
-        Thread {
-            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            val wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mushroom:DatabaseDownloadWakeLock")?.apply {
-                try { acquire(45 * 60 * 1000L) } catch (_: Exception) {}
-            }
-            try {
-                if (!forceDownload && isDatabaseUpToDate(context)) {
-                    onComplete(true, null)
-                    return@Thread
-                }
-
-            val targetDir = getDatabaseDirectory(context)
-            if (!targetDir.exists()) targetDir.mkdirs()
-
-            val downloadedPartFiles = mutableListOf<File>()
-
-            // 1. Завантаження всіх томів .z01 ... .zip
-            var downloadedTotalBytes = 0L
-
-            for ((index, part) in DB_PARTS.withIndex()) {
-                val (fileName, expectedSize) = part
-                val partFile = File(targetDir, fileName)
-                downloadedPartFiles.add(partFile)
-
-                // Якщо файл уже повністю завантажений — пропускаємо
-                if (partFile.exists() && partFile.length() == expectedSize) {
-                    downloadedTotalBytes += expectedSize
-                    continue
-                }
-
-                // Якщо файл більший ніж треба — видаляємо
-                if (partFile.exists() && partFile.length() > expectedSize) {
-                    partFile.delete()
-                }
-
-                var success = false
-                var consecutiveFailures = 0
-                var totalAttempts = 0
-                var lastAttemptMadeProgress = false
-                var lastErr: String? = null
-                val partUrl = "$BASE_DOWNLOAD_URL$fileName"
-
-                while (!success && consecutiveFailures < 8 && totalAttempts < 50) {
-                    totalAttempts++
-                    if (totalAttempts > 1) {
-                        val pauseMs = if (lastAttemptMadeProgress) {
-                            2500L
-                        } else {
-                            (3000L * consecutiveFailures).coerceIn(3000L, 15000L)
-                        }
-                        try { Thread.sleep(pauseMs) } catch (_: Exception) {}
-                    }
-                    lastAttemptMadeProgress = false
-                    var bytesReadThisAttempt = 0L
-                    var conn: HttpURLConnection? = null
-                    var input: InputStream? = null
-                    var output: FileOutputStream? = null
-
-                    try {
-                        val existingLen = if (partFile.exists()) partFile.length() else 0L
-                        val url = URL(partUrl)
-                        conn = url.openConnection() as HttpURLConnection
-                        conn.connectTimeout = 20000
-                        conn.readTimeout = 45000
-                        conn.setRequestProperty("User-Agent", "MushroomApp/1.0 (Android)")
-                        conn.setRequestProperty("Connection", "keep-alive")
-
-                        if (existingLen > 0) {
-                            conn.setRequestProperty("Range", "bytes=$existingLen-")
-                        }
-                        conn.connect()
-
-                        val code = conn.responseCode
-                        if (code == 416) {
-                            if (expectedSize > 0L && partFile.length() == expectedSize) {
-                                downloadedTotalBytes += expectedSize
-                                success = true
-                                conn.disconnect()
-                                break
-                            }
-                            partFile.delete()
-                            conn.disconnect()
-                            continue
-                        }
-                        val isResume = (code == 206)
-                        if (code != 200 && code != 206) {
-                            throw Exception("HTTP $code від $fileName")
-                        }
-
-                        val append = isResume && existingLen > 0
-                        input = conn.inputStream
-                        output = FileOutputStream(partFile, append)
-
-                        val buffer = ByteArray(32768)
-                        var readCount: Int
-
-                        while (input.read(buffer).also { readCount = it } != -1) {
-                            output.write(buffer, 0, readCount)
-                            bytesReadThisAttempt += readCount
-                            val currentPartLen = partFile.length()
-                            val overallProgressBytes = downloadedTotalBytes + currentPartLen
-                            val percent = ((overallProgressBytes * 85) / TOTAL_ARCHIVE_SIZE).toInt().coerceIn(0, 85)
-                            val mbDone = overallProgressBytes / (1024 * 1024)
-                            val mbTotal = TOTAL_ARCHIVE_SIZE / (1024 * 1024)
-
-                            val partPercent = if (expectedSize > 0) ((currentPartLen * 100) / expectedSize).toInt().coerceIn(0, 100) else 0
-                            onProgress(percent, "Том ${index + 1}/${DB_PARTS.size}: $mbDone/$mbTotal МБ ($percent%)")
-                            onDetailedProgress?.invoke(fileName, currentPartLen, expectedSize, index + 1, DB_PARTS.size, partPercent)
-                        }
-
-                        output.flush()
-                        output.close()
-                        output = null
-                        input.close()
-                        input = null
-                        conn.disconnect()
-
-                        if (bytesReadThisAttempt >= 65536L) {
-                            lastAttemptMadeProgress = true
-                            consecutiveFailures = 0
-                        } else {
-                            consecutiveFailures++
-                        }
-
-                        if (expectedSize <= 0L || partFile.length() == expectedSize) {
-                            downloadedTotalBytes += expectedSize
-                            success = true
-                        } else if (expectedSize > 0L && partFile.length() > expectedSize) {
-                            partFile.delete()
-                        }
-                    } catch (e: Exception) {
-                        lastErr = e.message
-                        if (bytesReadThisAttempt >= 65536L) {
-                            lastAttemptMadeProgress = true
-                            consecutiveFailures = 0
-                        } else {
-                            consecutiveFailures++
-                        }
-                        try { output?.close() } catch (_: Exception) {}
-                        try { input?.close() } catch (_: Exception) {}
-                        try { conn?.disconnect() } catch (_: Exception) {}
-                    }
-                }
-                if (!success) {
-                    onComplete(false, "Помилка завантаження $fileName: ${lastErr ?: "Не вдалося повністю завантажити"}")
-                    return@Thread
-                }
-            }
-
-            // 2. Потокове розпакування через MultiVolumeZipInputStream
-            onProgress(88, "Розпакування бази даних...")
-            val successUnpack = unpackDownloadedParts(context, downloadedPartFiles)
-            if (!successUnpack) {
-                onComplete(false, "Помилка розпакування або невідповідність розміру бази даних")
-                return@Thread
-            }
-
-            onProgress(100, "Готово!")
-            closeDatabase()
-            onComplete(true, null)
-        } finally {
-            try {
-                if (wakeLock?.isHeld == true) wakeLock.release()
-            } catch (_: Exception) {}
-        }
-    }.start()
-    }
-
-    /**
      * Потокове розпакування багатотомного архіву бази даних SQLite з валідацією розміру.
      */
     fun unpackDownloadedParts(
@@ -443,6 +265,7 @@ object MushroomDatabaseManager {
         fullArgs.add(offset.toString())
 
         val resultList = mutableListOf<MushroomTaxon>()
+        val dbIds = mutableListOf<Int>()
         val seenKeys = HashSet<String>()
 
         try {
@@ -553,17 +376,14 @@ object MushroomDatabaseManager {
                         wikiUrlEn ?: wikiUrlUk
                     }
 
-                    // Pre-generate offline photo URIs for this taxon
-                    val photoUris = getTaxonPhotoUris(db, dbId)
-                    val defaultUri = photoUris.firstOrNull()
-
+                    dbIds.add(dbId)
                     resultList.add(
                         MushroomTaxon(
                             id = inatId,
                             scientificName = sciName,
                             commonName = commonName,
-                            defaultPhotoUrl = defaultUri,
-                            photoUrls = photoUris,
+                            defaultPhotoUrl = null,
+                            photoUrls = emptyList(),
                             wikipediaSummary = wikiSummary,
                             wikipediaUrl = wikiUrl,
                             edibility = edibility,
@@ -593,6 +413,32 @@ object MushroomDatabaseManager {
                             useEn = useEn
                         )
                     )
+                }
+            }
+
+            if (dbIds.isNotEmpty()) {
+                val photoMap = HashMap<Int, MutableList<String>>(dbIds.size)
+                val placeholders = dbIds.joinToString(",") { "?" }
+                val args = dbIds.map { it.toString() }.toTypedArray()
+                val photoCursor = db.rawQuery(
+                    "SELECT taxon_id, id FROM photos WHERE taxon_id IN ($placeholders) ORDER BY taxon_id ASC, photo_index ASC",
+                    args
+                )
+                photoCursor.use { pc ->
+                    while (pc.moveToNext()) {
+                        val tId = pc.getInt(0)
+                        val pId = pc.getInt(1)
+                        photoMap.getOrPut(tId) { mutableListOf() }.add("db://photo/$pId")
+                    }
+                }
+                for (i in resultList.indices) {
+                    val uris = photoMap[dbIds[i]]
+                    if (!uris.isNullOrEmpty()) {
+                        resultList[i] = resultList[i].copy(
+                            defaultPhotoUrl = uris.first(),
+                            photoUrls = uris
+                        )
+                    }
                 }
             }
         } catch (_: Exception) {}
@@ -635,20 +481,6 @@ object MushroomDatabaseManager {
         return result
     }
 
-    private fun getTaxonPhotoUris(db: SQLiteDatabase, taxonDbId: Int): List<String> {
-        val list = mutableListOf<String>()
-        try {
-            val cursor = db.rawQuery("SELECT id FROM photos WHERE taxon_id = ? ORDER BY photo_index ASC", arrayOf(taxonDbId.toString()))
-            cursor.use {
-                while (it.moveToNext()) {
-                    val photoId = it.getInt(0)
-                    list.add("db://photo/$photoId")
-                }
-            }
-        } catch (_: Exception) {}
-        return list
-    }
-
     fun loadPhotoBlob(context: Context, photoId: Int): ByteArray? {
         val db = getDatabase(context) ?: return null
         return try {
@@ -659,13 +491,5 @@ object MushroomDatabaseManager {
         } catch (_: Exception) {
             null
         }
-    }
-
-    private fun android.database.Cursor.optStringVal(index: Int): String? {
-        return if (!isNull(index)) getString(index) else null
-    }
-
-    private fun android.database.Cursor.optIntVal(index: Int): Int? {
-        return if (!isNull(index)) getInt(index) else null
     }
 }

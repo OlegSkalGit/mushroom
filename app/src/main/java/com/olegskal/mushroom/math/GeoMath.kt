@@ -51,47 +51,17 @@ object GeoMath {
         compassHeading: Float = 0f,
         isStationary: Boolean = false,
         isGpsDisabled: Boolean = false,
-        isDeepSleep: Boolean = false,
-        isMotionSensorActive: Boolean = false,
         isRecordingTrack: Boolean = false,
         recordedDistanceMeters: Float = 0f,
-        recordedDurationSec: Long = 0L,
-        notificationOverride: String? = null
+        recordedDurationSec: Long = 0L
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 40f
-        val accInt = if (location.hasAccuracy()) location.accuracy.toInt() else 0
-
-        val gpsStatusStr = when {
-            isGpsDisabled -> "GPS disabled in settings"
-            isDeepSleep -> if (isMotionSensorActive) "Sleep mode (motion sensor)" else "Sleep mode (accelerometer)"
-            location.latitude == 0.0 && location.longitude == 0.0 -> "Searching for satellites..."
-            isAccuracyWeak -> "Weak signal (±${accInt}m)"
-            location.hasAccuracy() -> "GPS: OK (±${accInt}m)"
-            else -> "GPS: Active"
-        }
-
-        val defaultNotif = when {
-            isGpsDisabled -> "GPS disabled"
-            isDeepSleep -> "Mushroom in power saving mode"
-            isRecordingTrack -> {
-                val kmStr = String.format(java.util.Locale.US, "%.2f km", recordedDistanceMeters / 1000f)
-                val m = recordedDurationSec / 60
-                val s = recordedDurationSec % 60
-                val timeStr = String.format(java.util.Locale.US, "%02d:%02d", m, s)
-                "Recording track: $kmStr | $timeStr"
-            }
-            isAccuracyWeak -> "Weak GPS signal (±${accInt}m)"
-            else -> "Mushroom active"
-        }
 
         return ProcessedLocationMetrics(
             location = location,
             speedKmh = speedKmh,
             isAccuracyWeak = isAccuracyWeak,
-            gpsStatusStr = gpsStatusStr,
-            notificationText = notificationOverride ?: defaultNotif,
             isGpsDisabled = isGpsDisabled,
-            isDeepSleep = isDeepSleep,
             trajectoryBearing = trajectoryBearing,
             compassHeading = compassHeading,
             isStationary = isStationary,
@@ -106,10 +76,7 @@ data class ProcessedLocationMetrics(
     val location: Location,
     val speedKmh: Float,
     val isAccuracyWeak: Boolean,
-    val gpsStatusStr: String,
-    val notificationText: String,
     val isGpsDisabled: Boolean,
-    val isDeepSleep: Boolean,
     val trajectoryBearing: Float,
     val compassHeading: Float,
     val isStationary: Boolean,
@@ -125,25 +92,12 @@ class TrajectoryFilter(
     private var lastBufferPushTimeMs: Long = 0L
 
     @Synchronized
-    fun reset() {
-        buffer.clear()
-        lastBufferPushTimeMs = 0L
-    }
-
-    @Synchronized
-    fun getPoints(): List<Location> = buffer.toList()
-
-    @Synchronized
     fun processLocation(location: Location): TrajectoryResult {
         val isWeak = location.hasAccuracy() && location.accuracy > 50f
         if (isWeak) {
             return TrajectoryResult(
-                isValid = false,
-                isAccuracyWeak = true,
-                points = buffer.toList(),
                 averageSpeedKmh = 0f,
-                trajectoryBearing = location.bearing,
-                projectedLocation = location
+                trajectoryBearing = location.bearing
             )
         }
 
@@ -157,20 +111,15 @@ class TrajectoryFilter(
             lastBufferPushTimeMs = locTime
         }
 
-        val pts = buffer.toList()
-        if (pts.size < 2) {
+        if (buffer.size < 2) {
             return TrajectoryResult(
-                isValid = true,
-                isAccuracyWeak = false,
-                points = pts,
                 averageSpeedKmh = if (location.hasSpeed()) location.speed * 3.6f else 0f,
-                trajectoryBearing = location.bearing,
-                projectedLocation = location
+                trajectoryBearing = location.bearing
             )
         }
 
-        val first = pts.first()
-        val last = pts.last()
+        val first = buffer.first()
+        val last = buffer.last()
         val dist = GeoMath.calculateDistance(first, last.latitude, last.longitude)
         val timeSec = maxOf(1.0, (last.time - first.time) / 1000.0)
         val speedKmh = ((dist / timeSec) * 3.6).toFloat()
@@ -179,23 +128,15 @@ class TrajectoryFilter(
         val isStationary = dist < 3.0f && speedKmh < 1.0f
 
         return TrajectoryResult(
-            isValid = true,
-            isAccuracyWeak = false,
-            points = pts,
             averageSpeedKmh = if (isStationary) 0f else speedKmh,
             trajectoryBearing = if (bearing < 0) bearing + 360f else bearing,
-            projectedLocation = last,
             isStationary = isStationary
         )
     }
 }
 
 data class TrajectoryResult(
-    val isValid: Boolean,
-    val isAccuracyWeak: Boolean,
-    val points: List<Location>,
     val averageSpeedKmh: Float,
     val trajectoryBearing: Float,
-    val projectedLocation: Location? = null,
     val isStationary: Boolean = false
 )

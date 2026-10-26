@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -47,7 +48,7 @@ object ItemEditDialog {
         var lon: Double,
         var altitude: Double = 0.0,
         var type: String,
-        val originalMarkerId: Long? = null,
+        val originalMarker: MushroomMarker? = null,
         val onMarkerAdded: ((MushroomMarker) -> Unit)? = null,
         val onMarkerUpdated: ((MushroomMarker) -> Unit)? = null
     )
@@ -73,7 +74,7 @@ object ItemEditDialog {
             lon = lon,
             altitude = altitude,
             type = initialType ?: (if (lang == "uk") "Маркер" else "Marker"),
-            originalMarkerId = null,
+            originalMarker = null,
             onMarkerAdded = onMarkerAdded
         )
         showDialog(
@@ -103,7 +104,7 @@ object ItemEditDialog {
             lon = marker.lon,
             altitude = marker.altitude,
             type = marker.type,
-            originalMarkerId = marker.id,
+            originalMarker = marker,
             onMarkerUpdated = onMarkerUpdated
         )
         showDialog(
@@ -359,7 +360,8 @@ object ItemEditDialog {
             val name = nameInput.text.toString().trim().ifEmpty { defaultFallback }
 
             if (markerContext != null) {
-                if (isForceNewMarker || markerContext.originalMarkerId == null) {
+                val orig = markerContext.originalMarker
+                if (isForceNewMarker || orig == null) {
                     val newMarker = MushroomMarker(
                         id = System.currentTimeMillis(),
                         name = name,
@@ -377,18 +379,18 @@ object ItemEditDialog {
                     val msg = if (isUk) "Маркер \"$name\" збережено!" else "Marker \"$name\" saved!"
                     Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
                 } else {
-                    markerContext.dbHelper.updateMarker(markerContext.originalMarkerId, name, selectedColor)
+                    markerContext.dbHelper.updateMarker(orig.id, name, selectedColor)
                     val updatedMarker = MushroomMarker(
-                        id = markerContext.originalMarkerId,
+                        id = orig.id,
                         name = name,
                         type = markerContext.type,
                         lat = markerContext.lat,
                         lon = markerContext.lon,
                         altitude = markerContext.altitude,
-                        timestamp = System.currentTimeMillis(),
-                        note = "",
+                        timestamp = orig.timestamp,
+                        note = orig.note,
                         color = selectedColor,
-                        isVisible = true
+                        isVisible = orig.isVisible
                     )
                     markerContext.onMarkerUpdated?.invoke(updatedMarker)
                     val msg = if (isUk) "Маркер \"$name\" оновлено!" else "Marker \"$name\" updated!"
@@ -561,6 +563,82 @@ object ItemEditDialog {
                         val distStr = AddressSearchManager.formatDistance(info.nearestHouseDistanceMeters)
                         addressTv.text = "🏠 ${info.nearestHouseAddress} ($distStr)"
                         addressTv.visibility = View.VISIBLE
+                    } else if (info.nearestStreetName != null && info.nearestStreetDistanceMeters != null && info.nearestStreetDistanceMeters < 50.0f) {
+                        val distStr = AddressSearchManager.formatDistance(info.nearestStreetDistanceMeters)
+                        addressTv.text = "🛣️ ${info.nearestStreetName} ($distStr)"
+                        addressTv.visibility = View.VISIBLE
+                    }
+
+                    fun renderRow(
+                        iconText: String,
+                        titleText: String,
+                        subtitleText: String,
+                        distMeters: Float,
+                        onClick: () -> Unit
+                    ) {
+                        val row = LinearLayout(activity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            setBackgroundColor(Color.parseColor("#1B261E"))
+                            val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                setMargins(0, 0, 0, dp(6))
+                            }
+                            layoutParams = p
+                            setPadding(dp(12), dp(8), dp(12), dp(8))
+                            isClickable = true
+                            isFocusable = true
+                        }
+
+                        val iconTv = TextView(activity).apply {
+                            text = iconText
+                            textSize = 18f
+                            setPadding(0, 0, dp(10), 0)
+                        }
+                        row.addView(iconTv)
+
+                        val tCol = LinearLayout(activity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        }
+
+                        val rTitle = TextView(activity).apply {
+                            text = titleText
+                            setTextColor(Color.WHITE)
+                            textSize = 14f
+                            setTypeface(null, Typeface.BOLD)
+                            maxLines = 2
+                            ellipsize = TextUtils.TruncateAt.END
+                        }
+                        tCol.addView(rTitle)
+
+                        if (subtitleText.isNotBlank()) {
+                            val rSub = TextView(activity).apply {
+                                text = subtitleText
+                                setTextColor(Color.parseColor("#9CA3AF"))
+                                textSize = 11.5f
+                                maxLines = 2
+                                ellipsize = TextUtils.TruncateAt.END
+                            }
+                            tCol.addView(rSub)
+                        }
+                        row.addView(tCol)
+
+                        val distStr = AddressSearchManager.formatDistance(distMeters)
+                        val distTv = TextView(activity).apply {
+                            text = distStr
+                            setTextColor(Color.parseColor("#10B981"))
+                            textSize = 12f
+                            setTypeface(null, Typeface.BOLD)
+                            setPadding(dp(8), 0, 0, 0)
+                            gravity = Gravity.CENTER_VERTICAL or Gravity.END
+                        }
+                        row.addView(distTv)
+
+                        row.setOnClickListener {
+                            infoDialog.dismiss()
+                            onClick()
+                        }
+                        listsContainer.addView(row)
                     }
 
                     // Render up to 15 nearest streets
@@ -575,44 +653,9 @@ object ItemEditDialog {
                         listsContainer.addView(streetHeader)
 
                         for ((st, dist) in info.nearestStreets) {
-                            val row = LinearLayout(activity).apply {
-                                orientation = LinearLayout.HORIZONTAL
-                                gravity = Gravity.CENTER_VERTICAL
-                                setBackgroundColor(Color.parseColor("#222A22"))
-                                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                                    setMargins(0, 0, 0, dp(4))
-                                }
-                                layoutParams = p
-                                setPadding(dp(10), dp(8), dp(10), dp(8))
-                                isClickable = true
-                                isFocusable = true
-                            }
-
-                            val tCol = LinearLayout(activity).apply {
-                                orientation = LinearLayout.VERTICAL
-                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                            }
-                            val distPrefix = "(${AddressSearchManager.formatDistance(dist)}) "
-                            val title = "$distPrefix${st.streetName.ifBlank { st.cityName }}"
+                            val title = st.streetName.ifBlank { st.cityName }
                             val sub = listOf(st.cityName, st.regionName).filter { it.isNotBlank() }.joinToString(", ")
-
-                            val rTitle = TextView(activity).apply {
-                                text = title
-                                setTextColor(Color.WHITE)
-                                textSize = 13.5f
-                                setTypeface(null, Typeface.BOLD)
-                            }
-                            val rSub = TextView(activity).apply {
-                                text = sub
-                                setTextColor(Color.GRAY)
-                                textSize = 11.5f
-                            }
-                            tCol.addView(rTitle)
-                            if (sub.isNotBlank()) tCol.addView(rSub)
-                            row.addView(tCol)
-
-                            row.setOnClickListener {
-                                infoDialog.dismiss()
+                            renderRow("🛣️", title, sub, dist) {
                                 onItemSelected(
                                     st.getFullTitle(),
                                     if (isUk) "🛣️ Вулиця" else "🛣️ Street",
@@ -620,7 +663,6 @@ object ItemEditDialog {
                                     st.lon
                                 )
                             }
-                            listsContainer.addView(row)
                         }
                     }
 
@@ -636,45 +678,10 @@ object ItemEditDialog {
                         listsContainer.addView(addrHeader)
 
                         for ((addr, dist) in info.nearestAddresses) {
-                            val row = LinearLayout(activity).apply {
-                                orientation = LinearLayout.HORIZONTAL
-                                gravity = Gravity.CENTER_VERTICAL
-                                setBackgroundColor(Color.parseColor("#222A22"))
-                                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                                    setMargins(0, 0, 0, dp(4))
-                                }
-                                layoutParams = p
-                                setPadding(dp(10), dp(8), dp(10), dp(8))
-                                isClickable = true
-                                isFocusable = true
-                            }
-
-                            val tCol = LinearLayout(activity).apply {
-                                orientation = LinearLayout.VERTICAL
-                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                            }
-                            val distPrefix = "(${AddressSearchManager.formatDistance(dist)}) "
                             val streetPart = listOf(addr.streetName.ifBlank { addr.cityName }, addr.houseNumber).filter { it.isNotBlank() }.joinToString(", ")
-                            val title = "$distPrefix${streetPart.ifBlank { addr.cityName }}"
+                            val title = streetPart.ifBlank { addr.cityName }
                             val sub = listOf(addr.cityName, addr.regionName).filter { it.isNotBlank() }.joinToString(", ")
-
-                            val rTitle = TextView(activity).apply {
-                                text = title
-                                setTextColor(Color.WHITE)
-                                textSize = 13.5f
-                                setTypeface(null, Typeface.BOLD)
-                            }
-                            val rSub = TextView(activity).apply {
-                                text = sub
-                                setTextColor(Color.GRAY)
-                                textSize = 11.5f
-                            }
-                            tCol.addView(rTitle)
-                            if (sub.isNotBlank()) tCol.addView(rSub)
-                            row.addView(tCol)
-
-                            row.setOnClickListener {
-                                infoDialog.dismiss()
+                            renderRow("📍", title, sub, dist) {
                                 onItemSelected(
                                     addr.getFullTitle(),
                                     if (isUk) "📍 Адреса" else "📍 Address",
@@ -682,7 +689,6 @@ object ItemEditDialog {
                                     addr.lon
                                 )
                             }
-                            listsContainer.addView(row)
                         }
                     }
 
@@ -698,51 +704,16 @@ object ItemEditDialog {
                         listsContainer.addView(poiHeader)
 
                         for ((poi, dist) in info.nearestPois) {
-                            val row = LinearLayout(activity).apply {
-                                orientation = LinearLayout.HORIZONTAL
-                                gravity = Gravity.CENTER_VERTICAL
-                                setBackgroundColor(Color.parseColor("#222A22"))
-                                val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                                    setMargins(0, 0, 0, dp(4))
-                                }
-                                layoutParams = p
-                                setPadding(dp(10), dp(8), dp(10), dp(8))
-                                isClickable = true
-                                isFocusable = true
-                            }
-
-                            val iconTv = TextView(activity).apply {
-                                text = poi.poiIcon ?: "📍"
-                                textSize = 18f
-                                setPadding(0, 0, dp(8), 0)
-                            }
-                            row.addView(iconTv)
-
-                            val tCol = LinearLayout(activity).apply {
-                                orientation = LinearLayout.VERTICAL
-                                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                            }
-                            val distPrefix = "(${AddressSearchManager.formatDistance(dist)}) "
-                            val title = "$distPrefix${poi.poiName ?: poi.getFullTitle()}"
-                            val sub = listOf(poi.poiCategory ?: "", poi.streetName, poi.cityName).filter { it.isNotBlank() }.joinToString(", ")
-
-                            val rTitle = TextView(activity).apply {
-                                text = title
-                                setTextColor(Color.WHITE)
-                                textSize = 13.5f
-                                setTypeface(null, Typeface.BOLD)
-                            }
-                            val rSub = TextView(activity).apply {
-                                text = sub
-                                setTextColor(Color.GRAY)
-                                textSize = 11.5f
-                            }
-                            tCol.addView(rTitle)
-                            if (sub.isNotBlank()) tCol.addView(rSub)
-                            row.addView(tCol)
-
-                            row.setOnClickListener {
-                                infoDialog.dismiss()
+                            val title = poi.poiName ?: poi.getFullTitle()
+                            val loc = listOf(
+                                listOf(poi.streetName, poi.houseNumber).filter { it.isNotBlank() }.joinToString(", "),
+                                poi.cityName,
+                                poi.regionName
+                            ).filter { it.isNotBlank() }.joinToString(", ")
+                            val cat = poi.poiCategory ?: ""
+                            val sub = if (cat.isNotBlank() && loc.isNotBlank()) "$cat • $loc" else cat.ifBlank { loc }
+                            val icon = poi.poiIcon ?: "📍"
+                            renderRow(icon, title, sub, dist) {
                                 val chosenType = "${poi.poiIcon ?: "📍"} ${poi.poiCategory ?: ""}".trim()
                                 onItemSelected(
                                     poi.poiName ?: poi.getFullTitle(),
@@ -751,7 +722,6 @@ object ItemEditDialog {
                                     poi.lon
                                 )
                             }
-                            listsContainer.addView(row)
                         }
                     }
                 }

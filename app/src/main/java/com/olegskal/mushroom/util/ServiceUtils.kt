@@ -14,29 +14,23 @@ import android.provider.Settings
  */
 object ServiceUtils {
 
-    val PENDING_INTENT_IMMUTABLE_FLAGS: Int =
-        PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+    const val PENDING_INTENT_IMMUTABLE_FLAGS: Int =
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
     fun startTrackingService(context: Context, intent: Intent) {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            context.startForegroundService(intent)
         } catch (e: Exception) {
             AppLogger.log("ServiceUtils", "startTrackingService", false, "Failed to start service: ${e.message}")
         }
     }
 
     fun isIgnoringBatteryOptimizations(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return true
         return pm.isIgnoringBatteryOptimizations(context.packageName)
     }
 
     fun requestIgnoreBatteryOptimizations(activity: Activity) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         if (isIgnoringBatteryOptimizations(activity)) return
         try {
             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {

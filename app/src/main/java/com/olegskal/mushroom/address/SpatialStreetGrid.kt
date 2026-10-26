@@ -180,9 +180,10 @@ class SpatialStreetGrid {
      * Потокове завантаження геометрії доріг з тимчасового JSON-файлу через [JsonReader]
      * без створення важких об'єктів у RAM.
      */
-    fun loadFromJsonFile(file: File): Int {
+    fun loadFromJsonFile(file: File, countryCode: String = "UA"): Int {
         if (!file.exists() || file.length() == 0L) return 0
         var loadedWays = 0
+        val preferUk = countryCode.equals("UA", ignoreCase = true)
 
         try {
             file.bufferedReader(Charsets.UTF_8).use { br ->
@@ -194,7 +195,8 @@ class SpatialStreetGrid {
                         reader.beginArray()
                         while (reader.hasNext()) {
                             reader.beginObject()
-                            var streetName = ""
+                            var nameLocal = ""
+                            var nameUk = ""
                             val ptsLat = ArrayList<Double>(16)
                             val ptsLon = ArrayList<Double>(16)
 
@@ -206,9 +208,9 @@ class SpatialStreetGrid {
                                             val tagK = reader.nextName()
                                             val tagV = reader.nextString()
                                             if (tagK == "name:uk" && tagV.isNotBlank()) {
-                                                streetName = tagV
-                                            } else if (tagK == "name" && streetName.isBlank()) {
-                                                streetName = tagV
+                                                nameUk = tagV
+                                            } else if (tagK == "name" && tagV.isNotBlank()) {
+                                                nameLocal = tagV
                                             }
                                         }
                                         reader.endObject()
@@ -238,6 +240,12 @@ class SpatialStreetGrid {
                                 }
                             }
                             reader.endObject()
+
+                            val streetName = if (preferUk) {
+                                nameUk.ifBlank { nameLocal }
+                            } else {
+                                nameLocal.ifBlank { nameUk }
+                            }
 
                             if (streetName.isNotBlank() && ptsLat.size >= 2) {
                                 loadedWays++
@@ -276,7 +284,12 @@ class SpatialStreetGrid {
         val canonicalName: String,
         val centerLat: Double,
         val centerLon: Double,
-        val segmentCount: Int
+        val segmentCount: Int,
+        val minLatI: Int = 0,
+        val maxLatI: Int = 0,
+        val minLonI: Int = 0,
+        val maxLonI: Int = 0,
+        val segmentsBlob: ByteArray = ByteArray(0)
     )
 
     /**
@@ -414,7 +427,27 @@ class SpatialStreetGrid {
                 val centerLatDeg = bestLat / 100_000.0
                 val centerLonDeg = bestLon / 100_000.0
                 if (centerLatDeg != 0.0 || centerLonDeg != 0.0) {
-                    result.add(StreetCluster(canonicalName, centerLatDeg, centerLonDeg, n))
+                    val buf = java.nio.ByteBuffer.allocate(n * 16)
+                    for (i in 0 until n) {
+                        val idx = cSegs[i]
+                        buf.putInt(lat1s[idx])
+                        buf.putInt(lon1s[idx])
+                        buf.putInt(lat2s[idx])
+                        buf.putInt(lon2s[idx])
+                    }
+                    result.add(
+                        StreetCluster(
+                            canonicalName = canonicalName,
+                            centerLat = centerLatDeg,
+                            centerLon = centerLonDeg,
+                            segmentCount = n,
+                            minLatI = c.minLat,
+                            maxLatI = c.maxLat,
+                            minLonI = c.minLon,
+                            maxLonI = c.maxLon,
+                            segmentsBlob = buf.array()
+                        )
+                    )
                 }
             }
         }

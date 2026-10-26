@@ -350,6 +350,7 @@ class MushroomTrackingService : Service(), LocationListener {
             track.durationSec = maxOf(1L, (track.endTime - track.startTime) / 1000L)
             dbHelper.updateTrack(track)
             MushroomStorageManager.saveTrackToGpx(track)
+            MushroomStorageManager.saveTracks(dbHelper.getAllTracks())
             AppLogger.log("TrackingService", "stopTrackRecording", true, "Stopped track ${track.id}, dist: ${track.distanceMeters}m")
         }
         activeTrack = null
@@ -442,7 +443,6 @@ class MushroomTrackingService : Service(), LocationListener {
             compassHeading = if (loc.hasBearing()) loc.bearing else 0f,
             isStationary = isStationary,
             isGpsDisabled = isGpsDisabled,
-            isDeepSleep = false,
             isRecordingTrack = isRecording,
             recordedDistanceMeters = activeTrack?.distanceMeters ?: 0f,
             recordedDurationSec = activeTrack?.durationSec ?: 0L
@@ -452,18 +452,16 @@ class MushroomTrackingService : Service(), LocationListener {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(
-                CHANNEL_ID,
-                "Mushroom: Background Tracking",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Persistent notification for navigation and track recording"
-                setShowBadge(false)
-            }
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(ch)
+        val ch = NotificationChannel(
+            CHANNEL_ID,
+            "Mushroom: Background Tracking",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Persistent notification for navigation and track recording"
+            setShowBadge(false)
         }
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(ch)
     }
 
     private fun buildNotification(text: String): Notification {

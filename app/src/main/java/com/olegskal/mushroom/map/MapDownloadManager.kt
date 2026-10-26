@@ -8,6 +8,8 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.*
@@ -113,55 +115,12 @@ object MapDownloadManager {
         return !segFile.exists() || segFile.length() < 1024L
     }
 
-    private val downloadedFileMeta = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Long>>()
-    private val metaLoaded = AtomicBoolean(false)
-    private val metaFile: File
-        get() = File(MushroomStorageManager.settingsDir, "downloaded_files.json")
-
-    private fun ensureMetaLoaded() {
-        if (metaLoaded.compareAndSet(false, true)) {
-            try {
-                val f = metaFile
-                if (f.exists()) {
-                    val json = org.json.JSONObject(f.readText(Charsets.UTF_8))
-                    val keys = json.keys()
-                    while (keys.hasNext()) {
-                        val key = keys.next()
-                        val obj = json.optJSONObject(key)
-                        if (obj != null) {
-                            val mod = obj.optLong("m", 0L)
-                            val len = obj.optLong("s", 0L)
-                            if (mod > 0L || len > 0L) {
-                                downloadedFileMeta[key] = Pair(mod, len)
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-    }
-
     fun getDownloadedFileMeta(name: String): Pair<Long, Long>? {
-        ensureMetaLoaded()
-        return downloadedFileMeta[name]
+        return MushroomStorageManager.getDownloadedFileMeta(name)
     }
 
     fun recordDownloadedFile(name: String, lastMod: Long, size: Long) {
-        ensureMetaLoaded()
-        if (lastMod > 0L || size > 0L) {
-            downloadedFileMeta[name] = Pair(lastMod, size)
-            try {
-                val json = org.json.JSONObject()
-                downloadedFileMeta.forEach { (k, v) ->
-                    json.put(k, org.json.JSONObject().apply {
-                        put("m", v.first)
-                        put("s", v.second)
-                    })
-                }
-                metaFile.parentFile?.mkdirs()
-                metaFile.writeText(json.toString(), Charsets.UTF_8)
-            } catch (_: Exception) {}
-        }
+        MushroomStorageManager.recordDownloadedFile(name, lastMod, size)
     }
 
     private val updateStatusCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Boolean>>()
@@ -639,7 +598,102 @@ object MapDownloadManager {
         val now = System.currentTimeMillis()
         updateStatusCache["MAP_${country.code}"] = Pair(now, false)
         updateStatusCache["POI_${country.code}"] = Pair(now, false)
+        updateStatusCache["RD5_${country.code}"] = Pair(now, false)
         updateStatusCache[country.code] = Pair(now, false)
+    }
+
+    val brouterIndexCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Long>>() // name -> (dateMs, sizeBytes)
+    private var lastBrouterIndexFetchMs = 0L
+
+    fun fetchBRouterSegmentsIndex(force: Boolean = false): Map<String, Pair<Long, Long>>? {
+        val now = System.currentTimeMillis()
+        if (!force && brouterIndexCache.isNotEmpty() && (now - lastBrouterIndexFetchMs < 3600_000L)) {
+            return brouterIndexCache
+        }
+        var conn: HttpURLConnection? = null
+        try {
+            val url = URL("$BROUTER_SEGMENTS_URL/")
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 4000
+                readTimeout = 6000
+                setRequestProperty("User-Agent", USER_AGENT)
+            }
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                val dateFormat = java.text.SimpleDateFormat("dd-MMM-yyyy HH:mm", Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("GMT")
+                }
+                val regex = Regex("""<a href="([^"]+\.rd5)">[^<]+</a>\s+([0-9A-Za-z\-]+\s+[0-9:]+)\s+(\d+)""")
+                conn.inputStream.bufferedReader().useLines { lines ->
+                    for (line in lines) {
+                        val m = regex.find(line)
+                        if (m != null) {
+                            val name = m.groupValues[1]
+                            val dateStr = m.groupValues[2]
+                            val sizeStr = m.groupValues[3]
+                            val timeMs = try { dateFormat.parse(dateStr)?.time ?: 0L } catch (_: Exception) { 0L }
+                            val sizeBytes = sizeStr.toLongOrNull() ?: 0L
+                            if (sizeBytes > 0L) {
+                                brouterIndexCache[name] = Pair(timeMs, sizeBytes)
+                                remoteFileSizes[name] = sizeBytes
+                            }
+                        }
+                    }
+                }
+                lastBrouterIndexFetchMs = now
+                return brouterIndexCache
+            }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "fetchBRouterSegmentsIndex", false, "Failed to fetch segments index: ${e.message}")
+        } finally {
+            try { conn?.disconnect() } catch (_: Exception) {}
+        }
+        return if (brouterIndexCache.isNotEmpty()) brouterIndexCache else null
+    }
+
+    fun checkRd5SegmentUpdate(seg: String, remoteMeta: Map<String, Pair<Long, Long>>? = null): Boolean {
+        if (isSegmentUnavailable(seg)) return false
+        val segFile = File(MushroomStorageManager.navigationDir, seg)
+        val fileLen = segFile.length()
+        if (!segFile.exists() || fileLen < 1024L) {
+            return true
+        }
+        val meta = remoteMeta ?: brouterIndexCache
+        val remoteInfo = meta[seg] ?: return false
+        val (serverMod, serverSize) = remoteInfo
+
+        val savedMeta = getDownloadedFileMeta(seg)
+        val baseMod = savedMeta?.first?.takeIf { it > 0L } ?: segFile.lastModified()
+        val baseLen = savedMeta?.second?.takeIf { it > 0L } ?: fileLen
+
+        val isSizeChanged = serverSize > 0L && baseLen > 0L && serverSize != baseLen
+        val isNewer = serverMod > 0L && baseMod > 0L && serverMod > (baseMod + 86400_000L)
+
+        return isSizeChanged || isNewer
+    }
+
+    fun checkCountryRd5Updates(country: MapCountry, remoteMeta: Map<String, Pair<Long, Long>>? = null): Boolean {
+        val meta = remoteMeta ?: fetchBRouterSegmentsIndex()
+        val segments = country.getRd5Segments()
+        var anyNeeds = false
+        for (seg in segments) {
+            if (checkRd5SegmentUpdate(seg, meta)) {
+                anyNeeds = true
+                break
+            }
+        }
+        val now = System.currentTimeMillis()
+        updateStatusCache["RD5_${country.code}"] = Pair(now, anyNeeds)
+        return anyNeeds
+    }
+
+    fun isCountryRd5UpdateAvailable(country: MapCountry): Boolean {
+        val cached = updateStatusCache["RD5_${country.code}"]
+        return if (cached != null && System.currentTimeMillis() - cached.first < 3600_000L) {
+            cached.second
+        } else {
+            false
+        }
     }
 
     fun markWorldMapUpToDate() {
@@ -723,9 +777,12 @@ object MapDownloadManager {
         Thread {
             val mapUpd = checkRemoteUpdate(country)
             val poiUpd = checkPoiUpdate(country)
-            val hasUpdate = mapUpd || poiUpd
+            val brouterMeta = fetchBRouterSegmentsIndex()
+            val rd5Upd = checkCountryRd5Updates(country, brouterMeta)
+            val hasUpdate = mapUpd || poiUpd || rd5Upd
             updateStatusCache["MAP_${country.code}"] = Pair(now, mapUpd)
             updateStatusCache["POI_${country.code}"] = Pair(now, poiUpd)
+            updateStatusCache["RD5_${country.code}"] = Pair(now, rd5Upd)
             updateStatusCache[country.code] = Pair(now, hasUpdate)
             onResult(hasUpdate)
         }.start()
@@ -821,11 +878,12 @@ object MapDownloadManager {
                     items.add(DownloadItem(country.poiUrl, poiFile, country.poiFileName, country.name))
                 }
 
-                // Сегменти навігації (.rd5) — завантажуємо лише відсутні або пошкоджені
+                // Сегменти навігації (.rd5) — завантажуємо якщо відсутні, пошкоджені або оновились
                 val segments = country.getRd5Segments()
+                val brouterMeta = fetchBRouterSegmentsIndex()
                 for (seg in segments) {
                     val segFile = File(MushroomStorageManager.navigationDir, seg)
-                    val needsSeg = !segFile.exists() || segFile.length() < 1024L
+                    val needsSeg = checkRd5SegmentUpdate(seg, brouterMeta)
                     if (needsSeg) {
                         items.add(DownloadItem("$BROUTER_SEGMENTS_URL/$seg", segFile, seg, country.name))
                     }

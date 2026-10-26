@@ -162,8 +162,9 @@ object AddressDownloadManager {
                 }
             }
             db.beginTransaction()
+            var stmt: android.database.sqlite.SQLiteStatement? = null
             try {
-                val stmt = db.compileStatement(
+                stmt = db.compileStatement(
                     "INSERT INTO admin_places (osm_id, parent_id, level, name, code) VALUES (?, ?, 4, ?, ?);"
                 )
                 for (r in regions) {
@@ -187,6 +188,7 @@ object AddressDownloadManager {
                 }
                 db.setTransactionSuccessful()
             } finally {
+                try { stmt?.close() } catch (_: Exception) {}
                 db.endTransaction()
             }
         } catch (e: Exception) {
@@ -402,17 +404,18 @@ object AddressDownloadManager {
         }
         if (raw.isNullOrBlank()) return emptyMap()
         val assocMap = mutableMapOf<Pair<String, Long>, String>()
+        val preferUk = countryCode.equals("UA", ignoreCase = true)
         try {
             val json = JSONObject(raw)
             val elements = json.optJSONArray("elements") ?: return emptyMap()
             for (i in 0 until elements.length()) {
                 val el = elements.optJSONObject(i) ?: continue
                 val tags = el.optJSONObject("tags") ?: continue
-                val sName = (tags.optString("name:uk").ifBlank {
-                    tags.optString("name").ifBlank {
-                        tags.optString("addr:street")
-                    }
-                }).trim()
+                val sName = (if (preferUk) {
+                    tags.optString("name:uk").ifBlank { tags.optString("name") }
+                } else {
+                    tags.optString("name").ifBlank { tags.optString("name:uk") }
+                }.ifBlank { tags.optString("addr:street") }).trim()
                 if (sName.isBlank()) continue
 
                 val members = el.optJSONArray("members") ?: continue
@@ -523,6 +526,7 @@ object AddressDownloadManager {
         val nodeStems = mutableMapOf<String, String>()
 
         if (!rawCsv.isNullOrBlank()) {
+            val preferUk = countryCode.equals("UA", ignoreCase = true)
             for (line in rawCsv.lines()) {
                 val parts = line.trim().split(";")
                 if (parts.size < 8) continue
@@ -531,7 +535,11 @@ object AddressDownloadManager {
                 val nameUk = parts[4].trim()
                 val nameLocal = parts[5].trim()
                 val nameEn = parts[6].trim()
-                val rawName = nameUk.ifBlank { nameLocal.ifBlank { nameEn } }
+                val rawName = if (preferUk) {
+                    nameUk.ifBlank { nameLocal.ifBlank { nameEn } }
+                } else {
+                    nameLocal.ifBlank { nameUk.ifBlank { nameEn } }
+                }
                 if (rawName.isBlank()) continue
                 val cleanName = AddressNormalizer.cleanSettlementNameUniversal(rawName)
                 if (cleanName.isBlank()) continue
@@ -915,7 +923,7 @@ object AddressDownloadManager {
 
                             // 4. Поселення: якщо будинку поруч немає (> 40м) - прив'язуємо до найближчого населеного пункту
                             if (matchedStreetId == null && loadedGrid.size > 0) {
-                                val nearestAnyStreetId = loadedGrid.findNearestStreetId(latMicro, lonMicro)
+                                val nearestAnyStreetId = loadedGrid.findNearestStreetId(latMicro / 10, lonMicro / 10)
                                 if (nearestAnyStreetId != null) {
                                     if (settlementStreetCache.containsKey(nearestAnyStreetId)) {
                                         matchedStreetId = settlementStreetCache[nearestAnyStreetId]
@@ -1283,7 +1291,7 @@ object AddressDownloadManager {
                         val streetsFile = if (!isCancelled()) fetchRegionStreets(context, curRegion, country.code, logCallback, isCancelled) else null
                         val streetGrid = SpatialStreetGrid()
                         if (streetsFile != null) {
-                            val loadedWays = streetGrid.loadFromJsonFile(streetsFile)
+                            val loadedWays = streetGrid.loadFromJsonFile(streetsFile, country.code)
                             logCallback("Побудовано сітку вулиць для ${curRegion.name}: $loadedWays ліній (${streetGrid.segmentCount} відрізків, ${streetGrid.streetCount} унікальних вулиць)")
                         }
 
@@ -1410,8 +1418,8 @@ object AddressDownloadManager {
                                     val cityPlaceId = ingestor.getOrCreatePlace(curParent, city, level = 8)
                                     val streetId = ingestor.getOrCreateStreet(cityPlaceId, street, targetRegion.name, city, regPlaceId)
 
-                                    val latI = if (kotlin.math.abs(lat) > 1000.0) (lat / 10.0).roundToInt() else (lat * 100_000.0).roundToInt()
-                                    val lonI = if (kotlin.math.abs(lon) > 1000.0) (lon / 10.0).roundToInt() else (lon * 100_000.0).roundToInt()
+                                    val latI = (lat * 100_000.0).roundToInt()
+                                    val lonI = (lon * 100_000.0).roundToInt()
                                     val coordKey = (latI.toLong() shl 32) or (lonI.toLong() and 0xFFFFFFFFL)
 
                                     regionHouses.add(PreparedHouse(streetId, cleanNum, latI, lonI, coordKey, rank, regPlaceId, cityPlaceId, targetRegion.name, city))
@@ -1715,6 +1723,14 @@ object AddressDownloadManager {
                                     )
                                     if (streetId > 0L && addedStreetCenters.add(streetId)) {
                                         ingestor.addHouse(streetId, "", latI, lonI)
+                                        ingestor.addStreetGeometry(
+                                            streetId,
+                                            cluster.minLatI,
+                                            cluster.maxLatI,
+                                            cluster.minLonI,
+                                            cluster.maxLonI,
+                                            cluster.segmentsBlob
+                                        )
                                     }
                                 }
                             }

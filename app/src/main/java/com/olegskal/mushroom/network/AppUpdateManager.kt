@@ -1,34 +1,16 @@
 package com.olegskal.mushroom.network
 
-import android.app.Activity
-import android.app.AlertDialog
-import android.app.DownloadManager
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
-import android.content.IntentFilter
-import android.content.SharedPreferences
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.widget.Toast
 import androidx.core.content.FileProvider
-import com.olegskal.mushroom.R
-import com.olegskal.mushroom.receiver.UpdateActionReceiver
 import com.olegskal.mushroom.util.AppLogger
 import com.olegskal.mushroom.util.AppPrefs
 import com.olegskal.mushroom.util.getAppVersionName
-import org.json.JSONArray
 import java.io.File
-import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -37,15 +19,6 @@ object AppUpdateManager {
 
     private const val REPO_OWNER = "OlegSkalGit"
     private const val REPO_NAME = "mushroom"
-    private const val API_URL = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases"
-    private const val CHECK_THROTTLE_MS = 15 * 60 * 1000L // 15 minutes throttle
-
-    const val NOTIFICATION_ID = 9901
-    const val NOTIFICATION_CHANNEL_ID = "mushroom_update_channel"
-    const val ACTION_DOWNLOAD_UPDATE = "com.olegskal.mushroom.ACTION_DOWNLOAD_UPDATE"
-    const val ACTION_POSTPONE_UPDATE = "com.olegskal.mushroom.ACTION_POSTPONE_UPDATE"
-    const val EXTRA_DOWNLOAD_URL = "extra_download_url"
-    const val EXTRA_FILE_NAME = "extra_file_name"
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
@@ -62,26 +35,6 @@ object AppUpdateManager {
             if (remote[i] < local[i]) return false
         }
         return remote.size > local.size
-    }
-
-    fun checkAndDownloadUpdate(
-        context: Context,
-        force: Boolean = false,
-        onResult: ((String) -> Unit)? = null
-    ) {
-        val lastCheckMs = AppPrefs.getLastUpdateCheckMs(context)
-        val now = System.currentTimeMillis()
-
-        if (!force && lastCheckMs != 0L && (now - lastCheckMs < CHECK_THROTTLE_MS)) {
-            val minutesLeft = (CHECK_THROTTLE_MS - (now - lastCheckMs)) / 60000L
-            val msg = "Update check skipped (throttle active, next check in ~${minutesLeft}m)."
-            AppLogger.log("AppUpdateManager", "checkAndDownloadUpdate", true, msg)
-            return
-        }
-
-        executor.execute {
-            performUpdateCheck(context, onResult)
-        }
     }
 
     data class CachedUpdate(
@@ -203,113 +156,6 @@ object AppUpdateManager {
         return result
     }
 
-    private fun performUpdateCheck(
-        context: Context,
-        onResult: ((String) -> Unit)?
-    ) {
-        val appContext = context.applicationContext
-        AppPrefs.setLastUpdateCheckMs(context)
-        AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Starting GitHub release update check for $REPO_OWNER/$REPO_NAME...")
-
-        val installedVersionName = appContext.getAppVersionName()
-        val localInstalledVer = extractVersionNumbers(installedVersionName)
-
-        AppLogger.log(
-            "AppUpdateManager",
-            "performUpdateCheck",
-            true,
-            "Local installed version (versionName): $installedVersionName ($localInstalledVer)"
-        )
-
-        val releasesList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases?per_page=100")
-
-        if (releasesList.isEmpty()) {
-            val err = "Failed to fetch releases from GitHub API."
-            AppLogger.log("AppUpdateManager", "performUpdateCheck", false, err)
-            onResult?.let { mainHandler.post { it(err) } }
-            return
-        }
-
-        var latestRemoteVer: List<Int> = emptyList()
-        var latestRemoteName = ""
-        var latestRemoteUrl = ""
-
-        for (release in releasesList) {
-            val assets = release.optJSONArray("assets") ?: continue
-            for (j in 0 until assets.length()) {
-                val asset = assets.getJSONObject(j)
-                val assetName = asset.optString("name", "")
-                val downloadUrl = asset.optString("browser_download_url", "")
-
-                if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotEmpty()) {
-                    val ver = extractVersionNumbers(assetName)
-                    if (isVersionNewer(ver, latestRemoteVer)) {
-                        latestRemoteVer = ver
-                        latestRemoteName = assetName
-                        latestRemoteUrl = downloadUrl
-                    }
-                }
-            }
-        }
-
-        if (latestRemoteVer.isEmpty() || latestRemoteUrl.isEmpty()) {
-            val msg = "No valid APK release assets found on GitHub."
-            AppLogger.log("AppUpdateManager", "performUpdateCheck", true, msg)
-            onResult?.let { mainHandler.post { it(msg) } }
-            return
-        }
-
-        AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Latest remote version on GitHub: $latestRemoteName ($latestRemoteVer)")
-
-        if (isVersionNewer(latestRemoteVer, localInstalledVer)) {
-            AppLogger.log(
-                "AppUpdateManager",
-                "performUpdateCheck",
-                true,
-                "NEW VERSION DETECTED! Remote: $latestRemoteName ($latestRemoteVer) > Local: $installedVersionName ($localInstalledVer)"
-            )
-            saveCachedAppUpdate(context, true, latestRemoteName, latestRemoteUrl)
-            promptUserForUpdate(context, installedVersionName, latestRemoteName, latestRemoteUrl, onResult)
-        } else {
-            val upToDateMsg = "App is up to date (v$installedVersionName)"
-            AppLogger.log(
-                "AppUpdateManager",
-                "performUpdateCheck",
-                true,
-                "App is up-to-date. (Remote: $latestRemoteVer <= Installed: $localInstalledVer)"
-            )
-            saveCachedAppUpdate(context, false, latestRemoteName, latestRemoteUrl)
-            onResult?.let { mainHandler.post { it(upToDateMsg) } }
-        }
-    }
-
-    @Suppress("UNUSED_PARAMETER")
-    private fun promptUserForUpdate(
-        context: Context,
-        installedVerStr: String,
-        latestRemoteName: String,
-        latestRemoteUrl: String,
-        onResult: ((String) -> Unit)?
-    ) {
-        // Вспливаюче вікно прибрано за вимогами користувача.
-        // Оновлення обробляється через стартовий екран "Оновлення додатку".
-        val msg = "Update available: $latestRemoteName"
-        AppLogger.log("AppUpdateManager", "promptUserForUpdate", true, msg)
-        onResult?.let { mainHandler.post { it(msg) } }
-    }
-
-    fun postponeUpdate(context: Context) {
-        AppPrefs.setLastUpdateCheckMs(context)
-        AppLogger.log("AppUpdateManager", "postponeUpdate", true, "Update postponed by user. Next check in 24h.")
-    }
-
-    fun startDownloadFromNotification(context: Context, downloadUrl: String, fileName: String) {
-        executor.execute {
-            AppPrefs.setLastUpdateCheckMs(context)
-            startDownload(context, downloadUrl, fileName, null)
-        }
-    }
-
     fun getApkDownloadDir(): File {
         val pubDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         if (!pubDir.exists()) {
@@ -329,174 +175,6 @@ object AppUpdateManager {
         return File(getApkDownloadDir(), name)
     }
 
-    fun startDownload(
-        context: Context,
-        downloadUrl: String,
-        fileName: String,
-        onResult: ((String) -> Unit)? = null
-    ) {
-        val started = downloadWithDownloadManager(context, downloadUrl, fileName)
-        if (started) {
-            val successMsg = "Downloading update: $fileName"
-            AppLogger.log("AppUpdateManager", "startDownload", true, successMsg)
-            onResult?.let { mainHandler.post { it(successMsg) } }
-        } else {
-            val destFile = getApkFile(fileName)
-            val success = downloadFileWithRedirects(downloadUrl, destFile)
-            if (success) {
-                val successMsg = "New version downloaded: $fileName"
-                AppLogger.log(
-                    "AppUpdateManager",
-                    "startDownload",
-                    true,
-                    "SUCCESS: App update downloaded to ${destFile.absolutePath} (${destFile.length()} bytes)"
-                )
-                installApk(context, destFile)
-                onResult?.let { mainHandler.post { it(successMsg) } }
-            } else {
-                val failMsg = "Failed to download update APK: $fileName"
-                AppLogger.log("AppUpdateManager", "startDownload", false, failMsg)
-                onResult?.let { mainHandler.post { it(failMsg) } }
-            }
-        }
-    }
-
-    private fun findActivity(context: Context?): Activity? {
-        var ctx = context
-        while (ctx is ContextWrapper) {
-            if (ctx is Activity) return ctx
-            ctx = ctx.baseContext
-        }
-        return null
-    }
-
-    private fun showUpdateNotification(
-        context: Context,
-        title: String,
-        message: String,
-        downloadUrl: String,
-        fileName: String
-    ) {
-        try {
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                ?: return
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    NOTIFICATION_CHANNEL_ID,
-                    "App Updates",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
-                notificationManager.createNotificationChannel(channel)
-            }
-
-            val downloadIntent = Intent(context, UpdateActionReceiver::class.java).apply {
-                action = ACTION_DOWNLOAD_UPDATE
-                putExtra(EXTRA_DOWNLOAD_URL, downloadUrl)
-                putExtra(EXTRA_FILE_NAME, fileName)
-            }
-            val pendingDownload = PendingIntent.getBroadcast(
-                context,
-                1,
-                downloadIntent,
-                com.olegskal.mushroom.util.ServiceUtils.PENDING_INTENT_IMMUTABLE_FLAGS
-            )
-
-            val laterIntent = Intent(context, UpdateActionReceiver::class.java).apply {
-                action = ACTION_POSTPONE_UPDATE
-            }
-            val pendingLater = PendingIntent.getBroadcast(
-                context,
-                2,
-                laterIntent,
-                com.olegskal.mushroom.util.ServiceUtils.PENDING_INTENT_IMMUTABLE_FLAGS
-            )
-
-            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Notification.Builder(context, NOTIFICATION_CHANNEL_ID)
-            } else {
-                @Suppress("DEPRECATION")
-                Notification.Builder(context)
-            }
-
-            val notification = builder
-                .setSmallIcon(R.drawable.ic_mushroom_notif)
-                .setContentTitle(title)
-                .setContentText(message)
-                .setStyle(Notification.BigTextStyle().bigText(message))
-                .setPriority(Notification.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .addAction(android.R.drawable.ic_menu_save, "Update", pendingDownload)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Later", pendingLater)
-                .setContentIntent(pendingDownload)
-                .build()
-
-            notificationManager.notify(NOTIFICATION_ID, notification)
-            AppLogger.log("AppUpdateManager", "showUpdateNotification", true, "Posted notification prompt for new version: $fileName")
-        } catch (e: Exception) {
-            AppLogger.log("AppUpdateManager", "showUpdateNotification", false, "Failed to post update notification: ${e.message}")
-        }
-    }
-
-    private fun downloadWithDownloadManager(context: Context, downloadUrl: String, fileName: String): Boolean {
-        return try {
-            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-                ?: return false
-
-            getApkDownloadDir().mkdirs()
-            val existingFile = getApkFile(fileName)
-            if (existingFile.exists()) {
-                existingFile.delete()
-            }
-
-            val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
-                setTitle("Mushroom Update")
-                setDescription("Downloading $fileName...")
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                setMimeType("application/vnd.android.package-archive")
-            }
-
-            val downloadId = downloadManager.enqueue(request)
-            AppLogger.log("AppUpdateManager", "downloadWithDownloadManager", true, "Enqueued DownloadManager job $downloadId for $fileName")
-
-            val onCompleteReceiver = object : BroadcastReceiver() {
-                override fun onReceive(recvContext: Context?, intent: Intent?) {
-                    val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) ?: -1L
-                    if (id == downloadId) {
-                        try {
-                            context.unregisterReceiver(this)
-                        } catch (_: Exception) {}
-
-                        val downloadedFile = getApkFile(fileName)
-                        if (downloadedFile.exists() && downloadedFile.length() > 0) {
-                            AppLogger.log("AppUpdateManager", "onDownloadComplete", true, "Download complete via DownloadManager: ${downloadedFile.absolutePath}")
-                            installApk(context, downloadedFile)
-                        }
-                    }
-                }
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(
-                    onCompleteReceiver,
-                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                    Context.RECEIVER_EXPORTED
-                )
-            } else {
-                context.registerReceiver(
-                    onCompleteReceiver,
-                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-                )
-            }
-
-            true
-        } catch (e: Exception) {
-            AppLogger.log("AppUpdateManager", "downloadWithDownloadManager", false, "Failed to enqueue DownloadManager: ${e.message}")
-            false
-        }
-    }
-
     fun installApk(context: Context, apkFile: File) {
         mainHandler.post {
             try {
@@ -505,11 +183,7 @@ object AppUpdateManager {
                     return@post
                 }
                 val intent = Intent(Intent.ACTION_VIEW).apply {
-                    val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
-                    } else {
-                        Uri.fromFile(apkFile)
-                    }
+                    val uri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
                     setDataAndType(uri, "application/vnd.android.package-archive")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -520,16 +194,6 @@ object AppUpdateManager {
                 AppLogger.log("AppUpdateManager", "installApk", false, "Failed to launch installer intent: ${e.message}")
             }
         }
-    }
-
-    private fun downloadFileWithRedirects(urlStr: String, destFile: File): Boolean {
-        return com.olegskal.mushroom.ui.InitialSetupDialog.downloadFileWithResume(
-            urlStr = urlStr,
-            destFile = destFile,
-            onBytesRead = {},
-            onSizeDiscovered = {},
-            isCancelled = { false }
-        )
     }
 
     fun downloadApkDirect(

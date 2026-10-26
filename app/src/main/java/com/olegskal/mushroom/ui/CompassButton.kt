@@ -17,8 +17,15 @@ import kotlin.math.min
  */
 class CompassButton(context: Context) : View(context) {
 
+    enum class Mode {
+        DISPLACED,        // 1. Режим зміщення (Вільний огляд) - червоний контур
+        FOLLOW_NORTH_UP,  // 2. Слідкування без повороту (Північ угорі) - без змін
+        FOLLOW_HEADING    // 3. Слідкування з поворотом (За напрямком) - зелений контур
+    }
+
     private var bearing: Float = 0f
-    private var isCompassActive: Boolean = false
+    var mode: Mode = Mode.FOLLOW_NORTH_UP
+        private set
     private var isTouchPressed: Boolean = false
 
     // Cached paints for zero allocation in onDraw
@@ -89,17 +96,10 @@ class CompassButton(context: Context) : View(context) {
         isFocusable = true
     }
 
-    fun setBearing(angle: Float, active: Boolean = (kotlin.math.abs(angle % 360f) > 0.5f)) {
-        if (bearing != angle || isCompassActive != active) {
+    fun setMode(newMode: Mode, angle: Float = bearing) {
+        if (bearing != angle || mode != newMode) {
             bearing = angle
-            isCompassActive = active
-            invalidate()
-        }
-    }
-
-    fun setActive(active: Boolean) {
-        if (isCompassActive != active) {
-            isCompassActive = active
+            mode = newMode
             invalidate()
         }
     }
@@ -156,20 +156,27 @@ class CompassButton(context: Context) : View(context) {
         // 1. Dark Circular Background (70% transparent)
         bgPaint.color = if (isTouchPressed) {
             Color.parseColor("#80111111")
-        } else if (isCompassActive) {
-            Color.parseColor("#661A333A") // Highlighted with subtle cyan tint
-        } else {
-            Color.parseColor("#4D222222")
+        } else when (mode) {
+            Mode.DISPLACED -> Color.parseColor("#593A1A1A")       // subtle red tint
+            Mode.FOLLOW_HEADING -> Color.parseColor("#591A3A22")   // subtle green tint
+            Mode.FOLLOW_NORTH_UP -> Color.parseColor("#4D222222")  // unchanged
         }
         canvas.drawCircle(cx, cy, radius, bgPaint)
 
-        // 2. Active Mode Rim
-        if (isCompassActive) {
-            borderPaint.color = Color.parseColor("#00E5FF") // Active cyan rim
-            borderPaint.strokeWidth = 2.5f * density
-        } else {
-            borderPaint.color = Color.parseColor("#33FFFFFF")
-            borderPaint.strokeWidth = 1.2f * density
+        // 2. Mode Rim
+        when (mode) {
+            Mode.DISPLACED -> {
+                borderPaint.color = Color.parseColor("#FF3B30") // 1. Режим зміщення - червоний контур
+                borderPaint.strokeWidth = 2.5f * density
+            }
+            Mode.FOLLOW_HEADING -> {
+                borderPaint.color = Color.parseColor("#00E676") // 3. Слідкування з поворотом - зелений контур
+                borderPaint.strokeWidth = 2.5f * density
+            }
+            Mode.FOLLOW_NORTH_UP -> {
+                borderPaint.color = Color.parseColor("#33FFFFFF") // 2. Слідкування без повороту - без змін
+                borderPaint.strokeWidth = 1.2f * density
+            }
         }
         canvas.drawCircle(cx, cy, radius, borderPaint)
 

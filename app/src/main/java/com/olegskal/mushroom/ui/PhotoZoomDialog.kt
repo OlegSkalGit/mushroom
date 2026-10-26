@@ -582,17 +582,6 @@ class CropOverlayView(context: Context) : View(context) {
 
 object PhotoZoomDialog {
 
-    fun show(activity: Activity, bitmap: Bitmap) {
-        showBitmaps(activity, listOf(bitmap), 0)
-    }
-
-    fun showBitmaps(activity: Activity, bitmaps: List<Bitmap>, initialIndex: Int = 0) {
-        if (bitmaps.isEmpty() || activity.isFinishing || activity.isDestroyed) return
-        createDialog(activity, bitmaps.size, initialIndex) { zoomView, index, _ ->
-            zoomView.setImageBitmap(bitmaps[index])
-        }
-    }
-
     fun show(activity: Activity, photos: List<String>, initialIndex: Int = 0) {
         if (photos.isEmpty() || activity.isFinishing || activity.isDestroyed) return
         createDialog(activity, photos.size, initialIndex) { zoomView, index, spinner ->

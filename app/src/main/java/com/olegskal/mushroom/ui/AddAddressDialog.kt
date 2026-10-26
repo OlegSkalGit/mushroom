@@ -4,14 +4,18 @@ import android.app.Activity
 import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.widget.ArrayAdapter
+import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.EditText
+import android.widget.Filter
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -23,9 +27,73 @@ import com.olegskal.mushroom.address.AddressSearchManager
 import com.olegskal.mushroom.address.AddressSearchResult
 import com.olegskal.mushroom.db.DatabaseHelper
 import com.olegskal.mushroom.map.MapDownloadManager
+import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppPrefs
+import java.util.Locale
 
 object AddAddressDialog {
+
+    private class HistoryFilterAdapter(
+        context: android.content.Context,
+        historyList: List<String>
+    ) : ArrayAdapter<String>(context, android.R.layout.simple_dropdown_item_1line, ArrayList(historyList)) {
+
+        private val allHistory = ArrayList(historyList)
+
+        fun updateHistory(newList: List<String>) {
+            allHistory.clear()
+            allHistory.addAll(newList)
+            clear()
+            addAll(newList)
+            notifyDataSetChanged()
+        }
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val view = super.getView(position, convertView, parent)
+            if (view is TextView) {
+                view.setTextColor(Color.WHITE)
+                view.setBackgroundColor(Color.parseColor("#1B2A22"))
+                view.textSize = 13.5f
+                val p = (10 * context.resources.displayMetrics.density).toInt()
+                view.setPadding(p, p, p, p)
+            }
+            return view
+        }
+
+        override fun getFilter(): Filter {
+            return object : Filter() {
+                override fun performFiltering(constraint: CharSequence?): FilterResults {
+                    val results = FilterResults()
+                    if (constraint.isNullOrBlank()) {
+                        results.values = allHistory
+                        results.count = allHistory.size
+                    } else {
+                        val q = constraint.toString().trim().lowercase(Locale.ROOT)
+                        val filtered = allHistory.filter { it.lowercase(Locale.ROOT).contains(q) }
+                        results.values = filtered
+                        results.count = filtered.size
+                    }
+                    return results
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                override fun publishResults(constraint: CharSequence?, results: FilterResults?) {
+                    clear()
+                    if (results?.values != null) {
+                        val list = results.values as? List<String>
+                        if (list != null) {
+                            addAll(list)
+                        }
+                    }
+                    if (count > 0) {
+                        notifyDataSetChanged()
+                    } else {
+                        notifyDataSetInvalidated()
+                    }
+                }
+            }
+        }
+    }
 
     fun show(
         activity: Activity,
@@ -68,7 +136,8 @@ object AddAddressDialog {
         headerRow.addView(btnClose)
         container.addView(headerRow)
 
-        var searchInput: EditText? = null
+        var searchInput: AutoCompleteTextView? = null
+        var historyAdapter: HistoryFilterAdapter? = null
 
         // Scrollable list of suggestions (max 30 items)
         val scrollView = ScrollView(activity).apply {
@@ -126,7 +195,7 @@ object AddAddressDialog {
             }
 
             fun renderItemRow(addr: AddressSearchResult) {
-                val distM = if (refLocation != null && (addr.lat != 0.0 || addr.lon != 0.0)) {
+                val distM = addr.distanceMeters ?: if (refLocation != null && (addr.lat != 0.0 || addr.lon != 0.0)) {
                     AddressSearchManager.calculateDistanceMeters(refLocation.latitude, refLocation.longitude, addr.lat, addr.lon)
                 } else null
                 val distStr = if (distM != null) AddressSearchManager.formatDistance(distM) else null
@@ -304,6 +373,9 @@ object AddAddressDialog {
                 return
             }
 
+            MushroomStorageManager.addAddressSearchQuery(query)
+            historyAdapter?.updateHistory(MushroomStorageManager.getAddressSearchHistory())
+
             val mapActivity = activity as? MushroomMapActivity
             val gpsLoc = com.olegskal.mushroom.util.LocationUtils.getUserLocation(activity)
             val refLocation = gpsLoc ?: android.location.Location("map_center").apply {
@@ -332,7 +404,7 @@ object AddAddressDialog {
             }.start()
         }
 
-        // Input Field + Search Button row
+        // Editable Combobox (AutoCompleteTextView + Dropdown Button ▼) + Search Button row
         val searchRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -341,36 +413,101 @@ object AddAddressDialog {
             layoutParams = p
         }
 
-        searchInput = EditText(activity).apply {
-            hint = if (isUk) "Адреса або точка інтересу (аптека, готель, джерело)..." else "Address or POI (pharmacy, hotel, spring)..."
-            setHintTextColor(Color.GRAY)
-            setTextColor(Color.WHITE)
+        val comboContainer = LinearLayout(activity).apply {
+            id = View.generateViewId()
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(Color.parseColor("#263226"))
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            textSize = 14f
-            maxLines = 1
-            inputType = InputType.TYPE_CLASS_TEXT
-            imeOptions = EditorInfo.IME_ACTION_SEARCH
             val p = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 setMargins(0, 0, dp(8), 0)
             }
             layoutParams = p
+        }
+
+        val initialHistory = MushroomStorageManager.getAddressSearchHistory()
+        val adapter = HistoryFilterAdapter(activity, initialHistory)
+        historyAdapter = adapter
+
+        val inputView = object : AutoCompleteTextView(activity) {
+            override fun enoughToFilter(): Boolean = true
+        }.apply {
+            hint = if (isUk) "Адреса або точка інтересу (аптека, готель, джерело)..." else "Address or POI (pharmacy, hotel, spring)..."
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(dp(12), dp(10), dp(4), dp(10))
+            textSize = 14f
+            maxLines = 1
+            inputType = InputType.TYPE_CLASS_TEXT
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+            threshold = 1
+            dropDownAnchor = comboContainer.id
+            setDropDownBackgroundDrawable(ColorDrawable(Color.parseColor("#1B2A22")))
+            setAdapter(adapter)
+            val p = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = p
+            setOnItemClickListener { parent, _, position, _ ->
+                val selected = parent.getItemAtPosition(position) as? String
+                if (!selected.isNullOrBlank()) {
+                    setText(selected, false)
+                    setSelection(selected.length)
+                    dismissDropDown()
+                    executeSearch()
+                }
+            }
             setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                    dismissDropDown()
                     executeSearch()
                     true
                 } else false
             }
         }
+        searchInput = inputView
+
+        val btnDropdown = TextView(activity).apply {
+            text = "▼"
+            textSize = 11f
+            setTextColor(Color.parseColor("#9CA3AF"))
+            setPadding(dp(8), dp(10), dp(12), dp(10))
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                if (inputView.isPopupShowing) {
+                    inputView.dismissDropDown()
+                } else {
+                    val hist = MushroomStorageManager.getAddressSearchHistory()
+                    if (hist.isEmpty()) {
+                        Toast.makeText(
+                            activity,
+                            if (isUk) "Історія пошуку порожня" else "Search history is empty",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        adapter.updateHistory(hist)
+                        adapter.filter.filter(null) {
+                            if (!activity.isFinishing && !activity.isDestroyed) {
+                                inputView.showDropDown()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        comboContainer.addView(inputView)
+        comboContainer.addView(btnDropdown)
 
         val btnSearch = UiUtils.createStyledButton(activity, if (isUk) "Пошук" else "Search") {
+            inputView.dismissDropDown()
             executeSearch()
         }.apply {
             textSize = 13f
             setPadding(dp(14), dp(8), dp(14), dp(8))
         }
 
-        searchRow.addView(searchInput)
+        searchRow.addView(comboContainer)
         searchRow.addView(btnSearch)
         container.addView(searchRow)
         container.addView(scrollView)

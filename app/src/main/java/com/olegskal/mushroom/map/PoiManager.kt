@@ -140,18 +140,10 @@ object PoiManager {
         if (context != null) {
             appContext = context.applicationContext
         }
-        val ctx = appContext
-        if (ctx != null && !AppPrefs.isPoiDefaultInitialized(ctx)) {
-            // За замовчуванням не обрано жодної групи точок
-            activeCategories.clear()
-            MushroomStorageManager.savePoiCategories(emptySet())
-            AppPrefs.setPoiDefaultInitialized(ctx)
-        } else {
-            val file = MushroomStorageManager.poiConfigFile
-            activeCategories.clear()
-            if (file.exists()) {
-                activeCategories.addAll(MushroomStorageManager.loadPoiCategories())
-            }
+        val file = MushroomStorageManager.poiConfigFile
+        activeCategories.clear()
+        if (file.exists()) {
+            activeCategories.addAll(MushroomStorageManager.loadPoiCategories())
         }
         refreshPoiFiles()
     }
@@ -201,13 +193,26 @@ object PoiManager {
             for (f in poiFiles) {
                 if (!f.exists() || f.length() < 1024L) continue
                 try {
-                    // Оптимізація SQLite: індекс за категоріями для миттєвої фільтрації
+                    // Оптимізація SQLite: індекс за категоріями створюється лише раз
                     try {
-                        val db = android.database.sqlite.SQLiteDatabase.openDatabase(
-                            f.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE
-                        )
-                        db.execSQL("CREATE INDEX IF NOT EXISTS idx_cat ON poi_category_map(category)")
-                        db.close()
+                        val hasIdx = android.database.sqlite.SQLiteDatabase.openDatabase(
+                            f.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY
+                        ).use { roDb ->
+                            roDb.rawQuery(
+                                "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_cat'",
+                                null
+                            ).use { c -> c.moveToFirst() }
+                        }
+                        if (!hasIdx) {
+                            if (MushroomStorageManager.getDownloadedFileMeta(f.name) == null) {
+                                MushroomStorageManager.recordDownloadedFile(f.name, f.lastModified(), f.length())
+                            }
+                            android.database.sqlite.SQLiteDatabase.openDatabase(
+                                f.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE
+                            ).use { rwDb ->
+                                rwDb.execSQL("CREATE INDEX IF NOT EXISTS idx_cat ON poi_category_map(category)")
+                            }
+                        }
                     } catch (_: Throwable) {}
 
                     val pm = AndroidPoiPersistenceManagerFactory.getPoiPersistenceManager(f.absolutePath)

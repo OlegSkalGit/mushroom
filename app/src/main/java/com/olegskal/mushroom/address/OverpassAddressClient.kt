@@ -29,9 +29,10 @@ class OverpassAddressClient(
             "https://z.overpass-api.de/api/interpreter",
             "https://lz4.overpass-api.de/api/interpreter"
         )
+        private val pool = Executors.newFixedThreadPool(DEFAULT_MIRRORS.size) { r ->
+            Thread(r, "OverpassMirrorCheck").apply { isDaemon = true }
+        }
     }
-
-    private val pool = Executors.newFixedThreadPool(DEFAULT_MIRRORS.size)
 
     data class MirrorRank(
         val mirror: String,

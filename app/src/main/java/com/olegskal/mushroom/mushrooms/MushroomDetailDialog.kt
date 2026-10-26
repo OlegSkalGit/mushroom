@@ -221,8 +221,14 @@ object MushroomDetailDialog {
             setPadding(0, 6, 0, 12)
         }
 
-        val meta = MycoKnowledge.resolveMetadata(taxon.scientificName)
-        val edibility = if (meta.edibility != "unknown") meta.edibility else taxon.edibility
+        val isUk = currentLang == "uk"
+        val needFallbackMeta = taxon.edibility == "unknown" || taxon.hymenium == "other" ||
+            (if (isUk) taxon.lookalikesUk.isNullOrBlank() && taxon.toxicityUk.isNullOrBlank() else taxon.lookalikesEn.isNullOrBlank() && taxon.toxicityEn.isNullOrBlank()) ||
+            taxon.propsCap.isNullOrBlank() || taxon.propsHymenium.isNullOrBlank() || taxon.propsStem.isNullOrBlank() ||
+            taxon.propsFlesh.isNullOrBlank() || taxon.propsSeason.isNullOrBlank() || taxon.propsHabitat.isNullOrBlank()
+        val meta = if (needFallbackMeta) MycoKnowledge.resolveMetadata(taxon.scientificName) else null
+
+        val edibility = if (taxon.edibility != "unknown") taxon.edibility else (meta?.edibility ?: "unknown")
         val edibilityBadge = TextView(activity).apply {
             text = MycoKnowledge.getEdibilityLabel(edibility, currentLang)
             setTextColor(Color.WHITE)
@@ -233,7 +239,7 @@ object MushroomDetailDialog {
         }
         statusRow.addView(edibilityBadge)
 
-        val effectiveHymenium = if (meta.hymenium != "other") meta.hymenium else if (!taxon.hymenium.isNullOrBlank()) taxon.hymenium else "other"
+        val effectiveHymenium = if (taxon.hymenium.isNotBlank() && taxon.hymenium != "other") taxon.hymenium else (meta?.hymenium ?: "other")
         val hymeniumBadge = TextView(activity).apply {
             text = MycoKnowledge.getHymeniumLabel(effectiveHymenium, currentLang)
             setTextColor(Color.parseColor("#E5E7EB"))
@@ -248,21 +254,20 @@ object MushroomDetailDialog {
         content.addView(statusRow)
 
         // 3. Danger Warning / Lookalikes / Toxicity
-        val isUk = currentLang == "uk"
         val lookalikeText = if (isUk) {
             taxon.lookalikesUk?.takeIf { it.isNotBlank() }
                 ?: taxon.toxicityUk?.takeIf { it.isNotBlank() }
-                ?: meta.lookalikesUk?.takeIf { it.isNotBlank() }
+                ?: meta?.lookalikesUk?.takeIf { it.isNotBlank() }
                 ?: taxon.lookalikesEn?.takeIf { it.isNotBlank() }
                 ?: taxon.toxicityEn?.takeIf { it.isNotBlank() }
-                ?: meta.lookalikesEn
+                ?: meta?.lookalikesEn
         } else {
             taxon.lookalikesEn?.takeIf { it.isNotBlank() }
                 ?: taxon.toxicityEn?.takeIf { it.isNotBlank() }
-                ?: meta.lookalikesEn?.takeIf { it.isNotBlank() }
+                ?: meta?.lookalikesEn?.takeIf { it.isNotBlank() }
                 ?: taxon.lookalikesUk?.takeIf { it.isNotBlank() }
                 ?: taxon.toxicityUk?.takeIf { it.isNotBlank() }
-                ?: meta.lookalikesUk
+                ?: meta?.lookalikesUk
         }
 
         if (!lookalikeText.isNullOrEmpty()) {
@@ -293,12 +298,12 @@ object MushroomDetailDialog {
         }
 
         // 4. Morphological Properties Table
-        val capProp = taxon.propsCap?.takeIf { it.isNotBlank() } ?: (if (isUk) meta.propsUk?.cap else meta.propsEn?.cap) ?: ""
-        val hymProp = taxon.propsHymenium?.takeIf { it.isNotBlank() } ?: (if (isUk) meta.propsUk?.hymenophore else meta.propsEn?.hymenophore) ?: ""
-        val stemProp = taxon.propsStem?.takeIf { it.isNotBlank() } ?: (if (isUk) meta.propsUk?.stem else meta.propsEn?.stem) ?: ""
-        val fleshProp = taxon.propsFlesh?.takeIf { it.isNotBlank() } ?: (if (isUk) meta.propsUk?.flesh else meta.propsEn?.flesh) ?: ""
-        val seasonProp = taxon.propsSeason?.takeIf { it.isNotBlank() } ?: (if (isUk) meta.propsUk?.season else meta.propsEn?.season) ?: ""
-        val habitatProp = taxon.propsHabitat?.takeIf { it.isNotBlank() } ?: (if (isUk) meta.propsUk?.habitat else meta.propsEn?.habitat) ?: ""
+        val capProp = taxon.propsCap?.takeIf { it.isNotBlank() } ?: (if (isUk) meta?.propsUk?.cap else meta?.propsEn?.cap) ?: ""
+        val hymProp = taxon.propsHymenium?.takeIf { it.isNotBlank() } ?: (if (isUk) meta?.propsUk?.hymenophore else meta?.propsEn?.hymenophore) ?: ""
+        val stemProp = taxon.propsStem?.takeIf { it.isNotBlank() } ?: (if (isUk) meta?.propsUk?.stem else meta?.propsEn?.stem) ?: ""
+        val fleshProp = taxon.propsFlesh?.takeIf { it.isNotBlank() } ?: (if (isUk) meta?.propsUk?.flesh else meta?.propsEn?.flesh) ?: ""
+        val seasonProp = taxon.propsSeason?.takeIf { it.isNotBlank() } ?: (if (isUk) meta?.propsUk?.season else meta?.propsEn?.season) ?: ""
+        val habitatProp = taxon.propsHabitat?.takeIf { it.isNotBlank() } ?: (if (isUk) meta?.propsUk?.habitat else meta?.propsEn?.habitat) ?: ""
 
         val hasAnyProp = capProp.isNotBlank() || hymProp.isNotBlank() || stemProp.isNotBlank() ||
                 fleshProp.isNotBlank() || seasonProp.isNotBlank() || habitatProp.isNotBlank()
@@ -599,9 +604,12 @@ object MushroomDetailDialog {
             try {
                 activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             } catch (ignored: Exception) {}
+        }.apply {
+            textSize = 12f
+            setPadding(4, 8, 4, 8)
         }
         btnInat.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-            setMargins(0, 0, 8, 0)
+            setMargins(0, 0, 6, 0)
         }
         val btnWiki = UiUtils.createStyledButton(activity, if (currentLang == "uk") "📖 Вікіпедія" else "📖 Wikipedia") {
             val url = taxon.wikipediaUrl?.takeIf { it.isNotBlank() }
@@ -609,11 +617,28 @@ object MushroomDetailDialog {
             try {
                 activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             } catch (ignored: Exception) {}
+        }.apply {
+            textSize = 12f
+            setPadding(4, 8, 4, 8)
         }
-        btnWiki.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        btnWiki.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            setMargins(0, 0, 6, 0)
+        }
+        val btnGoogle = UiUtils.createStyledButton(activity, if (currentLang == "uk") "🔍 Google Фото" else "🔍 Google Images") {
+            val query = taxon.scientificName.takeIf { it.isNotBlank() } ?: taxon.commonName
+            val url = "https://www.google.com/search?tbm=isch&q=${Uri.encode(query)}"
+            try {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            } catch (ignored: Exception) {}
+        }.apply {
+            textSize = 12f
+            setPadding(4, 8, 4, 8)
+        }
+        btnGoogle.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
 
         linksRow.addView(btnInat)
         linksRow.addView(btnWiki)
+        linksRow.addView(btnGoogle)
         content.addView(linksRow)
 
         scroll.addView(content)

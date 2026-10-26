@@ -44,16 +44,12 @@ object BRouterEngine {
     val profilesDir: File
         get() = getProfilesDir()
 
-    fun ensureProfilesExtracted(context: Context) {
-        try {
-            // Видаляємо стару папку з зовнішнього сховища /sdcard/mushroom/navigation/profiles, якщо вона залишилась
-            val oldExternalProfilesDir = File(MushroomStorageManager.navigationDir, "profiles")
-            if (oldExternalProfilesDir.exists()) {
-                try {
-                    oldExternalProfilesDir.deleteRecursively()
-                } catch (_: Exception) {}
-            }
+    @Volatile
+    private var profilesExtracted = false
 
+    fun ensureProfilesExtracted(context: Context) {
+        if (profilesExtracted) return
+        try {
             val targetDir = getProfilesDir(context)
             val assetNames = context.assets.list("brouter") ?: emptyArray()
             for (name in assetNames) {
@@ -63,6 +59,7 @@ object BRouterEngine {
                     dest.writeBytes(assetBytes)
                 }
             }
+            profilesExtracted = true
         } catch (e: Exception) {
             AppLogger.log(TAG, "ensureProfilesExtracted", false, "Error extracting profiles: ${e.message}")
         }

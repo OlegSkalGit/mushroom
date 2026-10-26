@@ -111,8 +111,7 @@ class SplashActivity : Activity() {
                 ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED
 
         val pm = getSystemService(POWER_SERVICE) as PowerManager
-        val needsBattery = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-                !pm.isIgnoringBatteryOptimizations(packageName)
+        val needsBattery = !pm.isIgnoringBatteryOptimizations(packageName)
 
         val needsAllFiles = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()
 
@@ -156,7 +155,7 @@ class SplashActivity : Activity() {
                     }
                 }
 
-                if (needsBattery && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (needsBattery) {
                     ServiceUtils.requestIgnoreBatteryOptimizations(this@SplashActivity)
                 } else if (needsBgLoc && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     try {

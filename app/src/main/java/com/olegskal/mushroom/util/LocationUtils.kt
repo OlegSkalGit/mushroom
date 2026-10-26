@@ -59,25 +59,4 @@ object LocationUtils {
             null
         }
     }
-
-    /**
-     * Helper to create a Location instance with specific coordinates.
-     */
-    fun createLocation(lat: Double, lon: Double, provider: String = ""): Location {
-        return Location(provider).apply {
-            latitude = lat
-            longitude = lon
-        }
-    }
-
-    /**
-     * Calculates speed in km/h between two locations over time interval in seconds.
-     */
-    fun calculateSpeedKmh(from: Location, to: Location, dtSec: Double): Float {
-        return if (dtSec > 0.2) {
-            (from.distanceTo(to) / dtSec * 3.6).toFloat()
-        } else {
-            0f
-        }
-    }
 }

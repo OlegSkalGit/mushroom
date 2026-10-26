@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Typeface
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -215,18 +216,16 @@ object MarkersListDialog {
                     setCompoundDrawables(itemIcon, null, null, null)
                     compoundDrawablePadding = (8 * density).toInt()
                     gravity = Gravity.CENTER_VERTICAL
-                }
-
-                val displayType = if (marker.type.equals("Гриб", ignoreCase = true) || marker.type.equals("Mushroom", ignoreCase = true)) {
-                    if (lang == "uk") "Маркер" else "Marker"
-                } else {
-                    marker.type
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
                 }
 
                 val subTv = TextView(activity).apply {
-                    text = if (distStr.isNotEmpty()) "$displayType • $distStr" else displayType
+                    text = marker.type
                     setTextColor(marker.color)
                     textSize = 12f
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
                 }
 
                 infoCol.addView(nameTv)
@@ -279,6 +278,17 @@ object MarkersListDialog {
 
                 itemRow.addView(chkVisible)
                 itemRow.addView(infoCol)
+                if (distStr.isNotEmpty()) {
+                    val distTv = TextView(activity).apply {
+                        text = distStr
+                        setTextColor(Color.parseColor("#10B981"))
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setPadding((6 * density).toInt(), 0, (6 * density).toInt(), 0)
+                        gravity = Gravity.CENTER_VERTICAL
+                    }
+                    itemRow.addView(distTv)
+                }
                 itemRow.addView(btnRename)
                 itemRow.addView(btnShare)
                 itemRow.addView(btnDelete)

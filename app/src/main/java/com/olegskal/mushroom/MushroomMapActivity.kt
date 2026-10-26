@@ -33,7 +33,6 @@ import com.olegskal.mushroom.math.ProcessedLocationMetrics
 import com.olegskal.mushroom.math.GeoMath
 import com.olegskal.mushroom.model.MushroomMarker
 import com.olegskal.mushroom.model.MushroomTrack
-import com.olegskal.mushroom.network.AppUpdateManager
 import com.olegskal.mushroom.service.MushroomTrackingService
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.ui.*
@@ -53,6 +52,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         const val MAX_MAP_ZOOM = 18.0f
         const val MIN_BASE_ZOOM = 2
         const val MAX_BASE_ZOOM = 18
+        private val poiExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "PoiLoader").apply { isDaemon = true }
+        }
     }
 
     private lateinit var mapView: MushroomMapView
@@ -129,8 +131,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         if (!::compassButton.isInitialized || !::mapView.isInitialized) return
         val isNotNorth = abs(mapView.mapBearing % 360f) > 0.5f
         val isShifted = !isFollowLocation
-        val isActive = isShifted || isNotNorth || isFollowHeading
-        compassButton.setBearing(angle, active = isActive)
+        val isDisplaced = isShifted || (isNotNorth && !isFollowHeading)
+
+        val mode = when {
+            isDisplaced -> CompassButton.Mode.DISPLACED
+            isFollowHeading -> CompassButton.Mode.FOLLOW_HEADING
+            else -> CompassButton.Mode.FOLLOW_NORTH_UP
+        }
+        compassButton.setMode(mode, angle)
     }
 
     private val uiHandler = Handler(Looper.getMainLooper())
@@ -167,9 +175,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         dbHelper = DatabaseHelper(this)
         dbHelper.restoreDataFromExternalStorageIfDbEmpty()
 
-        AppUpdateManager.checkAndDownloadUpdate(this)
-
-        AppPrefs.restoreFromExternalStorage(this)
         val hasSavedLoc = AppPrefs.hasSavedMapLocation(this)
         setFollowLocation(!hasSavedLoc && AppPrefs.getFollowUser(this))
 
@@ -424,7 +429,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         setContentView(rootLayout)
 
-        OsmTileEngine.appContext = applicationContext
         OsmTileEngine.onTileReadyListener = {
             if (!isTileRedrawPending) {
                 isTileRedrawPending = true
@@ -649,7 +653,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         if (isDisplacedOrRotated) {
             setFollowHeading(false)
-            mapView.animateBearingTo(0f, activeOnEnd = false)
+            mapView.animateBearingTo(0f)
             setFollowLocation(true)
             mapView.centerOnCurrentLocation()
             updateCompassButtonState(0f)
@@ -660,7 +664,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             setFollowLocation(true)
             mapView.centerOnCurrentLocation()
             val targetHeading = mapView.getUserHeading() ?: 0f
-            mapView.animateBearingTo(targetHeading, activeOnEnd = true)
+            mapView.animateBearingTo(targetHeading)
             updateCompassButtonState(-targetHeading)
             val msg = if (isUk) "Вирівнювання за стрілкою індикатора" else "Tracking heading orientation"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
@@ -769,7 +773,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         if (mapView.isRouteMode) {
             mapView.isRouteMode = false
             mapView.routeSegments.clear()
-            mapView.routeWaypoints.clear()
             updateRouteButtonUi()
             mapView.invalidate()
             val msg = if (AppPrefs.isUk(this)) "Режим маршруту вимкнено" else "Route mode disabled"
@@ -848,8 +851,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                             if (!mapView.isRulerMode || mapView.rulerPoints.size <= 1) return@runOnUiThread
                             mapView.routeSegments.clear()
                             mapView.routeSegments.addAll(initialResult.segments)
-                            mapView.routeWaypoints.clear()
-                            mapView.routeWaypoints.addAll(initialResult.effectiveWaypoints)
                             mapView.isRouteMode = true
                             updateRouteButtonUi()
                             mapView.invalidate()
@@ -873,8 +874,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     if (!mapView.isRulerMode || mapView.rulerPoints.size <= 1) return@runOnUiThread
                     mapView.routeSegments.clear()
                     mapView.routeSegments.addAll(result.segments)
-                    mapView.routeWaypoints.clear()
-                    mapView.routeWaypoints.addAll(result.effectiveWaypoints)
                     mapView.isRouteMode = true
                     updateRouteButtonUi()
                     mapView.invalidate()
@@ -1236,10 +1235,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             if (s?.isRecording == true) {
                 s.stopTrackRecording()
             }
-            val stopIntent = Intent(this@MushroomMapActivity, MushroomTrackingService::class.java).apply {
-                action = MushroomTrackingService.ACTION_STOP_SERVICE
-            }
-            startService(stopIntent)
+            s?.stopSelfAndCleanup()
             com.olegskal.mushroom.mushrooms.MushroomClassifierTab.isWarningDismissed = false
             finishAffinity()
             android.os.Process.killProcess(android.os.Process.myPid())
@@ -1449,7 +1445,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         "• 📏 Лінійка: вимірювання дистанцій та побудова пішохідних, велосипедних або автомобільних маршрутів через BRouter.\n" +
                         "• 🚩 Маркер (прапорець): миттєве збереження точки за вашим GPS-положенням (або центром карти, якщо GPS вимкнено).\n" +
                         "• ⏺️ Запис треку: старт фонового запису маршруту (синій значок) та завершення (червоний STOP).\n" +
-                        "• 🧭 Компас: орієнтує карту на північ та центрує на вашому положенні; повторне натискання вмикає режим автоорієнтації за напрямком руху.\n" +
+                        "• 🧭 Компас: орієнтує карту на північ та центрує на положенні; повторне натискання вмикає автоорієнтацію за напрямком. Режими: червоний контур — зсув (вільний огляд), нейтральний — слідкування на північ, зелений — слідкування з поворотом за рухом.\n" +
                         "• Кнопка «Маршрут»: з'являється у режимі лінійки для розрахунку шляху між точками.\n" +
                         "• Банер «⬇️ Завантажити карту»: з'являється вгорі, якщо карта поточної області ще не завантажена."
                     ),
@@ -1726,7 +1722,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                         "• 📏 Ruler: measure distances and calculate Foot, Bicycle, or Car routes via BRouter.\n" +
                         "• 🚩 Marker (flag): instantly saves a waypoint at your current GPS location (or map center).\n" +
                         "• ⏺️ Track Recording: start background logging (blue circle) and finish (red STOP square).\n" +
-                        "• 🧭 Compass: aligns map to North and centers on your position; tap again for heading follow mode.\n" +
+                        "• 🧭 Compass: aligns map to North and centers on your position; tap again for heading follow mode. Modes: red rim — displaced map, white rim — North-up tracking, green rim — heading follow tracking.\n" +
                         "• 'Route' button: appears in ruler mode to calculate paths between waypoints.\n" +
                         "• '⬇️ Download Map' banner: appears at the top if the current region's map is not installed."
                     ),
@@ -2287,7 +2283,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     isRulerPointDragging = false
                     isRouteMode = false
                     routeSegments.clear()
-                    routeWaypoints.clear()
                 }
                 invalidate()
             }
@@ -2301,12 +2296,10 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 field = value
                 if (!value) {
                     routeSegments.clear()
-                    routeWaypoints.clear()
                 }
                 invalidate()
             }
         val routeSegments = mutableListOf<RouteSegment>()
-        val routeWaypoints = mutableListOf<Pair<Double, Double>>()
 
         // POI caching & display
         private var cachedPois: List<PoiItem> = emptyList()
@@ -2370,15 +2363,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
         private val routePolylinePath = Path()
 
-        private val poiCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = Color.parseColor("#10B981")
-        }
-        private val poiRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            color = Color.WHITE
-            strokeWidth = 1.8f * resources.displayMetrics.density
-        }
         private val poiEmojiPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             textAlign = Paint.Align.CENTER
@@ -2594,9 +2578,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         private var cachedPoiZoom = -1f
         private var isPoiLoading = false
 
-        private val poiExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
-            Thread(r, "PoiLoader").apply { isDaemon = true }
-        }
         private val poiHandler = Handler(Looper.getMainLooper())
         private val poiUpdateRunnable = Runnable {
             updatePoisForViewportAsync()
@@ -2829,6 +2810,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         override fun onDetachedFromWindow() {
             super.onDetachedFromWindow()
             removeCallbacks(longPressRunnable)
+            poiHandler.removeCallbacks(poiUpdateRunnable)
             cancelCenterAnimation()
             cancelBearingAnimation()
         }
@@ -3350,7 +3332,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         fun animateBearingTo(
             targetBearing: Float,
-            activeOnEnd: Boolean,
             durationMs: Long = 260L,
             saveOnEnd: Boolean = true,
             useDecelerate: Boolean = true
@@ -3365,7 +3346,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             if (abs(diff) < 0.5f) {
                 mapBearing = normTarget
                 updateCompassButtonState(-mapBearing)
-                if (activeOnEnd) compassButton.setActive(true)
                 invalidate()
                 if (saveOnEnd) saveMapState()
                 return
@@ -3386,7 +3366,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     override fun onAnimationEnd(animation: Animator) {
                         mapBearing = normTarget
                         updateCompassButtonState(-mapBearing)
-                        if (activeOnEnd) compassButton.setActive(true)
                         alignAnimator = null
                         invalidate()
                         if (saveOnEnd) {
@@ -3485,26 +3464,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             if (loc != null) {
                 currentLocation = loc
                 animateCenterTo(loc.latitude, loc.longitude, durationMs = 320L, saveOnEnd = true, useDecelerate = true)
-            }
-        }
-
-        fun zoomIn() {
-            if (zoomLevel < MAX_MAP_ZOOM) {
-                setFollowLocation(false)
-                setFollowHeading(false)
-                zoomLevel = (zoomLevel + 1.0f).coerceAtMost(MAX_MAP_ZOOM)
-                saveMapState()
-                invalidate()
-            }
-        }
-
-        fun zoomOut() {
-            if (zoomLevel > MIN_MAP_ZOOM) {
-                setFollowLocation(false)
-                setFollowHeading(false)
-                zoomLevel = (zoomLevel - 1.0f).coerceAtLeast(MIN_MAP_ZOOM)
-                saveMapState()
-                invalidate()
             }
         }
 
@@ -3662,7 +3621,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 if (kotlin.math.abs(bDiff) >= 3.0f) {
                     animateBearingTo(
                         userH,
-                        activeOnEnd = true,
                         durationMs = panDuration,
                         saveOnEnd = false,
                         useDecelerate = false
@@ -4207,6 +4165,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         }
 
+        private val userArrowPath = Path().apply {
+            moveTo(0f, -34f)
+            lineTo(14f, 6f)
+            lineTo(0f, -2f)
+            lineTo(-14f, 6f)
+            close()
+        }
+
         private fun drawUserLocation(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float) {
             val loc = currentLocation ?: return
             val targetLat = loc.latitude
@@ -4237,14 +4203,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             if (bearingToDraw != null) {
                 canvas.save()
                 canvas.rotate(bearingToDraw, 0f, 0f)
-                val arrowPath = Path().apply {
-                    moveTo(0f, -34f)
-                    lineTo(14f, 6f)
-                    lineTo(0f, -2f)
-                    lineTo(-14f, 6f)
-                    close()
-                }
-                canvas.drawPath(arrowPath, headingArrowPaint)
+                canvas.drawPath(userArrowPath, headingArrowPaint)
                 canvas.restore()
             }
 

@@ -37,6 +37,7 @@ class AddressIngestor(
     private var stmtInsertStreet: SQLiteStatement? = null
     private var stmtInsertFts: SQLiteStatement? = null
     private var stmtInsertHouse: SQLiteStatement? = null
+    private var stmtInsertStreetGeometry: SQLiteStatement? = null
 
     init {
         AddressDb.ensureTablesExist(db)
@@ -65,6 +66,13 @@ class AddressIngestor(
         stmtInsertHouse = db.compileStatement(
             "INSERT OR REPLACE INTO houses (street_id, number, lat, lon) VALUES (?, ?, ?, ?);"
         )
+        stmtInsertStreetGeometry = try {
+            db.compileStatement(
+                "INSERT OR REPLACE INTO street_geometries (street_id, min_lat, max_lat, min_lon, max_lon, geom) VALUES (?, ?, ?, ?, ?, ?);"
+            )
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun initCountry() {
@@ -237,16 +245,8 @@ class AddressIngestor(
     }
 
     fun addHouse(streetId: Long, houseNumber: String, lat: Double, lon: Double) {
-        val latI = if (kotlin.math.abs(lat) > 1000.0) {
-            (lat / 10.0).roundToInt()
-        } else {
-            (lat * 100_000.0).roundToInt()
-        }
-        val lonI = if (kotlin.math.abs(lon) > 1000.0) {
-            (lon / 10.0).roundToInt()
-        } else {
-            (lon * 100_000.0).roundToInt()
-        }
+        val latI = (lat * 100_000.0).roundToInt()
+        val lonI = (lon * 100_000.0).roundToInt()
         addHouse(streetId, houseNumber, latI, lonI)
     }
 
@@ -288,6 +288,22 @@ class AddressIngestor(
         }
     }
 
+    fun addStreetGeometry(streetId: Long, minLat: Int, maxLat: Int, minLon: Int, maxLon: Int, geom: ByteArray) {
+        if (geom.isEmpty()) return
+        val stmt = stmtInsertStreetGeometry ?: return
+        try {
+            stmt.bindLong(1, streetId)
+            stmt.bindLong(2, minLat.toLong())
+            stmt.bindLong(3, maxLat.toLong())
+            stmt.bindLong(4, minLon.toLong())
+            stmt.bindLong(5, maxLon.toLong())
+            stmt.bindBlob(6, geom)
+            stmt.executeInsert()
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "addStreetGeometry", false, "Error inserting street geometry: ${e.message}")
+        }
+    }
+
     fun close() {
         flush()
         try { stmtInsertPlace?.close() } catch (_: Exception) {}
@@ -295,5 +311,6 @@ class AddressIngestor(
         try { stmtInsertStreet?.close() } catch (_: Exception) {}
         try { stmtInsertFts?.close() } catch (_: Exception) {}
         try { stmtInsertHouse?.close() } catch (_: Exception) {}
+        try { stmtInsertStreetGeometry?.close() } catch (_: Exception) {}
     }
 }

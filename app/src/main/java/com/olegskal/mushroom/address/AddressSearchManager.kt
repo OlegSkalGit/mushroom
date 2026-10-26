@@ -21,7 +21,8 @@ data class AddressSearchResult(
     val poiIcon: String? = null,
     val isPoiOnly: Boolean = false,
     val isSettlement: Boolean = false,
-    val adminLevel: Int = 0
+    val adminLevel: Int = 0,
+    val distanceMeters: Float? = null
 ) {
     fun getFullTitle(): String {
         if (isSettlement) {
@@ -240,6 +241,8 @@ object AddressSearchManager {
         if (query.isBlank()) return emptyList()
 
         val userLoc = userLocation ?: LocationUtils.getUserLocation(context)
+        val uLatH = if (userLoc != null) kotlin.math.round(userLoc.latitude * 100_000.0).toLong() else 0L
+        val uLonH = if (userLoc != null) kotlin.math.round(userLoc.longitude * 100_000.0).toLong() else 0L
         val uLat = if (userLoc != null) kotlin.math.round(userLoc.latitude * 1_000_000.0).toLong() else 0L
         val uLon = if (userLoc != null) kotlin.math.round(userLoc.longitude * 1_000_000.0).toLong() else 0L
 
@@ -247,10 +250,8 @@ object AddressSearchManager {
             """
                 ORDER BY
                   (CASE WHEN h.lat IS NULL OR h.lat = 0 THEN 1 ELSE 0 END) ASC,
-                  ((h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) *
-                   (h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) +
-                   (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon) *
-                   (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon)) ASC,
+                  ((h.lat - $uLatH) * (h.lat - $uLatH) +
+                   (h.lon - $uLonH) * (h.lon - $uLonH)) ASC,
                   CAST(h.number AS INTEGER), h.number
             """.trimIndent()
         } else {
@@ -342,10 +343,8 @@ object AddressSearchManager {
             """
                 ORDER BY
                   (CASE WHEN h.lat IS NULL OR h.lat = 0 THEN 1 ELSE 0 END) ASC,
-                  ((h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) *
-                   (h.lat * (CASE WHEN abs(h.lat) < 10000000 THEN 10 ELSE 1 END) - $uLat) +
-                   (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon) *
-                   (h.lon * (CASE WHEN abs(h.lon) < 10000000 THEN 10 ELSE 1 END) - $uLon)) ASC,
+                  ((h.lat - $uLatH) * (h.lat - $uLatH) +
+                   (h.lon - $uLonH) * (h.lon - $uLonH)) ASC,
                   sn.name ASC
             """.trimIndent()
         } else {
@@ -390,17 +389,21 @@ object AddressSearchManager {
         try {
             // 0. STREET SEARCH (h.number = '')
             if (streetFtsQuery.isNotBlank()) {
+                val hasGeom = AddressDb.hasTable(db, "street_geometries")
+                val geomCol = if (hasGeom) ", g.geom" else ", NULL"
+                val geomJoin = if (hasGeom) "LEFT JOIN street_geometries g ON g.street_id = s.id" else ""
+
                 val streetSql = """
-                    SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.lat, h.lon
+                    SELECT COALESCE(country.code, ''), COALESCE(reg.name, ''), city.name, sn.name, h.lat, h.lon $geomCol
                     FROM search_fts f
                     JOIN streets s ON s.id = f.rowid
                     JOIN street_names sn ON sn.id = s.name_id
                     JOIN admin_places city ON city.id = s.place_id
                     LEFT JOIN admin_places reg ON reg.id = s.region_id
                     LEFT JOIN admin_places country ON country.id = s.country_id
-                    JOIN houses h ON h.street_id = s.id
+                    LEFT JOIN houses h ON h.street_id = s.id AND h.number = ''
+                    $geomJoin
                     WHERE search_fts MATCH ?
-                      AND h.number = ''
                       AND sn.name != ''
                     GROUP BY s.id
                     $streetOrderByClause
@@ -416,10 +419,15 @@ object AddressSearchManager {
                         val sName = it.getString(3) ?: ""
                         val latRaw = it.getInt(4)
                         val lonRaw = it.getInt(5)
+                        val geomBytes = try { it.getBlob(6) } catch (_: Exception) { null }
 
-                        val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
-                        val dLat = latRaw / div
-                        val dLon = lonRaw / div
+                        val dLat = latRaw / 100_000.0
+                        val dLon = lonRaw / 100_000.0
+
+                        val distM = if (userLoc != null && geomBytes != null && geomBytes.isNotEmpty()) {
+                            val d = calculateMinDistanceToGeom(userLoc.latitude, userLoc.longitude, geomBytes)
+                            if (d < Float.MAX_VALUE) d else null
+                        } else null
 
                         streetResults.add(
                             AddressSearchResult(
@@ -431,10 +439,14 @@ object AddressSearchManager {
                                 lat = dLat,
                                 lon = dLon,
                                 isPoiOnly = false,
-                                isSettlement = false
+                                isSettlement = false,
+                                distanceMeters = distM
                             )
                         )
                     }
+                }
+                if (userLoc != null) {
+                    streetResults.sortBy { it.distanceMeters ?: (calculateDistanceMeters(userLoc.latitude, userLoc.longitude, it.lat, it.lon)) }
                 }
             }
 
@@ -507,9 +519,8 @@ object AddressSearchManager {
                         val pCat = pDescLocal ?: pTag.takeIf { s -> s.isNotBlank() }
                         val pIcon = if (pTag.isNotBlank() || pGroupCat.isNotBlank()) getPoiIcon(pTag, pGroupCat) else null
 
-                        val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
-                        val dLat = latRaw / div
-                        val dLon = lonRaw / div
+                        val dLat = latRaw / 100_000.0
+                        val dLon = lonRaw / 100_000.0
 
                         addressResults.add(
                             AddressSearchResult(
@@ -585,9 +596,8 @@ object AddressSearchManager {
                             val pCat = pDescLocal ?: pTag.takeIf { s -> s.isNotBlank() }
                             val pIcon = if (pTag.isNotBlank() || pGroupCat.isNotBlank()) getPoiIcon(pTag, pGroupCat) else null
 
-                            val div = if (kotlin.math.abs(latRaw) < 10_000_000) 100_000.0 else 1_000_000.0
-                            val dLat = latRaw / div
-                            val dLon = lonRaw / div
+                            val dLat = latRaw / 100_000.0
+                            val dLon = lonRaw / 100_000.0
 
                             addressResults.add(
                                 AddressSearchResult(
@@ -748,7 +758,8 @@ object AddressSearchManager {
                                (CASE WHEN ap.level = 4 THEN (SELECT avg(h.lat) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.region_id = ap.id)
                                      ELSE (SELECT avg(h.lat) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.place_id = ap.id) END),
                                (CASE WHEN ap.level = 4 THEN (SELECT avg(h.lon) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.region_id = ap.id)
-                                     ELSE (SELECT avg(h.lon) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.place_id = ap.id) END)
+                                     ELSE (SELECT avg(h.lon) FROM streets s JOIN houses h ON h.street_id = s.id WHERE s.place_id = ap.id) END),
+                               COALESCE((SELECT c.code FROM streets s JOIN admin_places c ON c.id = s.country_id WHERE s.place_id = ap.id OR s.region_id = ap.id LIMIT 1), 'UA')
                         FROM admin_places ap
                         LEFT JOIN admin_places reg ON reg.id = ap.parent_id
                         WHERE ap.level IN (4, 6, 7, 8)
@@ -767,13 +778,13 @@ object AddressSearchManager {
                                     val level = it.getInt(3)
                                     val latAvg = if (!it.isNull(4)) it.getDouble(4) else 0.0
                                     val lonAvg = if (!it.isNull(5)) it.getDouble(5) else 0.0
-                                    val div = if (kotlin.math.abs(latAvg) < 10_000_000.0) 100_000.0 else 1_000_000.0
-                                    val cLat = if (latAvg != 0.0) latAvg / div else 0.0
-                                    val cLon = if (lonAvg != 0.0) lonAvg / div else 0.0
+                                    val cCode = it.getString(6) ?: "UA"
+                                    val cLat = if (latAvg != 0.0) latAvg / 100_000.0 else 0.0
+                                    val cLon = if (lonAvg != 0.0) lonAvg / 100_000.0 else 0.0
 
                                     rawSettlements.add(
                                         AddressSearchResult(
-                                            countryCode = "UA",
+                                            countryCode = cCode,
                                             regionName = rName,
                                             cityName = apName,
                                             streetName = "",
@@ -837,6 +848,53 @@ object AddressSearchManager {
         return results[0]
     }
 
+    fun calculateMinDistanceToGeom(lat: Double, lon: Double, geomBytes: ByteArray?): Float {
+        if (geomBytes == null || geomBytes.isEmpty()) return Float.MAX_VALUE
+        val buf = java.nio.ByteBuffer.wrap(geomBytes).asIntBuffer()
+        val segCount = buf.remaining() / 4
+        var minSegDist = Float.MAX_VALUE
+
+        for (s in 0 until segCount) {
+            val l1 = buf.get()
+            val n1 = buf.get()
+            val l2 = buf.get()
+            val n2 = buf.get()
+
+            val lat1 = l1 / 100_000.0
+            val lon1 = n1 / 100_000.0
+            val lat2 = l2 / 100_000.0
+            val lon2 = n2 / 100_000.0
+
+            val latMidRad = Math.toRadians((lat1 + lat2 + lat) / 3.0)
+            val cosMid = kotlin.math.cos(latMidRad)
+            val px = lon * cosMid * 111320.0
+            val py = lat * 110574.0
+            val x1 = lon1 * cosMid * 111320.0
+            val y1 = lat1 * 110574.0
+            val x2 = lon2 * cosMid * 111320.0
+            val y2 = lat2 * 110574.0
+
+            val vx = x2 - x1
+            val vy = y2 - y1
+            val segLenSq = vx * vx + vy * vy
+
+            val dist = if (segLenSq < 1e-6) {
+                kotlin.math.hypot(px - x1, py - y1).toFloat()
+            } else {
+                val t = ((px - x1) * vx + (py - y1) * vy) / segLenSq
+                val clampedT = t.coerceIn(0.0, 1.0)
+                val projX = x1 + clampedT * vx
+                val projY = y1 + clampedT * vy
+                kotlin.math.hypot(px - projX, py - projY).toFloat()
+            }
+
+            if (dist < minSegDist) {
+                minSegDist = dist
+            }
+        }
+        return minSegDist
+    }
+
     data class MarkerLocationInfo(
         val markerLat: Double,
         val markerLon: Double,
@@ -846,6 +904,8 @@ object AddressSearchManager {
         val settlementName: String,
         val nearestHouseAddress: String?, // Only if distance < 30m
         val nearestHouseDistanceMeters: Float?,
+        val nearestStreetName: String? = null, // Only if distance to line < 50m
+        val nearestStreetDistanceMeters: Float? = null,
         val nearestStreets: List<Pair<AddressSearchResult, Float>>, // up to 15 items
         val nearestAddresses: List<Pair<AddressSearchResult, Float>>, // up to 15 items
         val nearestPois: List<Pair<AddressSearchResult, Float>> // up to 15 items
@@ -866,82 +926,113 @@ object AddressSearchManager {
         var bestAdminDist = Float.MAX_VALUE
         var nearestHouseAddress: String? = null
         var nearestHouseDist: Float? = null
+        var nearestStreetName: String? = null
+        var nearestStreetDist: Float? = null
 
         val nearestStreets = mutableListOf<Pair<AddressSearchResult, Float>>()
         val nearestAddresses = mutableListOf<Pair<AddressSearchResult, Float>>()
         val nearestPois = mutableListOf<Pair<AddressSearchResult, Float>>()
 
         try {
-            val houseRadii = listOf(5000L, 25000L, 100000L)
+            // 1. NEAREST 15 STREETS: SEARCHED BY NEAREST POINT (GEOMETRY), CENTER USED ONLY FOR NAVIGATION
+            if (AddressDb.hasTable(db, "street_geometries")) {
+                val cosLat = kotlin.math.cos(Math.toRadians(lat))
+                val streetGeomRadii = listOf(2000L, 10000L, 50000L)
+                val candidateStreets = mutableListOf<Pair<AddressSearchResult, Float>>()
+                val seenStreetIds = HashSet<Long>()
 
-            // 1. NEAREST 15 STREETS (h.number = '' AND sn.name != '')
-            for (radius in houseRadii) {
-                if (nearestStreets.isNotEmpty()) break
-                val streetSql = """
-                    SELECT h.street_id, h.lat, h.lon, sn.name, city.name, COALESCE(reg.name, ''),
-                           COALESCE(dist.name, ''), COALESCE(subdist.name, '')
-                    FROM houses h
-                    JOIN streets s ON s.id = h.street_id
-                    JOIN street_names sn ON sn.id = s.name_id
-                    JOIN admin_places city ON city.id = s.place_id
-                    LEFT JOIN admin_places subdist ON subdist.id = city.parent_id AND subdist.level = 7
-                    LEFT JOIN admin_places dist ON (dist.id = city.parent_id AND dist.level = 6) OR (dist.id = subdist.parent_id AND dist.level = 6)
-                    LEFT JOIN admin_places reg ON reg.id = s.region_id
-                    WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
-                      AND h.number = ''
-                      AND sn.name != ''
-                    ORDER BY ((h.lat - $uLatH) * (h.lat - $uLatH) + (h.lon - $uLonH) * (h.lon - $uLonH)) ASC
-                    LIMIT 15;
-                """.trimIndent()
+                for (rad in streetGeomRadii) {
+                    if (candidateStreets.size >= 20) break
+                    val dLatI = rad
+                    val dLonI = (rad / kotlin.math.max(0.2, cosLat)).toLong()
 
-                val streetCursor = db.rawQuery(
-                    streetSql,
-                    arrayOf((uLatH - radius).toString(), (uLatH + radius).toString(), (uLonH - radius).toString(), (uLonH + radius).toString())
-                )
-                streetCursor.use {
-                    while (it.moveToNext()) {
-                        val hLatI = it.getInt(1)
-                        val hLonI = it.getInt(2)
-                        val sName = it.getString(3) ?: ""
-                        val cName = it.getString(4) ?: ""
-                        val rName = it.getString(5) ?: ""
-                        val dName = it.getString(6) ?: ""
-                        val subName = it.getString(7) ?: ""
+                    val geomSql = """
+                        SELECT g.street_id, g.geom, sn.name, city.name, COALESCE(reg.name, ''),
+                               COALESCE(dist.name, ''), COALESCE(subdist.name, ''),
+                               COALESCE(h.lat, 0), COALESCE(h.lon, 0),
+                               COALESCE(country.code, 'UA')
+                        FROM street_geometries g
+                        JOIN streets s ON s.id = g.street_id
+                        JOIN street_names sn ON sn.id = s.name_id
+                        JOIN admin_places city ON city.id = s.place_id
+                        LEFT JOIN admin_places subdist ON subdist.id = city.parent_id AND subdist.level = 7
+                        LEFT JOIN admin_places dist ON (dist.id = city.parent_id AND dist.level = 6) OR (dist.id = subdist.parent_id AND dist.level = 6)
+                        LEFT JOIN admin_places reg ON reg.id = s.region_id
+                        LEFT JOIN admin_places country ON country.id = s.country_id
+                        LEFT JOIN houses h ON h.street_id = s.id AND h.number = ''
+                        WHERE g.max_lat >= ? AND g.min_lat <= ? AND g.max_lon >= ? AND g.min_lon <= ?
+                        LIMIT 150;
+                    """.trimIndent()
 
-                        val div = if (kotlin.math.abs(hLatI) < 10_000_000) 100_000.0 else 1_000_000.0
-                        val dLat = hLatI / div
-                        val dLon = hLonI / div
-                        val distM = calculateDistanceMeters(lat, lon, dLat, dLon)
+                    val geomCursor = db.rawQuery(
+                        geomSql,
+                        arrayOf((uLatH - dLatI).toString(), (uLatH + dLatI).toString(), (uLonH - dLonI).toString(), (uLonH + dLonI).toString())
+                    )
+                    geomCursor.use {
+                        while (it.moveToNext()) {
+                            val stId = it.getLong(0)
+                            if (!seenStreetIds.add(stId)) continue
 
-                        if (distM < bestAdminDist && cName.isNotBlank()) {
-                            bestAdminDist = distM
-                            regionName = rName
-                            districtName = dName
-                            communityName = subName
-                            settlementName = cName
+                            val geomBytes = it.getBlob(1) ?: continue
+                            if (geomBytes.isEmpty()) continue
+                            val sName = it.getString(2) ?: ""
+                            val cName = it.getString(3) ?: ""
+                            val rName = it.getString(4) ?: ""
+                            val dName = it.getString(5) ?: ""
+                            val subName = it.getString(6) ?: ""
+                            val centerLatI = it.getInt(7)
+                            val centerLonI = it.getInt(8)
+                            val countryCode = it.getString(9) ?: "UA"
+
+                            val minSegDist = calculateMinDistanceToGeom(lat, lon, geomBytes)
+
+                            val cLat = if (centerLatI != 0) centerLatI / 100_000.0 else lat
+                            val cLon = if (centerLonI != 0) centerLonI / 100_000.0 else lon
+
+                            val res = AddressSearchResult(
+                                countryCode = countryCode,
+                                regionName = rName,
+                                cityName = cName,
+                                streetName = sName,
+                                houseNumber = "",
+                                lat = cLat, // Street CENTER for map tap/navigation!
+                                lon = cLon, // Street CENTER for map tap/navigation!
+                                isPoiOnly = false,
+                                distanceMeters = minSegDist // EXACT distance to nearest point of street!
+                            )
+                            candidateStreets.add(Pair(res, minSegDist))
+
+                            if (minSegDist < bestAdminDist && cName.isNotBlank()) {
+                                bestAdminDist = minSegDist
+                                regionName = rName
+                                districtName = dName
+                                communityName = subName
+                                settlementName = cName
+                            }
                         }
+                    }
+                }
 
-                        val res = AddressSearchResult(
-                            countryCode = "UA",
-                            regionName = rName,
-                            cityName = cName,
-                            streetName = sName,
-                            houseNumber = "",
-                            lat = dLat,
-                            lon = dLon,
-                            isPoiOnly = false
-                        )
-                        nearestStreets.add(Pair(res, distM))
+                if (candidateStreets.isNotEmpty()) {
+                    candidateStreets.sortBy { it.second }
+                    val top = candidateStreets.first()
+                    nearestStreetName = top.first.streetName
+                    nearestStreetDist = top.second
+
+                    for (i in 0 until minOf(15, candidateStreets.size)) {
+                        nearestStreets.add(candidateStreets[i])
                     }
                 }
             }
 
             // 2. NEAREST 15 HOUSES (h.number != '')
+            val houseRadii = listOf(5000L, 25000L, 100000L)
             for (radius in houseRadii) {
                 if (nearestAddresses.isNotEmpty()) break
                 val houseSql = """
                     SELECT h.street_id, h.number, h.lat, h.lon, sn.name, city.name, COALESCE(reg.name, ''),
-                           COALESCE(dist.name, ''), COALESCE(subdist.name, '')
+                           COALESCE(dist.name, ''), COALESCE(subdist.name, ''),
+                           COALESCE(country.code, 'UA')
                     FROM houses h
                     JOIN streets s ON s.id = h.street_id
                     JOIN street_names sn ON sn.id = s.name_id
@@ -949,6 +1040,7 @@ object AddressSearchManager {
                     LEFT JOIN admin_places subdist ON subdist.id = city.parent_id AND subdist.level = 7
                     LEFT JOIN admin_places dist ON (dist.id = city.parent_id AND dist.level = 6) OR (dist.id = subdist.parent_id AND dist.level = 6)
                     LEFT JOIN admin_places reg ON reg.id = s.region_id
+                    LEFT JOIN admin_places country ON country.id = s.country_id
                     WHERE h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
                       AND h.number != ''
                     ORDER BY ((h.lat - $uLatH) * (h.lat - $uLatH) + (h.lon - $uLonH) * (h.lon - $uLonH)) ASC
@@ -969,10 +1061,10 @@ object AddressSearchManager {
                         val rName = it.getString(6) ?: ""
                         val dName = it.getString(7) ?: ""
                         val subName = it.getString(8) ?: ""
+                        val countryCode = it.getString(9) ?: "UA"
 
-                        val div = if (kotlin.math.abs(hLatI) < 10_000_000) 100_000.0 else 1_000_000.0
-                        val dLat = hLatI / div
-                        val dLon = hLonI / div
+                        val dLat = hLatI / 100_000.0
+                        val dLon = hLonI / 100_000.0
                         val distM = calculateDistanceMeters(lat, lon, dLat, dLon)
 
                         if (distM < bestAdminDist && cName.isNotBlank()) {
@@ -989,7 +1081,7 @@ object AddressSearchManager {
                         }
 
                         val res = AddressSearchResult(
-                            countryCode = "UA",
+                            countryCode = countryCode,
                             regionName = rName,
                             cityName = cName,
                             streetName = sName,
@@ -1011,7 +1103,8 @@ object AddressSearchManager {
                 val poiSql = """
                     SELECT pp.id, pp.name, COALESCE(pt.desc_local, pt.desc_en, pt.tag, ''),
                            COALESCE(pt.group_category, ''), COALESCE(pt.tag, ''),
-                           pp.lat, pp.lon, COALESCE(sn.name, ''), COALESCE(city.name, ''), COALESCE(reg.name, '')
+                           pp.lat, pp.lon, COALESCE(sn.name, ''), COALESCE(city.name, ''), COALESCE(reg.name, ''),
+                           COALESCE(pp.country_code, 'UA')
                     FROM poi_places pp
                     LEFT JOIN poi_types pt ON pt.id = pp.category_id
                     LEFT JOIN streets s ON s.id = pp.street_id
@@ -1038,13 +1131,14 @@ object AddressSearchManager {
                         val sName = it.getString(7) ?: ""
                         val cName = it.getString(8) ?: ""
                         val rName = it.getString(9) ?: ""
+                        val countryCode = it.getString(10) ?: "UA"
                         val pIcon = getPoiIcon(pTag, pGroup)
                         val pCat = pDesc.ifBlank { pTag }
 
                         val distM = calculateDistanceMeters(lat, lon, pLat, pLon)
 
                         val res = AddressSearchResult(
-                            countryCode = "UA",
+                            countryCode = countryCode,
                             regionName = rName,
                             cityName = cName,
                             streetName = sName,
@@ -1074,6 +1168,8 @@ object AddressSearchManager {
             settlementName = settlementName,
             nearestHouseAddress = nearestHouseAddress,
             nearestHouseDistanceMeters = nearestHouseDist,
+            nearestStreetName = nearestStreetName,
+            nearestStreetDistanceMeters = nearestStreetDist,
             nearestStreets = nearestStreets,
             nearestAddresses = nearestAddresses,
             nearestPois = nearestPois

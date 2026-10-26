@@ -1,18 +1,14 @@
 package com.olegskal.mushroom.ui
 
-import android.app.Activity
 import android.content.Context
 import android.graphics.Color
-import android.graphics.Typeface
 import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.view.Gravity
-import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.TextView
 
 object UiUtils {
 
@@ -70,50 +66,5 @@ object UiUtils {
             params?.let { layoutParams = it }
             setOnClickListener { onClick() }
         }
-    }
-
-    fun createHeaderLayout(activity: Activity, titleText: String): LinearLayout {
-        val headerLayout = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 16)
-        }
-
-        val btnBack = createStyledButton(activity, "Back") {
-            activity.finish()
-        }
-
-        val headerTitle = TextView(activity).apply {
-            text = titleText
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        headerLayout.addView(btnBack)
-        headerLayout.addView(headerTitle)
-        return headerLayout
-    }
-
-    fun setupTextPinchZoom(
-        activity: Activity,
-        targetTextView: TextView,
-        initialSizeSp: Float = 14f,
-        minSp: Float = 8f,
-        maxSp: Float = 36f,
-        onSizeChanged: ((Float) -> Unit)? = null
-    ): ScaleGestureDetector {
-        var currentSp = initialSizeSp
-        return ScaleGestureDetector(activity, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                val factor = detector.scaleFactor
-                currentSp = (currentSp * factor).coerceIn(minSp, maxSp)
-                targetTextView.textSize = currentSp
-                onSizeChanged?.invoke(currentSp)
-                return true
-            }
-        })
     }
 }

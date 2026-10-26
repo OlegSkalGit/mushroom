@@ -97,20 +97,17 @@ class SpatialHouseGrid {
 
     /**
      * Пошук найближчого будинку в RAM.
-     * @param poiLatMicro широта точки в мікроградусах (deg * 1_000_000)
-     * @param poiLonMicro довгота точки в мікроградусах (deg * 1_000_000)
+     * @param latI широта точки в deg * 100_000
+     * @param lonI довгота точки в deg * 100_000
      * @return street_id найближчого будинку, або null якщо в базі немає будинків
      */
-    fun findNearestStreetId(poiLatMicro: Int, poiLonMicro: Int): Long? {
+    fun findNearestStreetId(latI: Int, lonI: Int): Long? {
         if (count == 0) return null
 
-        // Координати будинків збережені як deg * 100_000 (div 10 від мікроградусів)
-        val plat = poiLatMicro / 10
-        val plon = poiLonMicro / 10
-        val cx = plat / CELL_SIZE
-        val cy = plon / CELL_SIZE
+        val cx = latI / CELL_SIZE
+        val cy = lonI / CELL_SIZE
 
-        val latDeg = poiLatMicro / 1_000_000.0
+        val latDeg = latI / 100_000.0
         val cosLat = cos(Math.toRadians(latDeg))
         val ky = 1.1132
         val kx = 1.1132 * cosLat
@@ -129,8 +126,8 @@ class SpatialHouseGrid {
                     val cellSize = cell.size
                     for (i in 0 until cellSize) {
                         val hIdx = cell[i]
-                        val dlat = (plat - lats[hIdx]) * ky
-                        val dlon = (plon - lons[hIdx]) * kx
+                        val dlat = (latI - lats[hIdx]) * ky
+                        val dlon = (lonI - lons[hIdx]) * kx
                         val d2 = dlat * dlat + dlon * dlon
                         if (d2 < bestDistSq) {
                             bestDistSq = d2
@@ -140,8 +137,6 @@ class SpatialHouseGrid {
                 }
             }
             if (bestStreetId != null && stopAfterRing == -1) {
-                // Знайдено будинок у поточному кільці.
-                // Перевіряємо ще одне сусіднє кільце (radius + 1) на випадок границі комірок і зупиняємось.
                 stopAfterRing = radius + 1
             }
             if (stopAfterRing != -1 && radius >= stopAfterRing) {
