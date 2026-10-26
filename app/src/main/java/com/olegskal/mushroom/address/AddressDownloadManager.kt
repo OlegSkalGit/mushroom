@@ -441,14 +441,14 @@ object AddressDownloadManager {
         countryCode: String,
         logFn: (String) -> Unit,
         isCancelled: () -> Boolean
-    ): File? {
+    ): List<File> {
         val areaClause = if (region.relId > 0) {
             "area(${3600000000L + region.relId})->.a;"
         } else {
             "area[\"ISO3166-1\"=\"${countryCode.uppercase()}\"][admin_level=2]->.a;"
         }
         val qArea = """
-            [out:json][timeout:180][maxsize:1073741824];
+            [out:json][timeout:195][maxsize:1073741824];
             $areaClause
             (
               way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"](area.a);
@@ -460,30 +460,76 @@ object AddressDownloadManager {
         var hasStreets = false
 
         if (region.relId > 0) {
-            hasStreets = client.queryToFile(qArea, tempFile, timeoutSec = 185, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
+            hasStreets = client.queryToFile(qArea, tempFile, timeoutSec = 200, logFn = logFn, isCancelled = isCancelled, maxCycles = 3)
         }
 
         val fileHasData = hasStreets && tempFile.exists() && tempFile.length() > 500L
-        if (!fileHasData && region.isBbox && !isCancelled()) {
-            try { tempFile.delete() } catch (_: Exception) {}
+        if (fileHasData) {
+            return listOf(tempFile)
+        }
+
+        try { tempFile.delete() } catch (_: Exception) {}
+
+        if (region.isBbox && !isCancelled()) {
             logFn("Сервер не повернув вулиці через area для ${region.name}. Перехід на географічну рамку (bbox)...")
             val bboxStr = "(${region.minLat}, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
             val qBbox = """
-                [out:json][timeout:180][maxsize:1073741824];
+                [out:json][timeout:195][maxsize:1073741824];
                 (
                   way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"]$bboxStr;
                 );
                 out tags geom qt;
             """.trimIndent()
-            hasStreets = client.queryToFile(qBbox, tempFile, timeoutSec = 185, logFn = logFn, isCancelled = isCancelled, maxCycles = 2)
+            hasStreets = client.queryToFile(qBbox, tempFile, timeoutSec = 200, logFn = logFn, isCancelled = isCancelled, maxCycles = 3)
+            if (hasStreets && tempFile.exists() && tempFile.length() > 500L) {
+                return listOf(tempFile)
+            }
+            try { tempFile.delete() } catch (_: Exception) {}
+
+            // Відмовостійкість: Якщо вся область завелика для одного запиту — розбиваємо рамку навпіл (північ / південь)
+            logFn("Великий обсяг доріг для ${region.name}. Розбиття запиту на 2 частини для уникнення таймауту...")
+            val midLat = (region.minLat + region.maxLat) / 2.0
+            val bboxNorth = "($midLat, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
+            val bboxSouth = "(${region.minLat}, ${region.minLon}, $midLat, ${region.maxLon})"
+
+            val file1 = File(AddressDb.getAddressesDir(context), "temp_streets_${region.relId}_p1_${System.currentTimeMillis()}.json")
+            val file2 = File(AddressDb.getAddressesDir(context), "temp_streets_${region.relId}_p2_${System.currentTimeMillis()}.json")
+
+            val qPart1 = """
+                [out:json][timeout:195][maxsize:1073741824];
+                (
+                  way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"]$bboxNorth;
+                );
+                out tags geom qt;
+            """.trimIndent()
+            val ok1 = client.queryToFile(qPart1, file1, timeoutSec = 200, logFn = logFn, isCancelled = isCancelled, maxCycles = 3)
+
+            val qPart2 = if (ok1 && !isCancelled()) {
+                """
+                    [out:json][timeout:195][maxsize:1073741824];
+                    (
+                      way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"]$bboxSouth;
+                    );
+                    out tags geom qt;
+                """.trimIndent()
+            } else null
+
+            val ok2 = if (qPart2 != null) {
+                client.queryToFile(qPart2, file2, timeoutSec = 200, logFn = logFn, isCancelled = isCancelled, maxCycles = 3)
+            } else false
+
+            val list = mutableListOf<File>()
+            if (ok1 && file1.exists() && file1.length() > 500L) list.add(file1) else try { file1.delete() } catch (_: Exception) {}
+            if (ok2 && file2.exists() && file2.length() > 500L) list.add(file2) else try { file2.delete() } catch (_: Exception) {}
+
+            if (list.size == 2) {
+                return list
+            } else {
+                for (f in list) try { f.delete() } catch (_: Exception) {}
+            }
         }
 
-        return if (hasStreets && tempFile.exists() && tempFile.length() > 500L) {
-            tempFile
-        } else {
-            try { tempFile.delete() } catch (_: Exception) {}
-            null
-        }
+        return emptyList()
     }
 
     private fun fetchRegionSettlements(
@@ -1137,7 +1183,7 @@ object AddressDownloadManager {
                     FROM streets s
                     JOIN admin_places ap ON s.region_id = ap.id
                     WHERE s.country_id = ?
-                      AND EXISTS (SELECT 1 FROM houses h WHERE h.street_id = s.id LIMIT 1);
+                      AND EXISTS (SELECT 1 FROM houses h WHERE h.street_id = s.id AND h.number = '' LIMIT 1);
                 """.trimIndent(), arrayOf(ingestor.countryId.toString()))
                 pCur.use {
                     while (it.moveToNext()) {
@@ -1288,12 +1334,19 @@ object AddressDownloadManager {
                             client.interruptibleSleep(2000L, isCancelled)
                         }
                         logCallback("Завантаження сітки іменованих вулиць для ${curRegion.name}...")
-                        val streetsFile = if (!isCancelled()) fetchRegionStreets(context, curRegion, country.code, logCallback, isCancelled) else null
-                        val streetGrid = SpatialStreetGrid()
-                        if (streetsFile != null) {
-                            val loadedWays = streetGrid.loadFromJsonFile(streetsFile, country.code)
-                            logCallback("Побудовано сітку вулиць для ${curRegion.name}: $loadedWays ліній (${streetGrid.segmentCount} відрізків, ${streetGrid.streetCount} унікальних вулиць)")
+                        val streetsFiles = if (!isCancelled()) fetchRegionStreets(context, curRegion, country.code, logCallback, isCancelled) else emptyList()
+                        if (streetsFiles.isEmpty() && !isCancelled()) {
+                            logCallback("ПОМИЛКА: Не вдалося завантажити вулиці для ${curRegion.name}. Додаємо регіон до списку повторних спроб...")
+                            failed.add(Pair(idx, curRegion))
+                            try { tempFile.delete() } catch (_: Exception) {}
+                            continue
                         }
+                        val streetGrid = SpatialStreetGrid()
+                        var totalLoadedWays = 0
+                        for (sFile in streetsFiles) {
+                            totalLoadedWays += streetGrid.loadFromJsonFile(sFile, country.code)
+                        }
+                        logCallback("Побудовано сітку вулиць для ${curRegion.name}: $totalLoadedWays ліній (${streetGrid.segmentCount} відрізків, ${streetGrid.streetCount} унікальних вулиць)")
 
                         db.beginTransaction()
                         try {
@@ -1553,54 +1606,52 @@ object AddressDownloadManager {
                             }
 
                             // Додавання всіх іменованих вулиць з файлу доріг у таблицю будинків (number = "", координата = центр вулиці)
-                            val streetClusters = streetGrid.extractStreetClusters()
-                            if (streetClusters.isNotEmpty()) {
-                                data class KnownSettlement(
-                                    val cityPlaceId: Long,
-                                    val regPlaceId: Long,
-                                    val regionName: String,
-                                    val cityName: String,
-                                    val latI: Int,
-                                    val lonI: Int
-                                )
+                            data class KnownSettlement(
+                                val cityPlaceId: Long,
+                                val regPlaceId: Long,
+                                val regionName: String,
+                                val cityName: String,
+                                val latI: Int,
+                                val lonI: Int
+                            )
 
-                                val knownByCityName = HashMap<String, ArrayList<KnownSettlement>>()
-                                val seenCityPlaceIds = HashSet<Long>()
-                                for (h in regionHouses) {
-                                    if (h.cityName.isNotBlank() && seenCityPlaceIds.add(h.cityPlaceId)) {
-                                        val key = h.cityName.trim().lowercase(Locale.ROOT)
-                                        knownByCityName.getOrPut(key) { ArrayList(2) }.add(
-                                            KnownSettlement(h.cityPlaceId, h.regPlaceId, h.regionName, h.cityName, h.latI, h.lonI)
-                                        )
-                                    }
+                            val knownByCityName = HashMap<String, ArrayList<KnownSettlement>>()
+                            val seenCityPlaceIds = HashSet<Long>()
+                            for (h in regionHouses) {
+                                if (h.cityName.isNotBlank() && seenCityPlaceIds.add(h.cityPlaceId)) {
+                                    val key = h.cityName.trim().lowercase(Locale.ROOT)
+                                    knownByCityName.getOrPut(key) { ArrayList(2) }.add(
+                                        KnownSettlement(h.cityPlaceId, h.regPlaceId, h.regionName, h.cityName, h.latI, h.lonI)
+                                    )
                                 }
+                            }
 
-                                val addedStreetCenters = HashSet<Long>(streetClusters.size)
-                                val houseTotal = regionHouses.size
-                                val maxHouseSearchMeters = 300.0
-                                val maxHouseSearchSq = maxHouseSearchMeters * maxHouseSearchMeters
-                                val dLatLimit300 = (maxHouseSearchMeters / 1.1132).toInt() + 1
+                            val addedStreetCenters = HashSet<Long>()
+                            val houseTotal = regionHouses.size
+                            val maxHouseSearchMeters = 300.0
+                            val maxHouseSearchSq = maxHouseSearchMeters * maxHouseSearchMeters
+                            val dLatLimit300 = (maxHouseSearchMeters / 1.1132).toInt() + 1
 
-                                for (cluster in streetClusters) {
-                                    val lat = cluster.centerLat
-                                    val lon = cluster.centerLon
-                                    if (lat == 0.0 && lon == 0.0) continue
-
+                            streetGrid.extractStreetClusters { cluster ->
+                                val lat = cluster.centerLat
+                                val lon = cluster.centerLon
+                                if (lat != 0.0 || lon != 0.0) {
                                     var targetRegion = curRegion
                                     val matcher = boundaryMatcher
                                     if (usedBbox && matcher != null) {
-                                        val ptCode = matcher.findRegionCode(lat, lon) ?: continue
-                                        val matchedReg = regionByCode[ptCode]
-                                        if (matchedReg != null) {
-                                            val isCurrent = if (curRegion.code.isNotBlank() && matchedReg.code.isNotBlank()) {
-                                                matchedReg.code.equals(curRegion.code, ignoreCase = true)
-                                            } else {
-                                                matchedReg.name.trim().equals(curRegion.name.trim(), ignoreCase = true)
+                                        val ptCode = matcher.findRegionCode(lat, lon)
+                                        if (ptCode != null) {
+                                            val matchedReg = regionByCode[ptCode]
+                                            if (matchedReg != null) {
+                                                val isCurrent = if (curRegion.code.isNotBlank() && matchedReg.code.isNotBlank()) {
+                                                    matchedReg.code.equals(curRegion.code, ignoreCase = true)
+                                                } else {
+                                                    matchedReg.name.trim().equals(curRegion.name.trim(), ignoreCase = true)
+                                                }
+                                                if (isCurrent) {
+                                                    targetRegion = matchedReg
+                                                }
                                             }
-                                            if (!isCurrent) {
-                                                continue
-                                            }
-                                            targetRegion = matchedReg
                                         }
                                     }
 
@@ -1684,7 +1735,6 @@ object AddressDownloadManager {
 
                                         var matchedKnown: KnownSettlement? = null
                                         if (!candidates.isNullOrEmpty()) {
-                                            // Якщо в області є населений пункт з такою назвою в радіусі ~10 км, використовуємо його ієрархію
                                             var bestKnownDistSq = 10_000.0 * 10_000.0
                                             for (ks in candidates) {
                                                 val dy = (latI - ks.latI) * 1.1132
@@ -1710,27 +1760,25 @@ object AddressDownloadManager {
                                         }
                                     }
 
-                                    if (cluster.canonicalName.isBlank() || cluster.canonicalName.equals(cityName, ignoreCase = true)) {
-                                        continue
-                                    }
-
-                                    val streetId = ingestor.getOrCreateStreet(
-                                        cityPlaceId,
-                                        cluster.canonicalName,
-                                        targetRegionName,
-                                        cityName,
-                                        regPlaceId
-                                    )
-                                    if (streetId > 0L && addedStreetCenters.add(streetId)) {
-                                        ingestor.addHouse(streetId, "", latI, lonI)
-                                        ingestor.addStreetGeometry(
-                                            streetId,
-                                            cluster.minLatI,
-                                            cluster.maxLatI,
-                                            cluster.minLonI,
-                                            cluster.maxLonI,
-                                            cluster.segmentsBlob
+                                    if (cluster.canonicalName.isNotBlank() && !cluster.canonicalName.equals(cityName, ignoreCase = true)) {
+                                        val streetId = ingestor.getOrCreateStreet(
+                                            cityPlaceId,
+                                            cluster.canonicalName,
+                                            targetRegionName,
+                                            cityName,
+                                            regPlaceId
                                         )
+                                        if (streetId > 0L && addedStreetCenters.add(streetId)) {
+                                            ingestor.addHouse(streetId, "", latI, lonI)
+                                            ingestor.addStreetGeometry(
+                                                streetId,
+                                                cluster.minLatI,
+                                                cluster.maxLatI,
+                                                cluster.minLonI,
+                                                cluster.maxLonI,
+                                                cluster.segmentsBlob
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1743,7 +1791,9 @@ object AddressDownloadManager {
                             loadedNames.add(region.name.trim().lowercase(Locale.ROOT))
                         } finally {
                             db.endTransaction()
-                            try { streetsFile?.delete() } catch (_: Exception) {}
+                            for (f in streetsFiles) {
+                                try { f.delete() } catch (_: Exception) {}
+                            }
                             streetGrid.clear()
                         }
                     } finally {
@@ -1763,6 +1813,13 @@ object AddressDownloadManager {
 
             if (isCancelled()) return false
 
+            if (pending.isNotEmpty()) {
+                val missingNames = pending.joinToString { it.second.name }
+                AppLogger.log(TAG, "ingestCountryAddresses", false, "Не всі регіони завантажено: залишилось ${pending.size} з $totalRegions ($missingNames). Потрібне перезавантаження.")
+                onProgress(0.0, "${country.nameUk}: Не завантажено ${pending.size} з $totalRegions регіонів. Перезавантаження...")
+                return false
+            }
+
             try { unlinkedHousesWriter?.flush() } catch (_: Exception) {}
             try { unlinkedHousesWriter?.close() } catch (_: Exception) {}
             unlinkedHousesWriter = null
@@ -1770,8 +1827,8 @@ object AddressDownloadManager {
             // Фінальна прив'язка будинків без назви вулиці з тимчасового файлу
             if (unlinkedHousesTempFile.exists() && unlinkedHousesTempFile.length() > 0L && !isCancelled()) {
                 onProgress(0.86, "${country.nameUk}: Фінальна прив'язка будинків без назви вулиці...")
-                val houseGrid = SpatialHouseGrid.buildFromDatabase(db, country.code)
                 try {
+                    val recentLinked = ArrayList<Triple<Int, Int, Long>>(500)
                     unlinkedHousesTempFile.bufferedReader(Charsets.UTF_8).use { reader ->
                         var line: String?
                         while (reader.readLine().also { line = it } != null) {
@@ -1788,14 +1845,72 @@ object AddressDownloadManager {
                             val regionName = parts[5]
                             val cityName = parts[6]
 
-                            // Ранг 3: Безпечний ланцюг через сусіда з назвою вулиці (<= 40м)
-                            val matchedStreetId = if (houseGrid.size > 0) {
-                                houseGrid.findNearestStreetIdWithMaxDist(latI, lonI, maxDistMeters = 40.0)
-                            } else null
+                            val maxDistMeters = 40.0
+                            val dLatLimit = (maxDistMeters / 1.1132).toInt() + 1
+                            val cosLat = kotlin.math.cos(Math.toRadians(latI / 100_000.0))
+                            val dLonLimit = (maxDistMeters / (1.1132 * kotlin.math.max(0.1, cosLat))).toInt() + 1
+                            val maxDistSq = maxDistMeters * maxDistMeters
 
-                            val finalStreetId = if (matchedStreetId != null) {
-                                houseGrid.add(latI, lonI, matchedStreetId) // ланцюг для наступних сусідів
-                                matchedStreetId
+                            var matchedStreetId: Long? = null
+                            var bestDistSq = maxDistSq
+
+                            // 1. Спочатку перевіряємо нещодавно прив'язаних сусідів (ланцюг) у RAM
+                            for (k in recentLinked.indices.reversed()) {
+                                val cand = recentLinked[k]
+                                val dLat = kotlin.math.abs(latI - cand.first)
+                                if (dLat <= dLatLimit) {
+                                    val dLon = kotlin.math.abs(lonI - cand.second)
+                                    if (dLon <= dLonLimit) {
+                                        val dy = dLat * 1.1132
+                                        val dx = dLon * 1.1132 * cosLat
+                                        val d2 = dy * dy + dx * dx
+                                        if (d2 < bestDistSq) {
+                                            bestDistSq = d2
+                                            matchedStreetId = cand.third
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 2. Якщо в ланцюгу немає, робимо точковий SQL-запит за індексом idx_houses_coords (0 МБ RAM!)
+                            if (matchedStreetId == null) {
+                                val minLat = latI - dLatLimit
+                                val maxLat = latI + dLatLimit
+                                val minLon = lonI - dLonLimit
+                                val maxLon = lonI + dLonLimit
+                                val qSql = """
+                                    SELECT h.street_id, h.lat, h.lon 
+                                    FROM houses h 
+                                    JOIN streets s ON s.id = h.street_id 
+                                    JOIN street_names sn ON sn.id = s.name_id 
+                                    WHERE sn.name != '' 
+                                      AND h.lat BETWEEN $minLat AND $maxLat 
+                                      AND h.lon BETWEEN $minLon AND $maxLon 
+                                    LIMIT 5;
+                                """.trimIndent()
+                                try {
+                                    db.rawQuery(qSql, null).use { cur ->
+                                        while (cur.moveToNext()) {
+                                            val cStreetId = cur.getLong(0)
+                                            val cLat = cur.getInt(1)
+                                            val cLon = cur.getInt(2)
+                                            val dy = (latI - cLat) * 1.1132
+                                            val dx = (lonI - cLon) * 1.1132 * cosLat
+                                            val d2 = dy * dy + dx * dx
+                                            if (d2 < bestDistSq) {
+                                                bestDistSq = d2
+                                                matchedStreetId = cStreetId
+                                            }
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+                            }
+
+                            val foundId = matchedStreetId
+                            val finalStreetId = if (foundId != null) {
+                                if (recentLinked.size > 2000) recentLinked.removeAt(0)
+                                recentLinked.add(Triple(latI, lonI, foundId))
+                                foundId
                             } else {
                                 // Ранг 4: Офіційна адреса населеного пункту без назви вулиці
                                 ingestor.getOrCreateStreet(cityPlaceId, "", regionName, cityName, if (regPlaceId > 0) regPlaceId else null)
@@ -1805,7 +1920,6 @@ object AddressDownloadManager {
                     }
                     ingestor.flush()
                 } finally {
-                    houseGrid.clear()
                     try { unlinkedHousesTempFile.delete() } catch (_: Exception) {}
                 }
             }
@@ -1813,6 +1927,17 @@ object AddressDownloadManager {
             val totalHouses = getCountryHouseCount(context, country.code)
             if (totalHouses < 50L) {
                 AppLogger.log(TAG, "ingestCountryAddresses", false, "Failure: only $totalHouses houses ingested for ${country.code}. Aborting to avoid empty 12KB database.")
+                return false
+            }
+
+            val totalStreetCenters = try {
+                db.rawQuery("SELECT count(*) FROM houses WHERE number = '';", null).use {
+                    if (it.moveToFirst()) it.getLong(0) else 0L
+                }
+            } catch (_: Exception) { 0L }
+
+            if (totalStreetCenters == 0L) {
+                AppLogger.log(TAG, "ingestCountryAddresses", false, "Failure: 0 street centers ingested for ${country.code}. Aborting to avoid database without streets.")
                 return false
             }
 

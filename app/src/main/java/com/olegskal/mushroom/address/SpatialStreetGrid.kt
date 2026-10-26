@@ -296,8 +296,9 @@ class SpatialStreetGrid {
      * Групує відрізки вулиць за канонічною назвою та просторовою близькістю (~2.5 км),
      * щоб однойменні вулиці в різних селах/містах області не зливалися в одну,
      * та обчислює геометричний центр кожної вулиці безпосередньо на лінії дороги.
+     * Якщо передано [onCluster], кластери передаються потоково для мінімізації навантаження на RAM.
      */
-    fun extractStreetClusters(): List<StreetCluster> {
+    fun extractStreetClusters(onCluster: ((StreetCluster) -> Unit)? = null): List<StreetCluster> {
         if (count == 0) return emptyList()
 
         val canonicalById = arrayOfNulls<String>(streetNames.size)
@@ -435,21 +436,28 @@ class SpatialStreetGrid {
                         buf.putInt(lat2s[idx])
                         buf.putInt(lon2s[idx])
                     }
-                    result.add(
-                        StreetCluster(
-                            canonicalName = canonicalName,
-                            centerLat = centerLatDeg,
-                            centerLon = centerLonDeg,
-                            segmentCount = n,
-                            minLatI = c.minLat,
-                            maxLatI = c.maxLat,
-                            minLonI = c.minLon,
-                            maxLonI = c.maxLon,
-                            segmentsBlob = buf.array()
-                        )
+                    val cluster = StreetCluster(
+                        canonicalName = canonicalName,
+                        centerLat = centerLatDeg,
+                        centerLon = centerLonDeg,
+                        segmentCount = n,
+                        minLatI = c.minLat,
+                        maxLatI = c.maxLat,
+                        minLonI = c.minLon,
+                        maxLonI = c.maxLon,
+                        segmentsBlob = buf.array()
                     )
+                    if (onCluster != null) {
+                        onCluster(cluster)
+                    } else {
+                        result.add(cluster)
+                    }
                 }
             }
+        }
+
+        if (onCluster != null) {
+            return emptyList()
         }
 
         // Спочатку більші вулиці (більше сегментів), щоб основна частина вулиці мала пріоритет

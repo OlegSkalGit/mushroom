@@ -27,7 +27,8 @@ class OverpassAddressClient(
             "https://gall.openstreetmap.de/api/interpreter",
             "https://lambert.openstreetmap.de/api/interpreter",
             "https://z.overpass-api.de/api/interpreter",
-            "https://lz4.overpass-api.de/api/interpreter"
+            "https://lz4.overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter"
         )
         private val pool = Executors.newFixedThreadPool(DEFAULT_MIRRORS.size) { r ->
             Thread(r, "OverpassMirrorCheck").apply { isDaemon = true }
@@ -44,8 +45,8 @@ class OverpassAddressClient(
         val statusUrl = mirror.replace("/interpreter", "/status")
         return try {
             val conn = (URL(statusUrl).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 2000
-                readTimeout = 2000
+                connectTimeout = 3000
+                readTimeout = 3000
                 setRequestProperty("User-Agent", USER_AGENT)
             }
             val code = conn.responseCode
@@ -56,7 +57,7 @@ class OverpassAddressClient(
             }
             if (code !in 200..299) {
                 conn.disconnect()
-                return MirrorRank(mirror, 9999, 0)
+                return MirrorRank(mirror, 10, 1)
             }
             val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             conn.disconnect()
@@ -76,14 +77,15 @@ class OverpassAddressClient(
             val effWait = if (avail > 0) 0 else (if (waitSec > 0) waitSec else 60)
             MirrorRank(mirror, effWait, avail)
         } catch (_: Exception) {
-            MirrorRank(mirror, 9999, 0)
+            // Якщо статус тимчасово не відповів, ставимо помірний пріоритет замість повного вилучення
+            MirrorRank(mirror, 15, 1)
         }
     }
 
     fun findBestMirrors(): List<MirrorRank> {
         val tasks = mirrors.map { m -> Callable { checkMirrorStatus(m) } }
         val results = try {
-            val futures = pool.invokeAll(tasks, 2500, TimeUnit.MILLISECONDS)
+            val futures = pool.invokeAll(tasks, 3500, TimeUnit.MILLISECONDS)
             futures.mapNotNull {
                 try { it.get() } catch (_: Exception) { null }
             }
@@ -92,7 +94,7 @@ class OverpassAddressClient(
         }
 
         val alive = results.filter { it.effectiveWaitSec < 9999 }.sortedBy { it.effectiveWaitSec }
-        if (alive.isNotEmpty() && alive.any { it.effectiveWaitSec == 0 }) {
+        if (alive.isNotEmpty()) {
             return alive
         }
 
