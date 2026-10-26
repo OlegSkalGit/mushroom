@@ -9,15 +9,46 @@ import com.olegskal.mushroom.model.MushroomTrack
 import com.olegskal.mushroom.model.TrackPoint
 import com.olegskal.mushroom.storage.MushroomStorageManager
 import com.olegskal.mushroom.util.AppLogger
+import java.io.File
 import java.util.concurrent.Executors
 
-class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, getDatabasePath(context), null, DATABASE_VERSION) {
 
     companion object {
-        private const val DATABASE_NAME = "mushroom.db"
+        private const val DATABASE_NAME = "tracks.db"
         private const val DATABASE_VERSION = 5
         private val syncExecutor = Executors.newSingleThreadExecutor { r ->
             Thread(r, "TrackStorageSync").apply { isDaemon = true }
+        }
+
+        private fun getDatabasePath(context: Context): String {
+            try {
+                val target = MushroomStorageManager.trackDbFile
+                val dir = target.parentFile
+                if (dir != null && (dir.exists() || dir.mkdirs()) && dir.canWrite()) {
+                    if (!target.exists()) {
+                        val oldInternal = context.getDatabasePath("mushroom.db")
+                        val oldTracksMushroom = File(dir, "mushroom.db")
+                        if (oldTracksMushroom.exists() && oldTracksMushroom.length() > 0) {
+                            try {
+                                oldTracksMushroom.renameTo(target)
+                                AppLogger.log("DatabaseHelper", "getDatabasePath", true, "Renamed mushroom.db to tracks.db in tracks dir")
+                            } catch (_: Exception) {}
+                        } else if (oldInternal.exists() && oldInternal.length() > 0) {
+                            try {
+                                oldInternal.copyTo(target, overwrite = true)
+                                AppLogger.log("DatabaseHelper", "getDatabasePath", true, "Migrated internal mushroom.db to ${target.absolutePath}")
+                            } catch (e: Exception) {
+                                AppLogger.log("DatabaseHelper", "getDatabasePath", false, "Failed to copy old db: ${e.message}")
+                            }
+                        }
+                    }
+                    return target.absolutePath
+                }
+            } catch (e: Exception) {
+                AppLogger.log("DatabaseHelper", "getDatabasePath", false, "Error determining tracks db path: ${e.message}")
+            }
+            return DATABASE_NAME
         }
 
         // Tracks table

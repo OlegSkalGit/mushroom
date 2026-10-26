@@ -44,6 +44,9 @@ object MushroomStorageManager {
     val tracksDir: File
         get() = File(baseDir, "tracks").apply { if (!exists()) mkdirs() }
 
+    val trackDbFile: File
+        get() = File(tracksDir, "tracks.db")
+
     val addressesDir: File
         get() = File(baseDir, "addresses").apply { if (!exists()) mkdirs() }
 
