@@ -362,23 +362,33 @@ class OverpassAddressClient(
                             interruptibleSleep(1500L, isCancelled)
                             continue
                         }
-                    } else if (activeQuery.contains("[out:json]", ignoreCase = true)) {
-                        val tailText = try {
-                            java.io.RandomAccessFile(targetFile, "r").use { raf ->
-                                val len = raf.length()
-                                val readLen = minOf(len, 512L).toInt()
-                                raf.seek(len - readLen)
-                                val buf = ByteArray(readLen)
-                                raf.readFully(buf)
-                                String(buf, Charsets.UTF_8).lowercase()
-                            }
-                        } catch (_: Exception) { "" }
+                    } else {
+                        val isJson = activeQuery.contains("[out:json]", ignoreCase = true)
+                        val isCsv = activeQuery.contains("[out:csv", ignoreCase = true)
+                        if (isJson || isCsv) {
+                            val tailText = try {
+                                java.io.RandomAccessFile(targetFile, "r").use { raf ->
+                                    val len = raf.length()
+                                    val readLen = minOf(len, 512L).toInt()
+                                    raf.seek(len - readLen)
+                                    val buf = ByteArray(readLen)
+                                    raf.readFully(buf)
+                                    String(buf, Charsets.UTF_8).lowercase()
+                                }
+                            } catch (_: Exception) { "" }
 
-                        if (tailText.contains("runtime error") || tailText.contains("timed out") || !tailText.trimEnd().endsWith("}")) {
-                            targetFile.delete()
-                            AppLogger.log(TAG, "queryToFile", false, "$mirror: обірваний або помилковий JSON у кінці потоку. Спробуємо інше дзеркало...")
-                            interruptibleSleep(2500L, isCancelled)
-                            continue
+                            val isBroken = when {
+                                tailText.contains("runtime error") || tailText.contains("timed out") -> true
+                                isJson && !tailText.trimEnd().endsWith("}") -> true
+                                else -> false
+                            }
+
+                            if (isBroken) {
+                                targetFile.delete()
+                                AppLogger.log(TAG, "queryToFile", false, "$mirror: обірваний або помилковий потік в кінці відповіді. Спробуємо інше дзеркало...")
+                                interruptibleSleep(2500L, isCancelled)
+                                continue
+                            }
                         }
                     }
 

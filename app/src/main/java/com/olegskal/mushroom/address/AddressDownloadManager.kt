@@ -435,101 +435,93 @@ object AddressDownloadManager {
         return assocMap
     }
 
-    private fun fetchRegionStreets(
+    private data class RegionDownloadResult(
+        val files: List<File>,
+        val usedBbox: Boolean
+    )
+
+    private fun fetchRegionDataResilient(
         context: Context,
         region: RegionTarget,
         countryCode: String,
+        dataTypeName: String,
+        filePrefix: String,
+        fileExt: String,
+        timeoutSec: Int,
+        maxCycles: Int = 3,
         logFn: (String) -> Unit,
-        isCancelled: () -> Boolean
-    ): List<File> {
+        isCancelled: () -> Boolean,
+        queryBuilder: (clause: String, target: String) -> String
+    ): RegionDownloadResult {
         val areaClause = if (region.relId > 0) {
             "area(${3600000000L + region.relId})->.a;"
         } else {
             "area[\"ISO3166-1\"=\"${countryCode.uppercase()}\"][admin_level=2]->.a;"
         }
-        val qArea = """
-            [out:json][timeout:195][maxsize:1073741824];
-            $areaClause
-            (
-              way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"](area.a);
-            );
-            out tags geom qt;
-        """.trimIndent()
 
-        val tempFile = File(AddressDb.getAddressesDir(context), "temp_streets_${region.relId}_${System.currentTimeMillis()}.json")
-        var hasStreets = false
+        val tempFile = File(AddressDb.getAddressesDir(context), "${filePrefix}_${region.relId}_${System.currentTimeMillis()}.$fileExt")
+        var ok = false
 
+        // Рівень 1: Точна полігональна зона (area)
         if (region.relId > 0) {
-            hasStreets = client.queryToFile(qArea, tempFile, timeoutSec = 200, logFn = logFn, isCancelled = isCancelled, maxCycles = 3)
+            val qArea = queryBuilder(areaClause, "(area.a)")
+            ok = client.queryToFile(qArea, tempFile, timeoutSec = timeoutSec, logFn = logFn, isCancelled = isCancelled, maxCycles = maxCycles)
         }
 
-        val fileHasData = hasStreets && tempFile.exists() && tempFile.length() > 500L
+        val fileHasData = ok && tempFile.exists() && tempFile.length() > 300L
         if (fileHasData) {
-            return listOf(tempFile)
+            return RegionDownloadResult(listOf(tempFile), usedBbox = false)
         }
 
         try { tempFile.delete() } catch (_: Exception) {}
 
+        // Рівень 2: Якщо через area сервер нічого не повернув або помилка — географічна рамка (bbox)
         if (region.isBbox && !isCancelled()) {
-            logFn("Сервер не повернув вулиці через area для ${region.name}. Перехід на географічну рамку (bbox)...")
+            if (region.relId > 0) {
+                logFn("Сервер не повернув $dataTypeName через area для ${region.name}. Перехід на географічну рамку (bbox)...")
+            } else {
+                logFn("Завантаження $dataTypeName через географічну рамку (bbox) для ${region.name}...")
+            }
             val bboxStr = "(${region.minLat}, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
-            val qBbox = """
-                [out:json][timeout:195][maxsize:1073741824];
-                (
-                  way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"]$bboxStr;
-                );
-                out tags geom qt;
-            """.trimIndent()
-            hasStreets = client.queryToFile(qBbox, tempFile, timeoutSec = 200, logFn = logFn, isCancelled = isCancelled, maxCycles = 3)
-            if (hasStreets && tempFile.exists() && tempFile.length() > 500L) {
-                return listOf(tempFile)
+            val qBbox = queryBuilder("", bboxStr)
+            ok = client.queryToFile(qBbox, tempFile, timeoutSec = timeoutSec, logFn = logFn, isCancelled = isCancelled, maxCycles = maxCycles)
+            if (ok && tempFile.exists() && tempFile.length() > 300L) {
+                return RegionDownloadResult(listOf(tempFile), usedBbox = true)
             }
             try { tempFile.delete() } catch (_: Exception) {}
 
-            // Відмовостійкість: Якщо вся область завелика для одного запиту — розбиваємо рамку навпіл (північ / південь)
-            logFn("Великий обсяг доріг для ${region.name}. Розбиття запиту на 2 частини для уникнення таймауту...")
+            // Рівень 3: Якщо вся область завелика для одного запиту — розбиваємо рамку навпіл (північ / південь)
+            logFn("Великий обсяг даних ($dataTypeName) для ${region.name}. Розбиття запиту на 2 частини для уникнення таймауту...")
             val midLat = (region.minLat + region.maxLat) / 2.0
             val bboxNorth = "($midLat, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
             val bboxSouth = "(${region.minLat}, ${region.minLon}, $midLat, ${region.maxLon})"
 
-            val file1 = File(AddressDb.getAddressesDir(context), "temp_streets_${region.relId}_p1_${System.currentTimeMillis()}.json")
-            val file2 = File(AddressDb.getAddressesDir(context), "temp_streets_${region.relId}_p2_${System.currentTimeMillis()}.json")
+            val file1 = File(AddressDb.getAddressesDir(context), "${filePrefix}_${region.relId}_p1_${System.currentTimeMillis()}.$fileExt")
+            val file2 = File(AddressDb.getAddressesDir(context), "${filePrefix}_${region.relId}_p2_${System.currentTimeMillis()}.$fileExt")
 
-            val qPart1 = """
-                [out:json][timeout:195][maxsize:1073741824];
-                (
-                  way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"]$bboxNorth;
-                );
-                out tags geom qt;
-            """.trimIndent()
-            val ok1 = client.queryToFile(qPart1, file1, timeoutSec = 200, logFn = logFn, isCancelled = isCancelled, maxCycles = 3)
+            val qPart1 = queryBuilder("", bboxNorth)
+            val ok1 = client.queryToFile(qPart1, file1, timeoutSec = timeoutSec, logFn = logFn, isCancelled = isCancelled, maxCycles = maxCycles)
 
             val qPart2 = if (ok1 && !isCancelled()) {
-                """
-                    [out:json][timeout:195][maxsize:1073741824];
-                    (
-                      way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"]$bboxSouth;
-                    );
-                    out tags geom qt;
-                """.trimIndent()
+                queryBuilder("", bboxSouth)
             } else null
 
             val ok2 = if (qPart2 != null) {
-                client.queryToFile(qPart2, file2, timeoutSec = 200, logFn = logFn, isCancelled = isCancelled, maxCycles = 3)
+                client.queryToFile(qPart2, file2, timeoutSec = timeoutSec, logFn = logFn, isCancelled = isCancelled, maxCycles = maxCycles)
             } else false
 
             val list = mutableListOf<File>()
-            if (ok1 && file1.exists() && file1.length() > 500L) list.add(file1) else try { file1.delete() } catch (_: Exception) {}
-            if (ok2 && file2.exists() && file2.length() > 500L) list.add(file2) else try { file2.delete() } catch (_: Exception) {}
+            if (ok1 && file1.exists() && file1.length() > 300L) list.add(file1) else try { file1.delete() } catch (_: Exception) {}
+            if (ok2 && file2.exists() && file2.length() > 300L) list.add(file2) else try { file2.delete() } catch (_: Exception) {}
 
             if (list.size == 2) {
-                return list
+                return RegionDownloadResult(list, usedBbox = true)
             } else {
                 for (f in list) try { f.delete() } catch (_: Exception) {}
             }
         }
 
-        return emptyList()
+        return RegionDownloadResult(emptyList(), usedBbox = false)
     }
 
     private fun fetchRegionSettlements(
@@ -1262,67 +1254,40 @@ object AddressDownloadManager {
                     if (isCancelled()) break
                     client.interruptibleSleep(1500L, isCancelled)
 
-                    // Спосіб 1: Точна полігональна зона (area)
-                    val areaClause = if (curRegion.relId > 0) {
-                        "area(${3600000000L + curRegion.relId})->.a;"
-                    } else {
-                        "area[\"ISO3166-1\"=\"${country.code.uppercase()}\"][admin_level=2]->.a;"
-                    }
-                    val qArea = """
-                        [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality", "addr:country", "is_in:country"; false; ";")][timeout:300];
-                        $areaClause
-                        (
-                          node["addr:housenumber"](area.a);
-                          way["addr:housenumber"](area.a);
-                          relation["addr:housenumber"](area.a);
-                        );
-                        out center;
-                    """.trimIndent()
-
-                    val tempFile = File(AddressDb.getAddressesDir(context), "temp_houses_${curRegion.relId}_${System.currentTimeMillis()}.tsv")
-                    try {
-                        var hasHouses = false
-                        var usedBbox = curRegion.relId <= 0L
-                        if (curRegion.relId > 0L) {
-                            hasHouses = client.queryToFile(qArea, tempFile, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 1)
-                        }
-
-                        val houseCountInArea = if (hasHouses && tempFile.exists()) {
-                            var count = 0
-                            tempFile.bufferedReader(Charsets.UTF_8).use { reader ->
-                                while (count < 10) {
-                                    if (reader.readLine()?.isNotBlank() == true) count++ else break
-                                }
-                            }
-                            count
-                        } else 0
-
-                        // Спосіб 2: Якщо через area сервер нічого не повернув (відсутній шар area на цьому сервері) або помилка — резервний запит через географічну рамку (bbox)
-                        if (houseCountInArea < 10 && curRegion.isBbox && !isCancelled()) {
-                            tempFile.delete()
-                            usedBbox = true
-                            logCallback("Сервер не повернув будинки через area для ${curRegion.name}. Перехід на географічну рамку (bbox)...")
-                            if (boundaryMatcher == null) {
-                                boundaryMatcher = RegionBoundaryMatcher.downloadAndLoad(country.code, logCallback)
-                            }
-                            val bboxStr = "(${curRegion.minLat}, ${curRegion.minLon}, ${curRegion.maxLat}, ${curRegion.maxLon})"
-                            val qBbox = """
-                                [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality", "addr:country", "is_in:country"; false; ";")][timeout:300];
+                    val houseResult = if (!isCancelled()) {
+                        fetchRegionDataResilient(
+                            context = context,
+                            region = curRegion,
+                            countryCode = country.code,
+                            dataTypeName = "будинки",
+                            filePrefix = "temp_houses",
+                            fileExt = "tsv",
+                            timeoutSec = 240,
+                            maxCycles = 3,
+                            logFn = logCallback,
+                            isCancelled = isCancelled
+                        ) { clause, target ->
+                            """
+                                [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality", "addr:country", "is_in:country"; false; ";")][timeout:240][maxsize:1073741824];
+                                $clause
                                 (
-                                  node["addr:housenumber"]$bboxStr;
-                                  way["addr:housenumber"]$bboxStr;
-                                  relation["addr:housenumber"]$bboxStr;
+                                  node["addr:housenumber"]$target;
+                                  way["addr:housenumber"]$target;
+                                  relation["addr:housenumber"]$target;
                                 );
                                 out center;
                             """.trimIndent()
-                            hasHouses = client.queryToFile(qBbox, tempFile, timeoutSec = 310, logFn = logCallback, isCancelled = isCancelled, maxCycles = 2)
                         }
+                    } else RegionDownloadResult(emptyList(), false)
 
-                        if (!hasHouses || !tempFile.exists() || tempFile.length() == 0L) {
-                            failed.add(Pair(idx, curRegion))
-                            continue
-                        }
+                    if (houseResult.files.isEmpty()) {
+                        logCallback("ПОМИЛКА: Не вдалося завантажити будинки для ${curRegion.name}. Додаємо регіон до списку повторних спроб...")
+                        failed.add(Pair(idx, curRegion))
+                        continue
+                    }
 
+                    try {
+                        var usedBbox = houseResult.usedBbox
                         if (usedBbox) {
                             downloadedAnyBbox = true
                             if (boundaryMatcher == null && !isCancelled()) {
@@ -1334,32 +1299,65 @@ object AddressDownloadManager {
                             client.interruptibleSleep(2000L, isCancelled)
                         }
                         logCallback("Завантаження сітки іменованих вулиць для ${curRegion.name}...")
-                        val streetsFiles = if (!isCancelled()) fetchRegionStreets(context, curRegion, country.code, logCallback, isCancelled) else emptyList()
-                        if (streetsFiles.isEmpty() && !isCancelled()) {
+                        val streetResult = if (!isCancelled()) {
+                            fetchRegionDataResilient(
+                                context = context,
+                                region = curRegion,
+                                countryCode = country.code,
+                                dataTypeName = "вулиці",
+                                filePrefix = "temp_streets",
+                                fileExt = "json",
+                                timeoutSec = 195,
+                                maxCycles = 3,
+                                logFn = logCallback,
+                                isCancelled = isCancelled
+                            ) { clause, target ->
+                                """
+                                    [out:json][timeout:195][maxsize:1073741824];
+                                    $clause
+                                    (
+                                      way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"]$target;
+                                    );
+                                    out tags geom qt;
+                                """.trimIndent()
+                            }
+                        } else RegionDownloadResult(emptyList(), false)
+
+                        if (streetResult.files.isEmpty() && !isCancelled()) {
                             logCallback("ПОМИЛКА: Не вдалося завантажити вулиці для ${curRegion.name}. Додаємо регіон до списку повторних спроб...")
                             failed.add(Pair(idx, curRegion))
-                            try { tempFile.delete() } catch (_: Exception) {}
                             continue
                         }
-                        val streetGrid = SpatialStreetGrid()
-                        var totalLoadedWays = 0
-                        for (sFile in streetsFiles) {
-                            totalLoadedWays += streetGrid.loadFromJsonFile(sFile, country.code)
+
+                        if (streetResult.usedBbox) {
+                            usedBbox = true
+                            downloadedAnyBbox = true
+                            if (boundaryMatcher == null && !isCancelled()) {
+                                boundaryMatcher = RegionBoundaryMatcher.downloadAndLoad(country.code, logCallback)
+                            }
                         }
-                        logCallback("Побудовано сітку вулиць для ${curRegion.name}: $totalLoadedWays ліній (${streetGrid.segmentCount} відрізків, ${streetGrid.streetCount} унікальних вулиць)")
 
-                        db.beginTransaction()
                         try {
-                            val defaultRegPlaceId = getRegionPlaceId(curRegion)
-                            val regionHouses = ArrayList<PreparedHouse>(50000)
+                            val streetGrid = SpatialStreetGrid()
+                            var totalLoadedWays = 0
+                            for (sFile in streetResult.files) {
+                                totalLoadedWays += streetGrid.loadFromJsonFile(sFile, country.code)
+                            }
+                            logCallback("Побудовано сітку вулиць для ${curRegion.name}: $totalLoadedWays ліній (${streetGrid.segmentCount} відрізків, ${streetGrid.streetCount} унікальних вулиць)")
 
-                            tempFile.bufferedReader(Charsets.UTF_8).use { reader ->
-                                var line: String?
-                                while (reader.readLine().also { line = it } != null) {
-                                    val trimmed = line!!.trim()
-                                    if (trimmed.isBlank()) continue
-                                    val parts = if (trimmed.contains(";")) trimmed.split(";") else trimmed.split("\t")
-                                    if (parts.size < 6) continue
+                            db.beginTransaction()
+                            try {
+                                val defaultRegPlaceId = getRegionPlaceId(curRegion)
+                                val regionHouses = ArrayList<PreparedHouse>(50000)
+
+                                for (hFile in houseResult.files) {
+                                    hFile.bufferedReader(Charsets.UTF_8).use { reader ->
+                                        var line: String?
+                                        while (reader.readLine().also { line = it } != null) {
+                                            val trimmed = line!!.trim()
+                                            if (trimmed.isBlank()) continue
+                                            val parts = if (trimmed.contains(";")) trimmed.split(";") else trimmed.split("\t")
+                                            if (parts.size < 6) continue
 
                                     // Універсальний фільтр за тегом країни (якщо вказано явний чужий код ISO)
                                     val rowCountry = (parts.getOrNull(25)?.trim() ?: "").ifBlank { parts.getOrNull(26)?.trim() ?: "" }
@@ -1478,6 +1476,7 @@ object AddressDownloadManager {
                                     regionHouses.add(PreparedHouse(streetId, cleanNum, latI, lonI, coordKey, rank, regPlaceId, cityPlaceId, targetRegion.name, city))
                                 }
                             }
+                        }
 
                             // Сортування, просторовий резолв адрес та дедуплікація (Контур 1)
                             if (regionHouses.isNotEmpty()) {
@@ -1791,14 +1790,18 @@ object AddressDownloadManager {
                             loadedNames.add(region.name.trim().lowercase(Locale.ROOT))
                         } finally {
                             db.endTransaction()
-                            for (f in streetsFiles) {
-                                try { f.delete() } catch (_: Exception) {}
-                            }
                             streetGrid.clear()
                         }
                     } finally {
-                        tempFile.delete()
+                        for (f in streetResult.files) {
+                            try { f.delete() } catch (_: Exception) {}
+                        }
                     }
+                } finally {
+                    for (f in houseResult.files) {
+                        try { f.delete() } catch (_: Exception) {}
+                    }
+                }
                     onProgress((idx.toDouble() / totalRegions.toDouble()) * 0.85, statusMsg)
                     if (!isCancelled()) {
                         client.interruptibleSleep(3000L, isCancelled)
