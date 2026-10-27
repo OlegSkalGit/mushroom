@@ -23,6 +23,7 @@ class OverpassAddressClient(
         const val USER_AGENT = "Mushroom-Address-Tool/2.0 (Android; https://github.com/OlegSkalGit/mushroom)"
         val DEFAULT_MIRRORS = listOf(
             "https://overpass.openstreetmap.fr/api/interpreter",
+            "https://overpass.private.coffee/api/interpreter",
             "https://overpass-api.de/api/interpreter",
             "https://gall.openstreetmap.de/api/interpreter",
             "https://lambert.openstreetmap.de/api/interpreter",
