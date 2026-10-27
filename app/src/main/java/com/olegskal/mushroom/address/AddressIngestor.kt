@@ -34,8 +34,26 @@ class AddressIngestor(
         var maxLat: Int,
         var minLon: Int,
         var maxLon: Int,
-        var geom: ByteArray
-    )
+        val blobs: ArrayList<ByteArray> = ArrayList(2),
+        var totalBytes: Int = 0
+    ) {
+        fun addBlob(b: ByteArray) {
+            blobs.add(b)
+            totalBytes += b.size
+        }
+
+        fun buildMergedBlob(): ByteArray {
+            if (blobs.size == 1) return blobs[0]
+            val res = ByteArray(totalBytes)
+            var offset = 0
+            for (i in 0 until blobs.size) {
+                val b = blobs[i]
+                System.arraycopy(b, 0, res, offset, b.size)
+                offset += b.size
+            }
+            return res
+        }
+    }
 
     private val housesBatch = ArrayList<HouseRecord>(10000)
     private val batchKeys = HashSet<String>(10000)
@@ -309,7 +327,7 @@ class AddressIngestor(
                 stmt.bindLong(3, box.maxLat.toLong())
                 stmt.bindLong(4, box.minLon.toLong())
                 stmt.bindLong(5, box.maxLon.toLong())
-                stmt.bindBlob(6, box.geom)
+                stmt.bindBlob(6, box.buildMergedBlob())
                 stmt.executeInsert()
             }
             if (ownTx) db.setTransactionSuccessful()
@@ -334,12 +352,11 @@ class AddressIngestor(
             if (maxLat > existing.maxLat) existing.maxLat = maxLat
             if (minLon < existing.minLon) existing.minLon = minLon
             if (maxLon > existing.maxLon) existing.maxLon = maxLon
-            val combined = ByteArray(existing.geom.size + geom.size)
-            System.arraycopy(existing.geom, 0, combined, 0, existing.geom.size)
-            System.arraycopy(geom, 0, combined, existing.geom.size, geom.size)
-            existing.geom = combined
+            existing.addBlob(geom)
         } else {
-            streetGeoms[streetId] = GeomBox(minLat, maxLat, minLon, maxLon, geom)
+            val box = GeomBox(minLat, maxLat, minLon, maxLon)
+            box.addBlob(geom)
+            streetGeoms[streetId] = box
         }
     }
 

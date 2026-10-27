@@ -1134,26 +1134,13 @@ object AddressDownloadManager {
         }
     }
 
-    private fun buildStreetOverpassQuery(clause: String, target: String, countryCode: String): String {
+    private fun buildStreetOverpassQuery(clause: String, target: String): String {
         val highwayTypes = "residential|living_street|unclassified|tertiary|secondary|primary|trunk|service|pedestrian|motorway"
-        val cCode = countryCode.trim().lowercase(Locale.ROOT)
-        val ways = if (cCode == "ua") {
-            """
-              way$target["highway"~"$highwayTypes"]["name"];
-              way$target["highway"~"$highwayTypes"]["name:uk"];
-              way$target["highway"~"$highwayTypes"]["name:ua"];
-            """.trimIndent()
-        } else {
-            """
-              way$target["highway"~"$highwayTypes"]["name"];
-              way$target["highway"~"$highwayTypes"]["name:$cCode"];
-            """.trimIndent()
-        }
         return """
             [out:json][timeout:195][maxsize:1073741824];
             $clause
             (
-              $ways
+              way$target["highway"~"$highwayTypes"]["name"];
             );
             out tags geom qt;
         """.trimIndent()
@@ -1361,7 +1348,7 @@ object AddressDownloadManager {
                                 logFn = logCallback,
                                 isCancelled = isCancelled
                             ) { clause, target ->
-                                buildStreetOverpassQuery(clause, target, country.code)
+                                buildStreetOverpassQuery(clause, target)
                             }
                         } else RegionDownloadResult(emptyList(), false)
 
@@ -1401,7 +1388,7 @@ object AddressDownloadManager {
                                     logFn = logCallback,
                                     isCancelled = isCancelled
                                 ) { clause, target ->
-                                    buildStreetOverpassQuery(clause, target, country.code)
+                                    buildStreetOverpassQuery(clause, target)
                                 }
                                 if (bboxResult.files.isNotEmpty()) {
                                     for (sFile in bboxResult.files) {
@@ -1703,6 +1690,16 @@ object AddressDownloadManager {
                             val maxHouseSearchSq = maxHouseSearchMeters * maxHouseSearchMeters
                             val dLatLimit300 = (maxHouseSearchMeters / 1.1132).toInt() + 1
 
+                            data class ResolvedClusterSettlement(
+                                val cityPlaceId: Long,
+                                val regPlaceId: Long,
+                                val targetRegionName: String,
+                                val cityName: String,
+                                val latI: Int,
+                                val lonI: Int
+                            )
+                            val recentClusterSettlement = HashMap<String, ResolvedClusterSettlement>()
+
                             streetGrid.extractStreetClusters { cluster ->
                                 val lat = cluster.centerLat
                                 val lon = cluster.centerLon
@@ -1793,41 +1790,59 @@ object AddressDownloadManager {
                                     val targetRegionName: String
                                     val cityName: String
 
+                                    val streetKey = cluster.canonicalName.lowercase(Locale.ROOT)
                                     if (nearestHouse != null) {
                                         cityPlaceId = nearestHouse.cityPlaceId
                                         regPlaceId = nearestHouse.regPlaceId
                                         targetRegionName = nearestHouse.regionName
                                         cityName = nearestHouse.cityName
+                                        if (cityName.isNotBlank() && streetKey.isNotBlank()) {
+                                            recentClusterSettlement[streetKey] = ResolvedClusterSettlement(cityPlaceId, regPlaceId, targetRegionName, cityName, latI, lonI)
+                                        }
                                     } else {
-                                        val resolvedCity = settlementIndex.resolve(lat, lon).trim()
-                                        val candidates = if (resolvedCity.isNotBlank()) {
-                                            knownByCityName[resolvedCity.lowercase(Locale.ROOT)]
-                                        } else null
+                                        val cached = if (streetKey.isNotBlank()) recentClusterSettlement[streetKey] else null
+                                        val dLat = if (cached != null) kotlin.math.abs(latI - cached.latI) else Int.MAX_VALUE
+                                        val dLon = if (cached != null) kotlin.math.abs(lonI - cached.lonI) else Int.MAX_VALUE
+                                        // Поріг 2500 одиниць (~2.5 км) для успадкування в межах того самого поселення
+                                        if (cached != null && dLat <= 2500 && (dLon * cosLat) <= 2500.0) {
+                                            cityPlaceId = cached.cityPlaceId
+                                            regPlaceId = cached.regPlaceId
+                                            targetRegionName = cached.targetRegionName
+                                            cityName = cached.cityName
+                                        } else {
+                                            val resolvedCity = settlementIndex.resolve(lat, lon).trim()
+                                            val candidates = if (resolvedCity.isNotBlank()) {
+                                                knownByCityName[resolvedCity.lowercase(Locale.ROOT)]
+                                            } else null
 
-                                        var matchedKnown: KnownSettlement? = null
-                                        if (!candidates.isNullOrEmpty()) {
-                                            var bestKnownDistSq = 10_000.0 * 10_000.0
-                                            for (ks in candidates) {
-                                                val dy = (latI - ks.latI) * 1.1132
-                                                val dx = (lonI - ks.lonI) * 1.1132 * cosLat
-                                                val d2 = dy * dy + dx * dx
-                                                if (d2 < bestKnownDistSq) {
-                                                    bestKnownDistSq = d2
-                                                    matchedKnown = ks
+                                            var matchedKnown: KnownSettlement? = null
+                                            if (!candidates.isNullOrEmpty()) {
+                                                var bestKnownDistSq = 10_000.0 * 10_000.0
+                                                for (ks in candidates) {
+                                                    val dy = (latI - ks.latI) * 1.1132
+                                                    val dx = (lonI - ks.lonI) * 1.1132 * cosLat
+                                                    val d2 = dy * dy + dx * dx
+                                                    if (d2 < bestKnownDistSq) {
+                                                        bestKnownDistSq = d2
+                                                        matchedKnown = ks
+                                                    }
                                                 }
                                             }
-                                        }
 
-                                        if (matchedKnown != null) {
-                                            cityPlaceId = matchedKnown.cityPlaceId
-                                            regPlaceId = matchedKnown.regPlaceId
-                                            targetRegionName = matchedKnown.regionName
-                                            cityName = matchedKnown.cityName
-                                        } else {
-                                            regPlaceId = if (targetRegion.name == curRegion.name) defaultRegPlaceId else getRegionPlaceId(targetRegion)
-                                            targetRegionName = targetRegion.name
-                                            cityName = resolvedCity
-                                            cityPlaceId = ingestor.getOrCreatePlace(regPlaceId, cityName, level = 8)
+                                            if (matchedKnown != null) {
+                                                cityPlaceId = matchedKnown.cityPlaceId
+                                                regPlaceId = matchedKnown.regPlaceId
+                                                targetRegionName = matchedKnown.regionName
+                                                cityName = matchedKnown.cityName
+                                            } else {
+                                                regPlaceId = if (targetRegion.name == curRegion.name) defaultRegPlaceId else getRegionPlaceId(targetRegion)
+                                                targetRegionName = targetRegion.name
+                                                cityName = resolvedCity
+                                                cityPlaceId = ingestor.getOrCreatePlace(regPlaceId, cityName, level = 8)
+                                            }
+                                            if (cityName.isNotBlank() && streetKey.isNotBlank()) {
+                                                recentClusterSettlement[streetKey] = ResolvedClusterSettlement(cityPlaceId, regPlaceId, targetRegionName, cityName, latI, lonI)
+                                            }
                                         }
                                     }
 
@@ -1902,6 +1917,7 @@ object AddressDownloadManager {
             // Фінальна прив'язка будинків без назви вулиці з тимчасового файлу
             if (unlinkedHousesTempFile.exists() && unlinkedHousesTempFile.length() > 0L && !isCancelled()) {
                 onProgress(0.86, "${country.nameUk}: Фінальна прив'язка будинків без назви вулиці...")
+                db.beginTransaction()
                 try {
                     val recentLinked = ArrayList<Triple<Int, Int, Long>>(500)
                     unlinkedHousesTempFile.bufferedReader(Charsets.UTF_8).use { reader ->
@@ -1994,7 +2010,9 @@ object AddressDownloadManager {
                         }
                     }
                     ingestor.flush()
+                    db.setTransactionSuccessful()
                 } finally {
+                    db.endTransaction()
                     try { unlinkedHousesTempFile.delete() } catch (_: Exception) {}
                 }
             }
