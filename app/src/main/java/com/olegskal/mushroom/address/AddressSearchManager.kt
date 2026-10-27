@@ -934,12 +934,13 @@ object AddressSearchManager {
         val nearestPois = mutableListOf<Pair<AddressSearchResult, Float>>()
 
         try {
-            // 1. NEAREST 15 STREETS: SEARCHED BY NEAREST POINT (GEOMETRY), CENTER USED ONLY FOR NAVIGATION
+            // 1. NEAREST 15 STREETS: SEARCHED BY GEOMETRY, WITH FALLBACK TO STREET CENTERS & HOUSES
+            val cosLat = kotlin.math.cos(Math.toRadians(lat))
+            val candidateStreets = mutableListOf<Pair<AddressSearchResult, Float>>()
+            val seenStreetIds = HashSet<Long>()
+
             if (AddressDb.hasTable(db, "street_geometries")) {
-                val cosLat = kotlin.math.cos(Math.toRadians(lat))
                 val streetGeomRadii = listOf(2000L, 10000L, 50000L)
-                val candidateStreets = mutableListOf<Pair<AddressSearchResult, Float>>()
-                val seenStreetIds = HashSet<Long>()
 
                 for (rad in streetGeomRadii) {
                     if (candidateStreets.size >= 20) break
@@ -1012,15 +1013,71 @@ object AddressSearchManager {
                         }
                     }
                 }
+            }
 
-                if (candidateStreets.isNotEmpty()) {
-                    candidateStreets.sortBy { it.second }
-                    val top = candidateStreets.first()
-                    nearestStreetName = top.first.streetName
-                    nearestStreetDist = top.second
+            // 1b. FALLBACK / SUPPLEMENT: Search street centers from houses table (h.number = '')
+            if (candidateStreets.size < 15) {
+                val centerRadii = listOf(2000L, 10000L, 50000L)
+                for (rad in centerRadii) {
+                    if (candidateStreets.size >= 15) break
+                    val dLatI = rad
+                    val dLonI = (rad / kotlin.math.max(0.2, cosLat)).toLong()
+                    val centerSql = """
+                        SELECT s.id, sn.name, city.name, COALESCE(reg.name, ''),
+                               COALESCE(dist.name, ''), COALESCE(subdist.name, ''),
+                               h.lat, h.lon, COALESCE(country.code, 'UA')
+                        FROM houses h
+                        JOIN streets s ON s.id = h.street_id
+                        JOIN street_names sn ON sn.id = s.name_id
+                        JOIN admin_places city ON city.id = s.place_id
+                        LEFT JOIN admin_places subdist ON subdist.id = city.parent_id AND subdist.level = 7
+                        LEFT JOIN admin_places dist ON (dist.id = city.parent_id AND dist.level = 6) OR (dist.id = subdist.parent_id AND dist.level = 6)
+                        LEFT JOIN admin_places reg ON reg.id = s.region_id
+                        LEFT JOIN admin_places country ON country.id = s.country_id
+                        WHERE h.number = ''
+                          AND h.lat BETWEEN ? AND ? AND h.lon BETWEEN ? AND ?
+                        ORDER BY ((h.lat - $uLatH) * (h.lat - $uLatH) + (h.lon - $uLonH) * (h.lon - $uLonH)) ASC
+                        LIMIT 30;
+                    """.trimIndent()
+                    val cCenter = db.rawQuery(
+                        centerSql,
+                        arrayOf((uLatH - dLatI).toString(), (uLatH + dLatI).toString(), (uLonH - dLonI).toString(), (uLonH + dLonI).toString())
+                    )
+                    cCenter.use {
+                        while (it.moveToNext()) {
+                            val stId = it.getLong(0)
+                            if (!seenStreetIds.add(stId)) continue
+                            val sName = it.getString(1) ?: ""
+                            val cName = it.getString(2) ?: ""
+                            val rName = it.getString(3) ?: ""
+                            val dName = it.getString(4) ?: ""
+                            val subName = it.getString(5) ?: ""
+                            val cLat = it.getInt(6) / 100_000.0
+                            val cLon = it.getInt(7) / 100_000.0
+                            val countryCode = it.getString(8) ?: "UA"
+                            val distM = calculateDistanceMeters(lat, lon, cLat, cLon)
 
-                    for (i in 0 until minOf(15, candidateStreets.size)) {
-                        nearestStreets.add(candidateStreets[i])
+                            val res = AddressSearchResult(
+                                countryCode = countryCode,
+                                regionName = rName,
+                                cityName = cName,
+                                streetName = sName,
+                                houseNumber = "",
+                                lat = cLat,
+                                lon = cLon,
+                                isPoiOnly = false,
+                                distanceMeters = distM
+                            )
+                            candidateStreets.add(Pair(res, distM))
+
+                            if (distM < bestAdminDist && cName.isNotBlank()) {
+                                bestAdminDist = distM
+                                regionName = rName
+                                districtName = dName
+                                communityName = subName
+                                settlementName = cName
+                            }
+                        }
                     }
                 }
             }
@@ -1075,7 +1132,7 @@ object AddressSearchManager {
                             settlementName = cName
                         }
 
-                        if (nearestAddresses.isEmpty() && distM < 30.0f) {
+                        if (nearestHouseAddress == null && distM < 30.0f) {
                             nearestHouseAddress = if (sName.isNotBlank()) "$sName, $hNum" else hNum
                             nearestHouseDist = distM
                         }
@@ -1092,6 +1149,39 @@ object AddressSearchManager {
                         )
                         nearestAddresses.add(Pair(res, distM))
                     }
+                }
+            }
+
+            // 1c. If candidateStreets is still empty, infer streets from the closest numbered houses
+            if (candidateStreets.isEmpty() && nearestAddresses.isNotEmpty()) {
+                val seenNames = HashSet<String>()
+                for ((hRes, hDist) in nearestAddresses) {
+                    val sName = hRes.streetName.trim()
+                    if (sName.isNotBlank() && seenNames.add(sName.lowercase())) {
+                        val sRes = AddressSearchResult(
+                            countryCode = hRes.countryCode,
+                            regionName = hRes.regionName,
+                            cityName = hRes.cityName,
+                            streetName = sName,
+                            houseNumber = "",
+                            lat = hRes.lat,
+                            lon = hRes.lon,
+                            isPoiOnly = false,
+                            distanceMeters = hDist
+                        )
+                        candidateStreets.add(Pair(sRes, hDist))
+                    }
+                }
+            }
+
+            if (candidateStreets.isNotEmpty()) {
+                candidateStreets.sortBy { it.second }
+                val top = candidateStreets.first()
+                nearestStreetName = top.first.streetName
+                nearestStreetDist = top.second
+
+                for (i in 0 until minOf(15, candidateStreets.size)) {
+                    nearestStreets.add(candidateStreets[i])
                 }
             }
 

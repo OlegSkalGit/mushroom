@@ -440,6 +440,30 @@ object AddressDownloadManager {
         val usedBbox: Boolean
     )
 
+    private fun isDownloadedFileValid(f: File, ext: String): Boolean {
+        if (!f.exists() || f.length() < 300L) return false
+        return try {
+            if (ext.equals("json", ignoreCase = true)) {
+                if (f.length() < 4096L) {
+                    val txt = f.readText(Charsets.UTF_8).lowercase()
+                    !txt.contains("\"elements\": []") &&
+                    !txt.contains("\"elements\": [\n\n  ]") &&
+                    !txt.contains("\"elements\": [\n  ]") &&
+                    !txt.contains("\"elements\":[]") &&
+                    !txt.contains("\"remark\"") &&
+                    !txt.contains("runtime error") &&
+                    !txt.contains("<html")
+                } else true
+            } else if (ext.equals("tsv", ignoreCase = true) || ext.equals("csv", ignoreCase = true)) {
+                if (f.length() < 2048L) {
+                    val txt = f.readText(Charsets.UTF_8).trim()
+                    val lines = txt.lines().filter { it.isNotBlank() }
+                    lines.size > 1 && !txt.lowercase().contains("runtime error") && !txt.lowercase().contains("<html")
+                } else true
+            } else true
+        } catch (_: Exception) { false }
+    }
+
     private fun fetchRegionDataResilient(
         context: Context,
         region: RegionTarget,
@@ -468,7 +492,7 @@ object AddressDownloadManager {
             ok = client.queryToFile(qArea, tempFile, timeoutSec = timeoutSec, logFn = logFn, isCancelled = isCancelled, maxCycles = 1)
         }
 
-        val fileHasData = ok && tempFile.exists() && tempFile.length() > 300L
+        val fileHasData = ok && isDownloadedFileValid(tempFile, fileExt)
         if (fileHasData) {
             return RegionDownloadResult(listOf(tempFile), usedBbox = false)
         }
@@ -485,7 +509,7 @@ object AddressDownloadManager {
             val bboxStr = "(${region.minLat}, ${region.minLon}, ${region.maxLat}, ${region.maxLon})"
             val qBbox = queryBuilder("", bboxStr)
             ok = client.queryToFile(qBbox, tempFile, timeoutSec = timeoutSec, logFn = logFn, isCancelled = isCancelled, maxCycles = maxCycles)
-            if (ok && tempFile.exists() && tempFile.length() > 300L) {
+            if (ok && isDownloadedFileValid(tempFile, fileExt)) {
                 return RegionDownloadResult(listOf(tempFile), usedBbox = true)
             }
             try { tempFile.delete() } catch (_: Exception) {}
@@ -511,8 +535,8 @@ object AddressDownloadManager {
             } else false
 
             val list = mutableListOf<File>()
-            if (ok1 && file1.exists() && file1.length() > 300L) list.add(file1) else try { file1.delete() } catch (_: Exception) {}
-            if (ok2 && file2.exists() && file2.length() > 300L) list.add(file2) else try { file2.delete() } catch (_: Exception) {}
+            if (ok1 && isDownloadedFileValid(file1, fileExt)) list.add(file1) else try { file1.delete() } catch (_: Exception) {}
+            if (ok2 && isDownloadedFileValid(file2, fileExt)) list.add(file2) else try { file2.delete() } catch (_: Exception) {}
 
             if (list.size == 2) {
                 return RegionDownloadResult(list, usedBbox = true)
@@ -1271,9 +1295,9 @@ object AddressDownloadManager {
                                 [out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality", "addr:country", "is_in:country"; false; ";")][timeout:240][maxsize:1073741824];
                                 $clause
                                 (
-                                  node["addr:housenumber"]$target;
-                                  way["addr:housenumber"]$target;
-                                  relation["addr:housenumber"]$target;
+                                  node$target["addr:housenumber"];
+                                  way$target["addr:housenumber"];
+                                  relation$target["addr:housenumber"];
                                 );
                                 out center;
                             """.trimIndent()
@@ -1316,7 +1340,7 @@ object AddressDownloadManager {
                                     [out:json][timeout:195][maxsize:1073741824];
                                     $clause
                                     (
-                                      way["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"]$target;
+                                      way$target["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"];
                                     );
                                     out tags geom qt;
                                 """.trimIndent()
@@ -1343,6 +1367,44 @@ object AddressDownloadManager {
                             for (sFile in streetResult.files) {
                                 totalLoadedWays += streetGrid.loadFromJsonFile(sFile, country.code)
                             }
+
+                            if (totalLoadedWays == 0 && !streetResult.usedBbox && curRegion.isBbox && !isCancelled()) {
+                                logCallback("Сітка вулиць через area виявилася порожньою для ${curRegion.name}. Перехід на географічну рамку (bbox)...")
+                                for (f in streetResult.files) try { f.delete() } catch (_: Exception) {}
+                                val bboxResult = fetchRegionDataResilient(
+                                    context = context,
+                                    region = curRegion.copy(relId = 0),
+                                    countryCode = country.code,
+                                    dataTypeName = "вулиці",
+                                    filePrefix = "temp_streets_bbox",
+                                    fileExt = "json",
+                                    timeoutSec = 195,
+                                    maxCycles = 3,
+                                    logFn = logCallback,
+                                    isCancelled = isCancelled
+                                ) { clause, target ->
+                                    """
+                                        [out:json][timeout:195][maxsize:1073741824];
+                                        $clause
+                                        (
+                                          way$target["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"];
+                                        );
+                                        out tags geom qt;
+                                    """.trimIndent()
+                                }
+                                if (bboxResult.files.isNotEmpty()) {
+                                    for (sFile in bboxResult.files) {
+                                        totalLoadedWays += streetGrid.loadFromJsonFile(sFile, country.code)
+                                    }
+                                    for (f in bboxResult.files) try { f.delete() } catch (_: Exception) {}
+                                    usedBbox = true
+                                    downloadedAnyBbox = true
+                                    if (boundaryMatcher == null && !isCancelled()) {
+                                        boundaryMatcher = RegionBoundaryMatcher.downloadAndLoad(country.code, logCallback)
+                                    }
+                                }
+                            }
+
                             logCallback("Побудовано сітку вулиць для ${curRegion.name}: $totalLoadedWays ліній (${streetGrid.segmentCount} відрізків, ${streetGrid.streetCount} унікальних вулиць)")
 
                             db.beginTransaction()

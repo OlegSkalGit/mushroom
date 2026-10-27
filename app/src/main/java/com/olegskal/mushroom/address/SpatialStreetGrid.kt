@@ -1,6 +1,7 @@
 package com.olegskal.mushroom.address
 
 import android.util.JsonReader
+import android.util.JsonToken
 import com.olegskal.mushroom.util.AppLogger
 import java.io.File
 import kotlin.math.abs
@@ -194,64 +195,118 @@ class SpatialStreetGrid {
                     if (rootName == "elements") {
                         reader.beginArray()
                         while (reader.hasNext()) {
-                            reader.beginObject()
-                            var nameLocal = ""
-                            var nameUk = ""
-                            val ptsLat = ArrayList<Double>(16)
-                            val ptsLon = ArrayList<Double>(16)
+                            if (reader.peek() == JsonToken.NULL) {
+                                reader.skipValue()
+                                continue
+                            }
+                            if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+                                reader.skipValue()
+                                continue
+                            }
 
-                            while (reader.hasNext()) {
-                                when (reader.nextName()) {
-                                    "tags" -> {
-                                        reader.beginObject()
-                                        while (reader.hasNext()) {
-                                            val tagK = reader.nextName()
-                                            val tagV = reader.nextString()
-                                            if (tagK == "name:uk" && tagV.isNotBlank()) {
-                                                nameUk = tagV
-                                            } else if (tagK == "name" && tagV.isNotBlank()) {
-                                                nameLocal = tagV
-                                            }
-                                        }
-                                        reader.endObject()
-                                    }
-                                    "geometry" -> {
-                                        reader.beginArray()
-                                        while (reader.hasNext()) {
-                                            reader.beginObject()
-                                            var pLat = 0.0
-                                            var pLon = 0.0
-                                            while (reader.hasNext()) {
-                                                when (reader.nextName()) {
-                                                    "lat" -> pLat = reader.nextDouble()
-                                                    "lon" -> pLon = reader.nextDouble()
-                                                    else -> reader.skipValue()
+                            try {
+                                reader.beginObject()
+                                var nameLocal = ""
+                                var nameUk = ""
+                                val ptsLat = ArrayList<Double>(16)
+                                val ptsLon = ArrayList<Double>(16)
+
+                                while (reader.hasNext()) {
+                                    when (reader.nextName()) {
+                                        "tags" -> {
+                                            if (reader.peek() == JsonToken.NULL) {
+                                                reader.skipValue()
+                                            } else if (reader.peek() == JsonToken.BEGIN_OBJECT) {
+                                                reader.beginObject()
+                                                while (reader.hasNext()) {
+                                                    val tagK = reader.nextName()
+                                                    if (reader.peek() == JsonToken.NULL) {
+                                                        reader.skipValue()
+                                                        continue
+                                                    }
+                                                    val tagV = reader.nextString()
+                                                    if (tagK == "name:uk" && tagV.isNotBlank()) {
+                                                        nameUk = tagV
+                                                    } else if (tagK == "name" && tagV.isNotBlank()) {
+                                                        nameLocal = tagV
+                                                    }
                                                 }
-                                            }
-                                            reader.endObject()
-                                            if (pLat != 0.0 || pLon != 0.0) {
-                                                ptsLat.add(pLat)
-                                                ptsLon.add(pLon)
+                                                reader.endObject()
+                                            } else {
+                                                reader.skipValue()
                                             }
                                         }
-                                        reader.endArray()
+                                        "geometry" -> {
+                                            if (reader.peek() == JsonToken.NULL) {
+                                                reader.skipValue()
+                                            } else if (reader.peek() == JsonToken.BEGIN_ARRAY) {
+                                                reader.beginArray()
+                                                while (reader.hasNext()) {
+                                                    if (reader.peek() == JsonToken.NULL) {
+                                                        reader.skipValue()
+                                                        if (ptsLat.isNotEmpty() && !ptsLat.last().isNaN()) {
+                                                            ptsLat.add(Double.NaN)
+                                                            ptsLon.add(Double.NaN)
+                                                        }
+                                                        continue
+                                                    }
+                                                    if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+                                                        reader.skipValue()
+                                                        continue
+                                                    }
+                                                    reader.beginObject()
+                                                    var pLat = 0.0
+                                                    var pLon = 0.0
+                                                    while (reader.hasNext()) {
+                                                        when (reader.nextName()) {
+                                                            "lat" -> pLat = if (reader.peek() != JsonToken.NULL) reader.nextDouble() else { reader.skipValue(); 0.0 }
+                                                            "lon" -> pLon = if (reader.peek() != JsonToken.NULL) reader.nextDouble() else { reader.skipValue(); 0.0 }
+                                                            else -> reader.skipValue()
+                                                        }
+                                                    }
+                                                    reader.endObject()
+                                                    if (pLat != 0.0 || pLon != 0.0) {
+                                                        ptsLat.add(pLat)
+                                                        ptsLon.add(pLon)
+                                                    }
+                                                }
+                                                reader.endArray()
+                                            } else {
+                                                reader.skipValue()
+                                            }
+                                        }
+                                        else -> reader.skipValue()
                                     }
-                                    else -> reader.skipValue()
                                 }
-                            }
-                            reader.endObject()
+                                reader.endObject()
 
-                            val streetName = if (preferUk) {
-                                nameUk.ifBlank { nameLocal }
-                            } else {
-                                nameLocal.ifBlank { nameUk }
-                            }
-
-                            if (streetName.isNotBlank() && ptsLat.size >= 2) {
-                                loadedWays++
-                                for (i in 0 until ptsLat.size - 1) {
-                                    addSegment(ptsLat[i], ptsLon[i], ptsLat[i + 1], ptsLon[i + 1], streetName)
+                                val streetName = if (preferUk) {
+                                    nameUk.ifBlank { nameLocal }
+                                } else {
+                                    nameLocal.ifBlank { nameUk }
                                 }
+
+                                if (streetName.isNotBlank() && ptsLat.size >= 2) {
+                                    var addedAny = false
+                                    for (i in 0 until ptsLat.size - 1) {
+                                        val l1 = ptsLat[i]
+                                        val n1 = ptsLon[i]
+                                        val l2 = ptsLat[i + 1]
+                                        val n2 = ptsLon[i + 1]
+                                        if (!l1.isNaN() && !l2.isNaN()) {
+                                            addSegment(l1, n1, l2, n2, streetName)
+                                            addedAny = true
+                                        }
+                                    }
+                                    if (addedAny) loadedWays++
+                                }
+                            } catch (elemEx: Exception) {
+                                try {
+                                    while (reader.hasNext()) {
+                                        reader.skipValue()
+                                    }
+                                    reader.endObject()
+                                } catch (_: Exception) {}
                             }
                         }
                         reader.endArray()

@@ -1128,7 +1128,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 onSelectMarker = { marker ->
                     setFollowLocation(false)
                     setFollowHeading(false)
-                    mapView.setCenter(marker.lat, marker.lon)
+                    mapView.animateCenterTo(marker.lat, marker.lon, durationMs = 350L, saveOnEnd = true, useDecelerate = true)
                 },
                 onVisibilityChanged = {
                     mapView.reloadMarkers()
@@ -3481,11 +3481,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                 minLon = minOf(minLon, p.lon)
                 maxLon = maxOf(maxLon, p.lon)
             }
-            mapCenterLat = (minLat + maxLat) / 2.0
-            mapCenterLon = (minLon + maxLon) / 2.0
-            zoomLevel = 13.0f
-            saveMapState()
-            invalidate()
+            val targetLat = (minLat + maxLat) / 2.0
+            val targetLon = (minLon + maxLon) / 2.0
+            animateCenterTo(targetLat, targetLon, durationMs = 350L, saveOnEnd = true, useDecelerate = true)
         }
 
         private fun panMap(dxPx: Float, dyPx: Float) {

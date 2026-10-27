@@ -162,6 +162,11 @@ object MarkersListDialog {
             }
 
             for (marker in markers) {
+                val selectAction = View.OnClickListener {
+                    dialog.dismiss()
+                    onSelectMarker(marker)
+                }
+
                 val itemRow = LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
@@ -170,6 +175,8 @@ object MarkersListDialog {
                     val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                     params.setMargins(0, 0, 0, 8)
                     layoutParams = params
+                    isClickable = true
+                    setOnClickListener(selectAction)
                 }
 
                 val chkVisible = CheckBox(activity).apply {
@@ -184,10 +191,8 @@ object MarkersListDialog {
                 val infoCol = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                    setOnClickListener {
-                        dialog.dismiss()
-                        onSelectMarker(marker)
-                    }
+                    isClickable = true
+                    setOnClickListener(selectAction)
                 }
 
                 val itemIcon = MarkerIconDrawable(density, marker.color, 18)
@@ -286,6 +291,8 @@ object MarkersListDialog {
                         setTypeface(null, Typeface.BOLD)
                         setPadding((6 * density).toInt(), 0, (6 * density).toInt(), 0)
                         gravity = Gravity.CENTER_VERTICAL
+                        isClickable = true
+                        setOnClickListener(selectAction)
                     }
                     itemRow.addView(distTv)
                 }
