@@ -1431,7 +1431,10 @@ object AddressDownloadManager {
                                     val lon = parts[3].trim().toDoubleOrNull() ?: continue
 
                                     var targetRegion = curRegion
-                                    val matcher = boundaryMatcher
+                                    val matcher = boundaryMatcher ?: if (usedBbox) RegionBoundaryMatcher.downloadAndLoad(country.code, logCallback) else null
+                                    if (matcher != null) {
+                                        boundaryMatcher = matcher
+                                    }
                                     if (usedBbox && matcher != null) {
                                         val ptCode = matcher.findRegionCode(lat, lon)
                                         if (ptCode == null) {
@@ -1439,17 +1442,21 @@ object AddressDownloadManager {
                                             continue
                                         }
                                         val matchedReg = regionByCode[ptCode]
-                                        if (matchedReg != null) {
-                                            val isCurrent = if (curRegion.code.isNotBlank() && matchedReg.code.isNotBlank()) {
+                                        val isCurrent = if (matchedReg != null) {
+                                            if (curRegion.code.isNotBlank() && matchedReg.code.isNotBlank()) {
                                                 matchedReg.code.equals(curRegion.code, ignoreCase = true)
                                             } else {
                                                 matchedReg.name.trim().equals(curRegion.name.trim(), ignoreCase = true)
                                             }
-                                            if (!isCurrent) {
-                                                // Точка належить іншій області України — відкидаємо з поточної області.
-                                                // Вона завантажиться у свій час рідною областю зі своєю сіткою доріг!
-                                                continue
-                                            }
+                                        } else {
+                                            curRegion.code.isNotBlank() && curRegion.code.equals(ptCode, ignoreCase = true)
+                                        }
+                                        if (!isCurrent) {
+                                            // Точка належить іншій області України — відкидаємо з поточної області.
+                                            // Вона завантажиться у свій час рідною областю зі своєю сіткою доріг!
+                                            continue
+                                        }
+                                        if (matchedReg != null) {
                                             targetRegion = matchedReg
                                         }
                                     }
@@ -1705,21 +1712,33 @@ object AddressDownloadManager {
                                 val lon = cluster.centerLon
                                 if (lat != 0.0 || lon != 0.0) {
                                     var targetRegion = curRegion
-                                    val matcher = boundaryMatcher
+                                    val matcher = boundaryMatcher ?: if (usedBbox) RegionBoundaryMatcher.downloadAndLoad(country.code, logCallback) else null
+                                    if (matcher != null) {
+                                        boundaryMatcher = matcher
+                                    }
                                     if (usedBbox && matcher != null) {
                                         val ptCode = matcher.findRegionCode(lat, lon)
-                                        if (ptCode != null) {
-                                            val matchedReg = regionByCode[ptCode]
-                                            if (matchedReg != null) {
-                                                val isCurrent = if (curRegion.code.isNotBlank() && matchedReg.code.isNotBlank()) {
-                                                    matchedReg.code.equals(curRegion.code, ignoreCase = true)
-                                                } else {
-                                                    matchedReg.name.trim().equals(curRegion.name.trim(), ignoreCase = true)
-                                                }
-                                                if (isCurrent) {
-                                                    targetRegion = matchedReg
-                                                }
+                                        if (ptCode == null) {
+                                            // Точка за межами кордонів країни (закордон чи море) — відкидаємо
+                                            return@extractStreetClusters
+                                        }
+                                        val matchedReg = regionByCode[ptCode]
+                                        val isCurrent = if (matchedReg != null) {
+                                            if (curRegion.code.isNotBlank() && matchedReg.code.isNotBlank()) {
+                                                matchedReg.code.equals(curRegion.code, ignoreCase = true)
+                                            } else {
+                                                matchedReg.name.trim().equals(curRegion.name.trim(), ignoreCase = true)
                                             }
+                                        } else {
+                                            curRegion.code.isNotBlank() && curRegion.code.equals(ptCode, ignoreCase = true)
+                                        }
+                                        if (!isCurrent) {
+                                            // Точка належить іншій області — відкидаємо з поточної області.
+                                            // Вона завантажиться у свій час рідною областю зі своєю сіткою доріг!
+                                            return@extractStreetClusters
+                                        }
+                                        if (matchedReg != null) {
+                                            targetRegion = matchedReg
                                         }
                                     }
 
