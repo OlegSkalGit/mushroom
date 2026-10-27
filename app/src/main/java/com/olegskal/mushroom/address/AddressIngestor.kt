@@ -29,8 +29,17 @@ class AddressIngestor(
         val lon: Int
     )
 
+    private class GeomBox(
+        var minLat: Int,
+        var maxLat: Int,
+        var minLon: Int,
+        var maxLon: Int,
+        var geom: ByteArray
+    )
+
     private val housesBatch = ArrayList<HouseRecord>(10000)
     private val batchKeys = HashSet<String>(10000)
+    private val streetGeoms = HashMap<Long, GeomBox>()
 
     private var stmtInsertPlace: SQLiteStatement? = null
     private var stmtInsertStreetName: SQLiteStatement? = null
@@ -254,18 +263,18 @@ class AddressIngestor(
         if (streetId <= 0L || (latI == 0 && lonI == 0)) return
         val num = houseNumber.trim()
 
-        val batchKey = if (num.isEmpty()) "$streetId|" else "$streetId|${num.lowercase()}|$latI|$lonI"
+        val batchKey = "$streetId|${num.lowercase()}|$latI|$lonI"
         if (!batchKeys.add(batchKey)) {
             return
         }
 
         housesBatch.add(HouseRecord(streetId, num, latI, lonI))
         if (housesBatch.size >= 10000) {
-            flush()
+            flushHouses()
         }
     }
 
-    fun flush() {
+    fun flushHouses() {
         if (housesBatch.isEmpty()) return
         val stmt = stmtInsertHouse ?: return
         val ownTx = !db.inTransaction()
@@ -280,7 +289,7 @@ class AddressIngestor(
             }
             if (ownTx) db.setTransactionSuccessful()
         } catch (e: Exception) {
-            AppLogger.log(TAG, "flush", false, "Error flushing houses: ${e.message}")
+            AppLogger.log(TAG, "flushHouses", false, "Error flushing houses: ${e.message}")
         } finally {
             if (ownTx) db.endTransaction()
             housesBatch.clear()
@@ -288,19 +297,49 @@ class AddressIngestor(
         }
     }
 
-    fun addStreetGeometry(streetId: Long, minLat: Int, maxLat: Int, minLon: Int, maxLon: Int, geom: ByteArray) {
-        if (geom.isEmpty()) return
+    fun flushGeometries() {
+        if (streetGeoms.isEmpty()) return
         val stmt = stmtInsertStreetGeometry ?: return
+        val ownTx = !db.inTransaction()
+        if (ownTx) db.beginTransaction()
         try {
-            stmt.bindLong(1, streetId)
-            stmt.bindLong(2, minLat.toLong())
-            stmt.bindLong(3, maxLat.toLong())
-            stmt.bindLong(4, minLon.toLong())
-            stmt.bindLong(5, maxLon.toLong())
-            stmt.bindBlob(6, geom)
-            stmt.executeInsert()
+            for ((streetId, box) in streetGeoms) {
+                stmt.bindLong(1, streetId)
+                stmt.bindLong(2, box.minLat.toLong())
+                stmt.bindLong(3, box.maxLat.toLong())
+                stmt.bindLong(4, box.minLon.toLong())
+                stmt.bindLong(5, box.maxLon.toLong())
+                stmt.bindBlob(6, box.geom)
+                stmt.executeInsert()
+            }
+            if (ownTx) db.setTransactionSuccessful()
         } catch (e: Exception) {
-            AppLogger.log(TAG, "addStreetGeometry", false, "Error inserting street geometry: ${e.message}")
+            AppLogger.log(TAG, "flushGeometries", false, "Error flushing street geometries: ${e.message}")
+        } finally {
+            if (ownTx) db.endTransaction()
+            streetGeoms.clear()
+        }
+    }
+
+    fun flush() {
+        flushHouses()
+        flushGeometries()
+    }
+
+    fun addStreetGeometry(streetId: Long, minLat: Int, maxLat: Int, minLon: Int, maxLon: Int, geom: ByteArray) {
+        if (geom.isEmpty() || streetId <= 0L) return
+        val existing = streetGeoms[streetId]
+        if (existing != null) {
+            if (minLat < existing.minLat) existing.minLat = minLat
+            if (maxLat > existing.maxLat) existing.maxLat = maxLat
+            if (minLon < existing.minLon) existing.minLon = minLon
+            if (maxLon > existing.maxLon) existing.maxLon = maxLon
+            val combined = ByteArray(existing.geom.size + geom.size)
+            System.arraycopy(existing.geom, 0, combined, 0, existing.geom.size)
+            System.arraycopy(geom, 0, combined, existing.geom.size, geom.size)
+            existing.geom = combined
+        } else {
+            streetGeoms[streetId] = GeomBox(minLat, maxLat, minLon, maxLon, geom)
         }
     }
 

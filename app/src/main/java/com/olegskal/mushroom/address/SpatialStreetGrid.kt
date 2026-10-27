@@ -184,7 +184,8 @@ class SpatialStreetGrid {
     fun loadFromJsonFile(file: File, countryCode: String = "UA"): Int {
         if (!file.exists() || file.length() == 0L) return 0
         var loadedWays = 0
-        val preferUk = countryCode.equals("UA", ignoreCase = true)
+        val cCode = countryCode.trim().lowercase(java.util.Locale.ROOT)
+        val targetCountryTag = if (cCode == "ua") "name:uk" else "name:$cCode"
 
         try {
             file.bufferedReader(Charsets.UTF_8).use { br ->
@@ -207,7 +208,7 @@ class SpatialStreetGrid {
                             try {
                                 reader.beginObject()
                                 var nameLocal = ""
-                                var nameUk = ""
+                                var nameCountry = ""
                                 val ptsLat = ArrayList<Double>(16)
                                 val ptsLon = ArrayList<Double>(16)
 
@@ -225,10 +226,12 @@ class SpatialStreetGrid {
                                                         continue
                                                     }
                                                     val tagV = reader.nextString()
-                                                    if (tagK == "name:uk" && tagV.isNotBlank()) {
-                                                        nameUk = tagV
-                                                    } else if (tagK == "name" && tagV.isNotBlank()) {
+                                                    if (tagK == "name" && tagV.isNotBlank()) {
                                                         nameLocal = tagV
+                                                    } else if (tagK == targetCountryTag && tagV.isNotBlank()) {
+                                                        nameCountry = tagV
+                                                    } else if (cCode == "ua" && (tagK == "name:uk" || tagK == "name:ua") && tagV.isNotBlank()) {
+                                                        nameCountry = tagV
                                                     }
                                                 }
                                                 reader.endObject()
@@ -280,11 +283,7 @@ class SpatialStreetGrid {
                                 }
                                 reader.endObject()
 
-                                val streetName = if (preferUk) {
-                                    nameUk.ifBlank { nameLocal }
-                                } else {
-                                    nameLocal.ifBlank { nameUk }
-                                }
+                                val streetName = nameCountry.ifBlank { nameLocal }
 
                                 if (streetName.isNotBlank() && ptsLat.size >= 2) {
                                     var addedAny = false

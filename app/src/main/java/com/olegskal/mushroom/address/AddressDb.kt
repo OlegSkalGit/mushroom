@@ -103,6 +103,35 @@ object AddressDb {
         }
         try {
             if (hasTable(db, "houses")) {
+                var pkCount = 0
+                try {
+                    val cursor = db.rawQuery("PRAGMA table_info(houses);", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            val pk = it.getInt(5)
+                            if (pk > 0) pkCount++
+                        }
+                    }
+                } catch (_: Exception) {}
+                if (pkCount in 1..3) {
+                    try {
+                        db.execSQL("""
+                            CREATE TABLE IF NOT EXISTS houses_new (
+                                street_id INTEGER NOT NULL,
+                                number TEXT NOT NULL,
+                                lat INTEGER NOT NULL,
+                                lon INTEGER NOT NULL,
+                                PRIMARY KEY (street_id, number, lat, lon),
+                                FOREIGN KEY (street_id) REFERENCES streets(id)
+                            ) WITHOUT ROWID;
+                        """.trimIndent())
+                        db.execSQL("INSERT OR IGNORE INTO houses_new SELECT street_id, number, lat, lon FROM houses;")
+                        db.execSQL("DROP TABLE houses;")
+                        db.execSQL("ALTER TABLE houses_new RENAME TO houses;")
+                    } catch (e: Exception) {
+                        AppLogger.log(TAG, "ensureTablesExist", false, "Error migrating houses table: ${e.message}")
+                    }
+                }
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")
             }
             if (hasTable(db, "street_geometries")) {
@@ -192,7 +221,7 @@ object AddressDb {
                     number TEXT NOT NULL,
                     lat INTEGER NOT NULL,
                     lon INTEGER NOT NULL,
-                    PRIMARY KEY (street_id, number),
+                    PRIMARY KEY (street_id, number, lat, lon),
                     FOREIGN KEY (street_id) REFERENCES streets(id)
                 ) WITHOUT ROWID;
             """.trimIndent())

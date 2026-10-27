@@ -404,18 +404,18 @@ object AddressDownloadManager {
         }
         if (raw.isNullOrBlank()) return emptyMap()
         val assocMap = mutableMapOf<Pair<String, Long>, String>()
-        val preferUk = countryCode.equals("UA", ignoreCase = true)
+        val cCode = countryCode.trim().lowercase(Locale.ROOT)
+        val targetCountryTag = if (cCode == "ua") "name:uk" else "name:$cCode"
         try {
             val json = JSONObject(raw)
             val elements = json.optJSONArray("elements") ?: return emptyMap()
             for (i in 0 until elements.length()) {
                 val el = elements.optJSONObject(i) ?: continue
                 val tags = el.optJSONObject("tags") ?: continue
-                val sName = (if (preferUk) {
-                    tags.optString("name:uk").ifBlank { tags.optString("name") }
-                } else {
-                    tags.optString("name").ifBlank { tags.optString("name:uk") }
-                }.ifBlank { tags.optString("addr:street") }).trim()
+                val sName = (tags.optString(targetCountryTag)
+                    .ifBlank { if (cCode == "ua") tags.optString("name:ua") else "" }
+                    .ifBlank { tags.optString("name") }
+                    .ifBlank { tags.optString("addr:street") }).trim()
                 if (sName.isBlank()) continue
 
                 val members = el.optJSONArray("members") ?: continue
@@ -1134,6 +1134,31 @@ object AddressDownloadManager {
         }
     }
 
+    private fun buildStreetOverpassQuery(clause: String, target: String, countryCode: String): String {
+        val highwayTypes = "residential|living_street|unclassified|tertiary|secondary|primary|trunk|service|pedestrian|motorway"
+        val cCode = countryCode.trim().lowercase(Locale.ROOT)
+        val ways = if (cCode == "ua") {
+            """
+              way$target["highway"~"$highwayTypes"]["name"];
+              way$target["highway"~"$highwayTypes"]["name:uk"];
+              way$target["highway"~"$highwayTypes"]["name:ua"];
+            """.trimIndent()
+        } else {
+            """
+              way$target["highway"~"$highwayTypes"]["name"];
+              way$target["highway"~"$highwayTypes"]["name:$cCode"];
+            """.trimIndent()
+        }
+        return """
+            [out:json][timeout:195][maxsize:1073741824];
+            $clause
+            (
+              $ways
+            );
+            out tags geom qt;
+        """.trimIndent()
+    }
+
     fun ingestCountryAddresses(
         context: Context,
         country: MapCountry,
@@ -1336,14 +1361,7 @@ object AddressDownloadManager {
                                 logFn = logCallback,
                                 isCancelled = isCancelled
                             ) { clause, target ->
-                                """
-                                    [out:json][timeout:195][maxsize:1073741824];
-                                    $clause
-                                    (
-                                      way$target["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"];
-                                    );
-                                    out tags geom qt;
-                                """.trimIndent()
+                                buildStreetOverpassQuery(clause, target, country.code)
                             }
                         } else RegionDownloadResult(emptyList(), false)
 
@@ -1383,14 +1401,7 @@ object AddressDownloadManager {
                                     logFn = logCallback,
                                     isCancelled = isCancelled
                                 ) { clause, target ->
-                                    """
-                                        [out:json][timeout:195][maxsize:1073741824];
-                                        $clause
-                                        (
-                                          way$target["highway"~"residential|living_street|unclassified|tertiary|secondary|primary|trunk|service"]["name"];
-                                        );
-                                        out tags geom qt;
-                                    """.trimIndent()
+                                    buildStreetOverpassQuery(clause, target, country.code)
                                 }
                                 if (bboxResult.files.isNotEmpty()) {
                                     for (sFile in bboxResult.files) {
@@ -1687,7 +1698,6 @@ object AddressDownloadManager {
                                 }
                             }
 
-                            val addedStreetCenters = HashSet<Long>()
                             val houseTotal = regionHouses.size
                             val maxHouseSearchMeters = 300.0
                             val maxHouseSearchSq = maxHouseSearchMeters * maxHouseSearchMeters
@@ -1821,7 +1831,7 @@ object AddressDownloadManager {
                                         }
                                     }
 
-                                    if (cluster.canonicalName.isNotBlank() && !cluster.canonicalName.equals(cityName, ignoreCase = true)) {
+                                    if (cluster.canonicalName.isNotBlank()) {
                                         val streetId = ingestor.getOrCreateStreet(
                                             cityPlaceId,
                                             cluster.canonicalName,
@@ -1829,7 +1839,7 @@ object AddressDownloadManager {
                                             cityName,
                                             regPlaceId
                                         )
-                                        if (streetId > 0L && addedStreetCenters.add(streetId)) {
+                                        if (streetId > 0L) {
                                             ingestor.addHouse(streetId, "", latI, lonI)
                                             ingestor.addStreetGeometry(
                                                 streetId,
