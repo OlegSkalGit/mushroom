@@ -1152,7 +1152,30 @@ object AddressDownloadManager {
         onProgress: (progressRatio: Double, statusText: String) -> Unit = { _, _ -> },
         isCancelled: () -> Boolean = { false }
     ): Boolean {
-        val db = AddressDb.openDatabase(context, writable = true) ?: return false
+        var wakeLock: android.os.PowerManager.WakeLock? = null
+        var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Mushroom:AddressIngestWakeLock")?.apply {
+                setReferenceCounted(false)
+                try { acquire(24 * 60 * 60 * 1000L) } catch (_: Exception) {}
+            }
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            wifiLock = try {
+                wm?.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Mushroom:AddressIngestWifiLock")?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            } catch (_: Exception) { null }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "ingestCountryAddresses", false, "WakeLock/WifiLock init warning: ${e.message}")
+        }
+
+        val db = AddressDb.openDatabase(context, writable = true) ?: run {
+            try { wakeLock?.release() } catch (_: Exception) {}
+            try { wifiLock?.release() } catch (_: Exception) {}
+            return false
+        }
         AddressDb.ensureTablesExist(db)
         val ingestor = AddressIngestor(db, country.code, country.nameUk)
         var downloadedAnyBbox = false
@@ -1245,6 +1268,11 @@ object AddressDownloadManager {
 
                 for ((idx, region) in pending) {
                     if (isCancelled()) break
+
+                    try {
+                        if (wakeLock?.isHeld == false) wakeLock.acquire(24 * 60 * 60 * 1000L)
+                        if (wifiLock?.isHeld == false) wifiLock.acquire()
+                    } catch (_: Exception) {}
 
                     val statusMsg = "${country.nameUk} ($totalRegions регіонів) • Регіон $idx/$totalRegions: ${region.name}"
 
@@ -2114,6 +2142,12 @@ object AddressDownloadManager {
             AppLogger.log(TAG, "ingestCountryAddresses", false, "Ingest failed: ${e.message}")
             return false
         } finally {
+            if (wakeLock?.isHeld == true) {
+                try { wakeLock.release() } catch (_: Exception) {}
+            }
+            if (wifiLock?.isHeld == true) {
+                try { wifiLock.release() } catch (_: Exception) {}
+            }
             try { unlinkedHousesWriter?.close() } catch (_: Exception) {}
             try { unlinkedHousesTempFile.delete() } catch (_: Exception) {}
             if (downloadedAnyBbox) {

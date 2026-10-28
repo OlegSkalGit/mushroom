@@ -947,6 +947,7 @@ object InitialSetupDialog {
         onFinished: () -> Unit
     ) {
         var wakeLock: PowerManager.WakeLock? = null
+        var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
         val mapActivity = activity as? MushroomMapActivity
         val isUk = AppPrefs.isUk(activity)
         val cancelFlag = AtomicBoolean(false)
@@ -955,7 +956,19 @@ object InitialSetupDialog {
             try {
                 val pm = activity.getSystemService(Context.POWER_SERVICE) as? PowerManager
                 wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mushroom:ComponentDownloadWakeLock")?.apply {
-                    try { acquire(60 * 60 * 1000L) } catch (_: Exception) {}
+                    setReferenceCounted(false)
+                    try { acquire(24 * 60 * 60 * 1000L) } catch (_: Exception) {}
+                }
+                val wm = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                wifiLock = try {
+                    wm?.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Mushroom:ComponentDownloadWifiLock")?.apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                } catch (_: Exception) { null }
+
+                activity.runOnUiThread {
+                    activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             } catch (e: Exception) {
                 AppLogger.log(TAG, "runQueuePipeline", false, "WakeLock init warning: ${e.message}")
@@ -964,6 +977,11 @@ object InitialSetupDialog {
             while (true) {
                 val item = pendingQueue.poll() ?: break
                 activeItem.set(item)
+
+                try {
+                    if (wakeLock?.isHeld == false) wakeLock.acquire(24 * 60 * 60 * 1000L)
+                    if (wifiLock?.isHeld == false) wifiLock.acquire()
+                } catch (_: Exception) {}
 
                 val queueRem = pendingQueue.size
                 var itemBytes = 0L
@@ -1064,8 +1082,12 @@ object InitialSetupDialog {
             if (wakeLock?.isHeld == true) {
                 try { wakeLock.release() } catch (_: Exception) {}
             }
+            if (wifiLock?.isHeld == true) {
+                try { wifiLock.release() } catch (_: Exception) {}
+            }
             activity.runOnUiThread {
                 if (!activity.isFinishing && !activity.isDestroyed) {
+                    activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     mapActivity?.updateBottomDownloadProgress(false)
                     mapActivity?.updateMapDownloadBanner()
                 }
