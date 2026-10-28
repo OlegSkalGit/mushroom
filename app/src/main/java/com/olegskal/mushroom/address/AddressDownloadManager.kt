@@ -2208,6 +2208,14 @@ object AddressDownloadManager {
 
             onProgress(0.96, "${country.nameUk}: Оптимізація індексу FTS та стиснення бази")
 
+            // Важливо: спочатку завершуємо всі транзакції та закриваємо ingestor (його скомпільовані SQLiteStatements),
+            // інакше SQLite заблокує DROP INDEX та VACUUM через зайнятість таблиць!
+            try {
+                if (db.inTransaction()) {
+                    db.endTransaction()
+                }
+            } catch (_: Exception) {}
+            ingestor.close()
 
             // Final FTS optimize, WAL checkpoint and VACUUM
             AddressDb.optimizeAndVacuum(db)
@@ -2230,12 +2238,12 @@ object AddressDownloadManager {
             if (downloadedAnyBbox) {
                 RegionBoundaryMatcher.deleteBoundaryFile(country.code)
             }
-            ingestor.close()
+            try { ingestor.close() } catch (_: Exception) {}
             try {
                 if (db.inTransaction()) {
                     db.endTransaction()
                 }
-                db.rawQuery("PRAGMA wal_checkpoint(FULL);", null).use { it.moveToFirst() }
+                db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE);", null).use { it.moveToFirst() }
             } catch (_: Exception) {}
             AddressDb.closeDatabase()
         }

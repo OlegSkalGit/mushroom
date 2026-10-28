@@ -353,22 +353,34 @@ object AddressDb {
             if (db.inTransaction()) {
                 db.endTransaction()
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "optimizeAndVacuum", false, "endTransaction warning: ${e.message}")
+        }
         try {
             recreateAllIndexes(db)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "optimizeAndVacuum", false, "recreateAllIndexes failed: ${e.message}")
+        }
         try {
             db.execSQL("INSERT INTO search_fts(search_fts) VALUES('optimize');")
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "optimizeAndVacuum", false, "search_fts optimize failed: ${e.message}")
+        }
         try {
             db.execSQL("INSERT INTO poi_fts(poi_fts) VALUES('optimize');")
-        } catch (_: Exception) {}
-        try {
-            db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE);", null).use { it.moveToFirst() }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "optimizeAndVacuum", false, "poi_fts optimize failed: ${e.message}")
+        }
         try {
             db.execSQL("VACUUM;")
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "optimizeAndVacuum", false, "VACUUM failed: ${e.message}")
+        }
+        try {
+            db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE);", null).use { it.moveToFirst() }
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "optimizeAndVacuum", false, "wal_checkpoint failed: ${e.message}")
+        }
     }
 
     fun closeDatabase() {

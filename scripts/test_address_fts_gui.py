@@ -1198,6 +1198,8 @@ out center;
             ingestor.add_house(street_id, housenumber, lat, lon)
             count_in_region += 1
 
+        ingestor.flush()
+
         # ЕТАП 2: Додавання поселень без вулиць і будинків
         ingestor.cur.execute("""
             SELECT ap.name, avg(h.lat), avg(h.lon)
@@ -1857,14 +1859,53 @@ class AddressApp(tk.Tk):
                         cnt_poi = extract_addresses_from_poi(poi_path, country, ingestor, self.log)
                         total_added += cnt_poi
 
-                # Оптимізація індексу FTS5 та дефрагментація (VACUUM)
+                # Оптимізація індексів, FTS та дефрагментація (VACUUM)
                 if total_added > 0:
-                    self.log("Оптимізація індексу FTS5 (optimize) та дефрагментація (VACUUM)...")
+                    self.log("Оптимізація FTS індексів...")
                     t_fts = time.time()
-                    conn.execute("INSERT INTO search_fts(search_fts) VALUES('optimize');")
+                    try:
+                        conn.execute("INSERT INTO search_fts(search_fts) VALUES('optimize');")
+                        conn.commit()
+                    except Exception as e:
+                        self.log(f"search_fts optimize: {e}")
+                    try:
+                        conn.execute("INSERT INTO poi_fts(poi_fts) VALUES('optimize');")
+                        conn.commit()
+                    except Exception as e:
+                        self.log(f"poi_fts optimize: {e}")
+
+                    self.log("Перестворення вторинних індексів для максимальної щільності B-Tree...")
+                    indexes = [
+                        ("idx_streets_place_id", "CREATE INDEX idx_streets_place_id ON streets(place_id);"),
+                        ("idx_streets_name_id", "CREATE INDEX idx_streets_name_id ON streets(name_id);"),
+                        ("idx_streets_region_id", "CREATE INDEX idx_streets_region_id ON streets(region_id);"),
+                        ("idx_admin_places_parent", "CREATE INDEX idx_admin_places_parent ON admin_places(parent_id);"),
+                        ("idx_admin_places_name", "CREATE INDEX idx_admin_places_name ON admin_places(name COLLATE NOCASE);"),
+                        ("idx_houses_coords", "CREATE INDEX idx_houses_coords ON houses(lat, lon);"),
+                        ("idx_poi_places_coords", "CREATE INDEX idx_poi_places_coords ON poi_places(lat, lon);"),
+                        ("idx_poi_places_street", "CREATE INDEX idx_poi_places_street ON poi_places(street_id);"),
+                        ("idx_poi_types_country", "CREATE INDEX idx_poi_types_country ON poi_types(country_code);"),
+                        ("idx_poi_types_tag", "CREATE INDEX idx_poi_types_tag ON poi_types(tag);"),
+                        ("idx_street_geom_box", "CREATE INDEX idx_street_geom_box ON street_geometries(min_lat, max_lat, min_lon, max_lon);")
+                    ]
+                    for idx_name, create_sql in indexes:
+                        try:
+                            conn.execute(f"DROP INDEX IF EXISTS {idx_name};")
+                            conn.execute(create_sql)
+                        except Exception as e:
+                            self.log(f"Recreate index {idx_name}: {e}")
                     conn.commit()
+
+                    self.log("Дефрагментація та ущільнення бази (VACUUM)...")
                     conn.execute("VACUUM;")
                     conn.commit()
+
+                    try:
+                        conn.execute("PRAGMA journal_mode = DELETE;")
+                        conn.commit()
+                    except Exception:
+                        pass
+
                     sz_mb = os.path.getsize(DB_PATH) / (1024 * 1024)
                     self.log(f"Базу оптимізовано за {time.time()-t_fts:.2f}с. Фінальний розмір {DB_NAME}: {sz_mb:.2f} МБ")
                 else:

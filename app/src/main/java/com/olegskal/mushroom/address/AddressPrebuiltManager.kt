@@ -617,6 +617,7 @@ object AddressPrebuiltManager {
             val db = AddressDb.openDatabase(context, writable = true) ?: return false
             AddressDb.ensureTablesExist(db)
             AddressDb.optimizeAndVacuum(db)
+            AddressDb.closeDatabase()
             return true
         }
 
@@ -877,11 +878,13 @@ object AddressPrebuiltManager {
 
             // 7. Оптимізація та збереження
             AddressDb.optimizeAndVacuum(targetDb)
+            AddressDb.closeDatabase()
             return true
         } catch (e: Exception) {
             AppLogger.log(TAG, "consolidatePrebuiltDatabase", false, "Помилка консолідації: ${e.message}")
             try { targetDb.execSQL("DETACH DATABASE src;") } catch (_: Exception) {}
             restoreIndices(targetDb)
+            AddressDb.closeDatabase()
             return false
         }
     }
