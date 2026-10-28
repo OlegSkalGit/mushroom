@@ -940,10 +940,10 @@ object AddressSearchManager {
             val seenStreetIds = HashSet<Long>()
 
             if (AddressDb.hasTable(db, "street_geometries")) {
-                val streetGeomRadii = listOf(2000L, 10000L, 50000L)
+                val streetGeomRadii = listOf(150L, 500L, 2000L, 10000L)
 
                 for (rad in streetGeomRadii) {
-                    if (candidateStreets.size >= 20) break
+                    if (candidateStreets.any { it.second < 50.0f } || candidateStreets.size >= 25) break
                     val dLatI = rad
                     val dLonI = (rad / kotlin.math.max(0.2, cosLat)).toLong()
 
@@ -962,7 +962,7 @@ object AddressSearchManager {
                         LEFT JOIN admin_places country ON country.id = s.country_id
                         LEFT JOIN houses h ON h.street_id = s.id AND h.number = ''
                         WHERE g.max_lat >= ? AND g.min_lat <= ? AND g.max_lon >= ? AND g.min_lon <= ?
-                        LIMIT 150;
+                        LIMIT 300;
                     """.trimIndent()
 
                     val geomCursor = db.rawQuery(
@@ -1017,7 +1017,7 @@ object AddressSearchManager {
 
             // 1b. FALLBACK / SUPPLEMENT: Search street centers from houses table (h.number = '')
             if (candidateStreets.size < 15) {
-                val centerRadii = listOf(2000L, 10000L, 50000L)
+                val centerRadii = listOf(500L, 2000L, 10000L)
                 for (rad in centerRadii) {
                     if (candidateStreets.size >= 15) break
                     val dLatI = rad
