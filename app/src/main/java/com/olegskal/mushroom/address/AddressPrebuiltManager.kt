@@ -896,7 +896,6 @@ object AddressPrebuiltManager {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_houses_coords ON houses(lat, lon);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);")
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_types_country ON poi_types(country_code);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_types_tag ON poi_types(tag);")
         } catch (e: Exception) {

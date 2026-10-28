@@ -286,7 +286,6 @@ object AddressDb {
 
         try {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);")
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);")
         } catch (_: Exception) {}
 
         createFtsTableWithFallback(db)
@@ -333,8 +332,7 @@ object AddressDb {
             "idx_streets_region_id" to "CREATE INDEX IF NOT EXISTS idx_streets_region_id ON streets(region_id);",
             "idx_poi_types_country" to "CREATE INDEX IF NOT EXISTS idx_poi_types_country ON poi_types(country_code);",
             "idx_poi_types_tag" to "CREATE INDEX IF NOT EXISTS idx_poi_types_tag ON poi_types(tag);",
-            "idx_poi_places_street" to "CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);",
-            "idx_poi_places_country" to "CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);"
+            "idx_poi_places_street" to "CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);"
         )
         for ((name, _) in indexes) {
             try {

@@ -1085,7 +1085,6 @@ object AddressDownloadManager {
             // Оптове відновлення індексів
             onProgress(0.92, "${country.nameUk}: Побудова індексів POI...")
             try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_street ON poi_places(street_id);") } catch (_: Exception) {}
-            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_country ON poi_places(country_code);") } catch (_: Exception) {}
             try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_poi_places_coords ON poi_places(lat, lon);") } catch (_: Exception) {}
 
             // Оптове заповнення poi_fts
