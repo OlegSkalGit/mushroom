@@ -908,7 +908,10 @@ object AddressSearchManager {
         val nearestStreetDistanceMeters: Float? = null,
         val nearestStreets: List<Pair<AddressSearchResult, Float>>, // up to 15 items
         val nearestAddresses: List<Pair<AddressSearchResult, Float>>, // up to 15 items
-        val nearestPois: List<Pair<AddressSearchResult, Float>> // up to 15 items
+        val nearestPois: List<Pair<AddressSearchResult, Float>>, // up to 15 items
+        val settlementLat: Double? = null,
+        val settlementLon: Double? = null,
+        val settlementDistanceMeters: Float? = null
     )
 
     fun findMarkerLocationInfo(context: Context, lat: Double, lon: Double): MarkerLocationInfo? {
@@ -924,6 +927,9 @@ object AddressSearchManager {
         var communityName = ""
         var settlementName = ""
         var bestAdminDist = Float.MAX_VALUE
+        var settlementLat: Double? = null
+        var settlementLon: Double? = null
+        var settlementDist: Float? = null
         var nearestHouseAddress: String? = null
         var nearestHouseDist: Float? = null
         var nearestStreetName: String? = null
@@ -1009,6 +1015,9 @@ object AddressSearchManager {
                                 districtName = dName
                                 communityName = subName
                                 settlementName = cName
+                                settlementLat = cLat
+                                settlementLon = cLon
+                                settlementDist = minSegDist
                             }
                         }
                     }
@@ -1016,10 +1025,10 @@ object AddressSearchManager {
             }
 
             // 1b. FALLBACK / SUPPLEMENT: Search street centers from houses table (h.number = '')
-            if (candidateStreets.size < 15) {
+            if (candidateStreets.size < 15 || bestAdminDist > 100.0f) {
                 val centerRadii = listOf(500L, 2000L, 10000L)
                 for (rad in centerRadii) {
-                    if (candidateStreets.size >= 15) break
+                    if (candidateStreets.size >= 15 && bestAdminDist <= 500.0f) break
                     val dLatI = rad
                     val dLonI = (rad / kotlin.math.max(0.2, cosLat)).toLong()
                     val centerSql = """
@@ -1046,7 +1055,6 @@ object AddressSearchManager {
                     cCenter.use {
                         while (it.moveToNext()) {
                             val stId = it.getLong(0)
-                            if (!seenStreetIds.add(stId)) continue
                             val sName = it.getString(1) ?: ""
                             val cName = it.getString(2) ?: ""
                             val rName = it.getString(3) ?: ""
@@ -1057,18 +1065,20 @@ object AddressSearchManager {
                             val countryCode = it.getString(8) ?: "UA"
                             val distM = calculateDistanceMeters(lat, lon, cLat, cLon)
 
-                            val res = AddressSearchResult(
-                                countryCode = countryCode,
-                                regionName = rName,
-                                cityName = cName,
-                                streetName = sName,
-                                houseNumber = "",
-                                lat = cLat,
-                                lon = cLon,
-                                isPoiOnly = false,
-                                distanceMeters = distM
-                            )
-                            candidateStreets.add(Pair(res, distM))
+                            if (sName.isNotBlank() && candidateStreets.size < 15 && seenStreetIds.add(stId)) {
+                                val res = AddressSearchResult(
+                                    countryCode = countryCode,
+                                    regionName = rName,
+                                    cityName = cName,
+                                    streetName = sName,
+                                    houseNumber = "",
+                                    lat = cLat,
+                                    lon = cLon,
+                                    isPoiOnly = false,
+                                    distanceMeters = distM
+                                )
+                                candidateStreets.add(Pair(res, distM))
+                            }
 
                             if (distM < bestAdminDist && cName.isNotBlank()) {
                                 bestAdminDist = distM
@@ -1076,6 +1086,9 @@ object AddressSearchManager {
                                 districtName = dName
                                 communityName = subName
                                 settlementName = cName
+                                settlementLat = cLat
+                                settlementLon = cLon
+                                settlementDist = distM
                             }
                         }
                     }
@@ -1130,6 +1143,9 @@ object AddressSearchManager {
                             districtName = dName
                             communityName = subName
                             settlementName = cName
+                            settlementLat = dLat
+                            settlementLon = dLon
+                            settlementDist = distM
                         }
 
                         if (nearestHouseAddress == null && distM < 30.0f) {
@@ -1262,7 +1278,10 @@ object AddressSearchManager {
             nearestStreetDistanceMeters = nearestStreetDist,
             nearestStreets = nearestStreets,
             nearestAddresses = nearestAddresses,
-            nearestPois = nearestPois
+            nearestPois = nearestPois,
+            settlementLat = settlementLat,
+            settlementLon = settlementLon,
+            settlementDistanceMeters = settlementDist
         )
     }
 

@@ -25,20 +25,19 @@ class SpatialHouseGrid {
             val grid = SpatialHouseGrid()
             val sql = if (countryCode != null) {
                 """
-                    SELECT h.lat, h.lon, h.street_id 
+                    SELECT h.lat, h.lon, h.street_id, (sn.name != '') AS has_name
                     FROM houses h 
                     JOIN streets s ON s.id = h.street_id 
                     JOIN street_names sn ON sn.id = s.name_id
                     JOIN admin_places c ON c.id = s.country_id 
-                    WHERE UPPER(c.code) = ? AND sn.name != '';
+                    WHERE UPPER(c.code) = ?;
                 """.trimIndent()
             } else {
                 """
-                    SELECT h.lat, h.lon, h.street_id 
+                    SELECT h.lat, h.lon, h.street_id, (sn.name != '') AS has_name
                     FROM houses h 
                     JOIN streets s ON s.id = h.street_id 
-                    JOIN street_names sn ON sn.id = s.name_id
-                    WHERE sn.name != '';
+                    JOIN street_names sn ON sn.id = s.name_id;
                 """.trimIndent()
             }
             val args = if (countryCode != null) arrayOf(countryCode.uppercase()) else null
@@ -46,7 +45,7 @@ class SpatialHouseGrid {
             cursor.use { c ->
                 grid.ensureCapacity(c.count)
                 while (c.moveToNext()) {
-                    grid.add(c.getInt(0), c.getInt(1), c.getLong(2))
+                    grid.add(c.getInt(0), c.getInt(1), c.getLong(2), c.getInt(3) == 1)
                 }
             }
             return grid
@@ -57,6 +56,7 @@ class SpatialHouseGrid {
     private var lats = IntArray(32768)
     private var lons = IntArray(32768)
     private var streetIds = LongArray(32768)
+    private var hasStreetNames = BooleanArray(32768)
 
     // cellKey -> індекси будинків у масивах lats/lons/streetIds
     private val cells = HashMap<Long, ArrayList<Int>>()
@@ -67,20 +67,23 @@ class SpatialHouseGrid {
             lats = lats.copyOf(newSize)
             lons = lons.copyOf(newSize)
             streetIds = streetIds.copyOf(newSize)
+            hasStreetNames = hasStreetNames.copyOf(newSize)
         }
     }
 
-    fun add(lat: Int, lon: Int, streetId: Long) {
+    fun add(lat: Int, lon: Int, streetId: Long, hasStreetName: Boolean = true) {
         if (count >= lats.size) {
             val newSize = lats.size * 2
             lats = lats.copyOf(newSize)
             lons = lons.copyOf(newSize)
             streetIds = streetIds.copyOf(newSize)
+            hasStreetNames = hasStreetNames.copyOf(newSize)
         }
         val idx = count++
         lats[idx] = lat
         lons[idx] = lon
         streetIds[idx] = streetId
+        hasStreetNames[idx] = hasStreetName
 
         val cx = lat / CELL_SIZE
         val cy = lon / CELL_SIZE
@@ -174,6 +177,7 @@ class SpatialHouseGrid {
                 val cellSize = cell.size
                 for (i in 0 until cellSize) {
                     val hIdx = cell[i]
+                    if (!hasStreetNames[hIdx]) continue
                     val dlat = (latI - lats[hIdx]) * ky
                     val dlon = (lonI - lons[hIdx]) * kx
                     val d = kotlin.math.hypot(dlat, dlon)
@@ -194,5 +198,6 @@ class SpatialHouseGrid {
         lats = IntArray(1024)
         lons = IntArray(1024)
         streetIds = LongArray(1024)
+        hasStreetNames = BooleanArray(1024)
     }
 }

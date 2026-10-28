@@ -592,6 +592,8 @@ object AddressDownloadManager {
             for (line in rawCsv.lines()) {
                 val parts = line.trim().split(";")
                 if (parts.size < 8) continue
+                val osmId = parts[0].trim().toLongOrNull() ?: 0L
+                val isRelation = parts[1].trim().equals("relation", ignoreCase = true)
                 val lat = parts[2].trim().toDoubleOrNull() ?: continue
                 val lon = parts[3].trim().toDoubleOrNull() ?: continue
                 val nameUk = parts[4].trim()
@@ -615,10 +617,27 @@ object AddressDownloadManager {
                         nodeStems[stem] = cleanName
                     }
                 }
-                settlements.add(SettlementItem(lat, lon, cleanName, ptype, al))
+                settlements.add(SettlementItem(lat, lon, cleanName, ptype, al, osmId, isRelation))
             }
         }
-        return SpatialSettlementIndex(settlements, fallbackRegion)
+
+        // Очищення дублікатів: якщо є і node, і relation для однієї назви у радіусі < 5 км - лишаємо тільки node
+        val nodes = settlements.filter { !it.isRelation }
+        val relations = settlements.filter { it.isRelation }
+        val finalSettlements = nodes.toMutableList()
+
+        for (rel in relations) {
+            val cosLat = kotlin.math.cos(Math.toRadians(rel.lat))
+            val hasCloseNode = nodes.any { nd ->
+                nd.name.equals(rel.name, ignoreCase = true) &&
+                kotlin.math.hypot((nd.lat - rel.lat) * 111.0, (nd.lon - rel.lon) * 111.0 * cosLat) < 5.0
+            }
+            if (!hasCloseNode) {
+                finalSettlements.add(rel)
+            }
+        }
+
+        return SpatialSettlementIndex(finalSettlements, fallbackRegion)
     }
 
     private fun extractAddressesFromPoiFile(
@@ -1885,6 +1904,12 @@ object AddressDownloadManager {
                                                 targetRegionName = targetRegion.name
                                                 cityName = resolvedCity
                                                 cityPlaceId = ingestor.getOrCreatePlace(regPlaceId, cityName, level = 8)
+                                                if (cityName.isNotBlank() && seenCityPlaceIds.add(cityPlaceId)) {
+                                                    val key = cityName.trim().lowercase(Locale.ROOT)
+                                                    knownByCityName.getOrPut(key) { ArrayList(2) }.add(
+                                                        KnownSettlement(cityPlaceId, regPlaceId, targetRegionName, cityName, latI, lonI)
+                                                    )
+                                                }
                                             }
                                             if (cityName.isNotBlank() && streetKey.isNotBlank()) {
                                                 recentClusterSettlement[streetKey] = ResolvedClusterSettlement(cityPlaceId, regPlaceId, targetRegionName, cityName, latI, lonI)
@@ -1915,6 +1940,59 @@ object AddressDownloadManager {
                                 }
                             }
                             regionHouses.clear()
+
+                            // ЕТАП 2: Додавання поселень без вулиць і будинків
+                            for (settlement in settlementIndex.settlementsList) {
+                                if (isCancelled()) break
+                                val sName = settlement.name.trim()
+                                if (sName.isBlank()) continue
+                                val sKey = sName.lowercase(Locale.ROOT)
+
+                                // 1. Фільтр BBOX прямокутника (відсікаємо села сусідніх областей або закордону)
+                                val bMatcher = boundaryMatcher
+                                if (usedBbox && bMatcher != null) {
+                                    val ptCode = bMatcher.findRegionCode(settlement.lat, settlement.lon)
+                                    if (ptCode == null) continue
+                                    val matchedReg = regionByCode[ptCode]
+                                    val isCurrent = if (matchedReg != null) {
+                                        if (curRegion.code.isNotBlank() && matchedReg.code.isNotBlank()) {
+                                            matchedReg.code.equals(curRegion.code, ignoreCase = true)
+                                        } else {
+                                            matchedReg.name.trim().equals(curRegion.name.trim(), ignoreCase = true)
+                                        }
+                                    } else {
+                                        curRegion.code.isNotBlank() && curRegion.code.equals(ptCode, ignoreCase = true)
+                                    }
+                                    if (!isCurrent) continue
+                                }
+
+                                // 2. Перевірка: чи є село вже в цій області (або однойменне в радіусі 5 км)
+                                val existingList = knownByCityName[sKey]
+                                val cosLat = kotlin.math.cos(Math.toRadians(settlement.lat))
+                                val isAlreadyAdded = !existingList.isNullOrEmpty() && existingList.any { ex ->
+                                    val dy = (settlement.lat - (ex.latI / 100_000.0)) * 111.0
+                                    val dx = (settlement.lon - (ex.lonI / 100_000.0)) * 111.0 * cosLat
+                                    (dy * dy + dx * dx) < 25.0 // < 5 км
+                                }
+                                if (isAlreadyAdded) continue
+
+                                // 3. Додаємо нове поселення без вулиць
+                                val cityPlaceId = ingestor.getOrCreatePlace(
+                                    defaultRegPlaceId,
+                                    sName,
+                                    level = 8,
+                                    osmId = if (settlement.osmId > 0) settlement.osmId else null
+                                )
+                                val streetId = ingestor.getOrCreateEmptyStreet(cityPlaceId, defaultRegPlaceId)
+                                if (streetId > 0L) {
+                                    val latI = (settlement.lat * 100_000.0).roundToInt()
+                                    val lonI = (settlement.lon * 100_000.0).roundToInt()
+                                    ingestor.addHouse(streetId, "", latI, lonI)
+                                    knownByCityName.getOrPut(sKey) { ArrayList(2) }.add(
+                                        KnownSettlement(cityPlaceId, defaultRegPlaceId, curRegion.name, sName, latI, lonI)
+                                    )
+                                }
+                            }
 
                             ingestor.flush()
                             db.setTransactionSuccessful()

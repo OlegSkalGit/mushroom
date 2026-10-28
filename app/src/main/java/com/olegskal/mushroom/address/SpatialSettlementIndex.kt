@@ -9,11 +9,13 @@ data class SettlementItem(
     val lon: Double,
     val name: String,
     val placeType: String,
-    val adminLevel: String
+    val adminLevel: String,
+    val osmId: Long = 0L,
+    val isRelation: Boolean = false
 )
 
 class SpatialSettlementIndex(
-    settlements: List<SettlementItem>,
+    val settlementsList: List<SettlementItem>,
     private val fallbackRegion: String
 ) {
     private val grid = mutableMapOf<Pair<Int, Int>, MutableList<SettlementItem>>()
@@ -22,13 +24,13 @@ class SpatialSettlementIndex(
     private val cache = mutableMapOf<Pair<Long, Long>, String>()
 
     init {
-        for (item in settlements) {
+        for (item in settlementsList) {
             val ptype = item.placeType
             val al = item.adminLevel
             if (ptype in listOf("borough", "district", "subdistrict", "county") || al in listOf("6", "10")) {
                 continue
             }
-            if (ptype in listOf("city", "town", "village", "hamlet")) {
+            if (ptype in listOf("city", "town", "village", "hamlet", "isolated_dwelling")) {
                 validAll.add(item)
             }
             if (ptype == "city") {

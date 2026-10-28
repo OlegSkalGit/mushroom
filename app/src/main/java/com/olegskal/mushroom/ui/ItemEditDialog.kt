@@ -416,7 +416,7 @@ object ItemEditDialog {
         dialog.show()
     }
 
-    private fun showMarkerInfoDialog(
+    fun showMarkerInfoDialog(
         activity: Activity,
         lat: Double,
         lon: Double,
@@ -558,6 +558,16 @@ object ItemEditDialog {
                     if (info.settlementName.isNotBlank()) {
                         settlementTv.text = "🏙️ ${info.settlementName}"
                         settlementTv.visibility = View.VISIBLE
+                        settlementTv.isClickable = true
+                        settlementTv.setOnClickListener {
+                            infoDialog.dismiss()
+                            onItemSelected(
+                                info.settlementName,
+                                if (isUk) "🏙️ Населений пункт" else "🏙️ Settlement",
+                                info.settlementLat ?: lat,
+                                info.settlementLon ?: lon
+                            )
+                        }
                     }
                     if (info.nearestHouseAddress != null && info.nearestHouseDistanceMeters != null) {
                         val distStr = AddressSearchManager.formatDistance(info.nearestHouseDistanceMeters)
@@ -639,6 +649,100 @@ object ItemEditDialog {
                             onClick()
                         }
                         listsContainer.addView(row)
+                    }
+
+                    // 0. Combined nearest items within 50 meters (up to 15 items)
+                    class NearbyItem(
+                        val icon: String,
+                        val title: String,
+                        val subtitle: String,
+                        val dist: Float,
+                        val onClick: () -> Unit
+                    )
+                    val nearbyList = mutableListOf<NearbyItem>()
+
+                    if (info.settlementName.isNotBlank() && info.settlementDistanceMeters != null && info.settlementDistanceMeters <= 50.0f) {
+                        val sub = listOf(info.districtName, info.regionName).filter { it.isNotBlank() }.joinToString(", ")
+                        nearbyList.add(NearbyItem("🏙️", info.settlementName, sub, info.settlementDistanceMeters) {
+                            onItemSelected(
+                                info.settlementName,
+                                if (isUk) "🏙️ Населений пункт" else "🏙️ Settlement",
+                                info.settlementLat ?: lat,
+                                info.settlementLon ?: lon
+                            )
+                        })
+                    }
+
+                    for ((st, dist) in info.nearestStreets) {
+                        if (dist <= 50.0f) {
+                            val title = st.streetName.ifBlank { st.cityName }
+                            val sub = listOf(st.cityName, st.regionName).filter { it.isNotBlank() }.joinToString(", ")
+                            nearbyList.add(NearbyItem("🛣️", title, sub, dist) {
+                                onItemSelected(
+                                    st.getFullTitle(),
+                                    if (isUk) "🛣️ Вулиця" else "🛣️ Street",
+                                    st.lat,
+                                    st.lon
+                                )
+                            })
+                        }
+                    }
+
+                    for ((addr, dist) in info.nearestAddresses) {
+                        if (dist <= 50.0f) {
+                            val streetPart = listOf(addr.streetName.ifBlank { addr.cityName }, addr.houseNumber).filter { it.isNotBlank() }.joinToString(", ")
+                            val title = streetPart.ifBlank { addr.cityName }
+                            val sub = listOf(addr.cityName, addr.regionName).filter { it.isNotBlank() }.joinToString(", ")
+                            nearbyList.add(NearbyItem("📍", title, sub, dist) {
+                                onItemSelected(
+                                    addr.getFullTitle(),
+                                    if (isUk) "📍 Адреса" else "📍 Address",
+                                    addr.lat,
+                                    addr.lon
+                                )
+                            })
+                        }
+                    }
+
+                    for ((poi, dist) in info.nearestPois) {
+                        if (dist <= 50.0f) {
+                            val title = poi.poiName ?: poi.getFullTitle()
+                            val loc = listOf(
+                                listOf(poi.streetName, poi.houseNumber).filter { it.isNotBlank() }.joinToString(", "),
+                                poi.cityName,
+                                poi.regionName
+                            ).filter { it.isNotBlank() }.joinToString(", ")
+                            val cat = poi.poiCategory ?: ""
+                            val sub = if (cat.isNotBlank() && loc.isNotBlank()) "$cat • $loc" else cat.ifBlank { loc }
+                            val icon = poi.poiIcon ?: "📍"
+                            nearbyList.add(NearbyItem(icon, title, sub, dist) {
+                                val chosenType = "${poi.poiIcon ?: "📍"} ${poi.poiCategory ?: ""}".trim()
+                                onItemSelected(
+                                    poi.poiName ?: poi.getFullTitle(),
+                                    chosenType.ifBlank { if (isUk) "📍 Точка інтересу" else "📍 Point of Interest" },
+                                    poi.lat,
+                                    poi.lon
+                                )
+                            })
+                        }
+                    }
+
+                    nearbyList.sortBy { it.dist }
+                    val topNearby = nearbyList.take(15)
+
+                    if (topNearby.isNotEmpty()) {
+                        val nearbyHeader = TextView(activity).apply {
+                            text = if (isUk) "🎯 Найближчі (до 50 м):" else "🎯 Nearest (within 50 m):"
+                            setTextColor(Color.parseColor("#4CAF50"))
+                            textSize = 14f
+                            setTypeface(null, Typeface.BOLD)
+                            setPadding(dp(4), dp(8), dp(4), dp(4))
+                        }
+                        listsContainer.addView(nearbyHeader)
+
+                        for (item in topNearby) {
+                            renderRow(item.icon, item.title, item.subtitle, item.dist, item.onClick)
+                        }
                     }
 
                     // Render up to 15 nearest streets

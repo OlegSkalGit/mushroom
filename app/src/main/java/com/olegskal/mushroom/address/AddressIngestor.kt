@@ -271,6 +271,24 @@ class AddressIngestor(
         return sid
     }
 
+    fun getOrCreateEmptyStreet(
+        placeId: Long,
+        regionId: Long? = null
+    ): Long {
+        val nameId = getOrCreateStreetName("")
+        val key = Pair(placeId, nameId)
+        streetsCache[key]?.let { return it }
+
+        val stmt = stmtInsertStreet ?: return 0L
+        stmt.bindLong(1, placeId)
+        if (regionId != null && regionId > 0) stmt.bindLong(2, regionId) else stmt.bindNull(2)
+        stmt.bindLong(3, countryId)
+        stmt.bindLong(4, nameId)
+        val sid = stmt.executeInsert()
+        streetsCache[key] = sid
+        return sid
+    }
+
     fun addHouse(streetId: Long, houseNumber: String, lat: Double, lon: Double) {
         val latI = (lat * 100_000.0).roundToInt()
         val lonI = (lon * 100_000.0).roundToInt()

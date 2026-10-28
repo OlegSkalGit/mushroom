@@ -225,8 +225,26 @@ object MarkersListDialog {
                     ellipsize = TextUtils.TruncateAt.END
                 }
 
+                val subSsb = android.text.SpannableStringBuilder(marker.type)
+                if (distStr.isNotEmpty()) {
+                    val start = subSsb.length
+                    subSsb.append(" • $distStr")
+                    subSsb.setSpan(
+                        android.text.style.ForegroundColorSpan(Color.parseColor("#10B981")),
+                        start + 3,
+                        subSsb.length,
+                        android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    subSsb.setSpan(
+                        android.text.style.StyleSpan(Typeface.BOLD),
+                        start + 3,
+                        subSsb.length,
+                        android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+
                 val subTv = TextView(activity).apply {
-                    text = marker.type
+                    text = subSsb
                     setTextColor(marker.color)
                     textSize = 12f
                     maxLines = 1
@@ -235,6 +253,38 @@ object MarkersListDialog {
 
                 infoCol.addView(nameTv)
                 infoCol.addView(subTv)
+
+                val btnInfo = Button(activity).apply {
+                    text = "ℹ️"
+                    setTextColor(Color.parseColor("#4CAF50"))
+                    setBackgroundColor(Color.TRANSPARENT)
+                    textSize = 15f
+                    setPadding(8, 0, 8, 0)
+                    setOnClickListener {
+                        ItemEditDialog.showMarkerInfoDialog(
+                            activity = activity,
+                            lat = marker.lat,
+                            lon = marker.lon,
+                            currentMarkerName = marker.name,
+                            isUk = lang == "uk"
+                        ) { selectedName, selectedType, selectedLat, selectedLon ->
+                            val updated = marker.copy(
+                                name = selectedName,
+                                type = selectedType,
+                                lat = selectedLat,
+                                lon = selectedLon
+                            )
+                            dbHelper.updateMarker(updated)
+                            onVisibilityChanged()
+                            populateMarkers()
+                            Toast.makeText(
+                                activity,
+                                if (lang == "uk") "Маркер оновлено: $selectedName" else "Marker updated: $selectedName",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
 
                 val btnRename = Button(activity).apply {
                     text = "✏️"
@@ -283,19 +333,7 @@ object MarkersListDialog {
 
                 itemRow.addView(chkVisible)
                 itemRow.addView(infoCol)
-                if (distStr.isNotEmpty()) {
-                    val distTv = TextView(activity).apply {
-                        text = distStr
-                        setTextColor(Color.parseColor("#10B981"))
-                        textSize = 12f
-                        setTypeface(null, Typeface.BOLD)
-                        setPadding((6 * density).toInt(), 0, (6 * density).toInt(), 0)
-                        gravity = Gravity.CENTER_VERTICAL
-                        isClickable = true
-                        setOnClickListener(selectAction)
-                    }
-                    itemRow.addView(distTv)
-                }
+                itemRow.addView(btnInfo)
                 itemRow.addView(btnRename)
                 itemRow.addView(btnShare)
                 itemRow.addView(btnDelete)

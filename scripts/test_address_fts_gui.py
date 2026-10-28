@@ -443,6 +443,20 @@ class AddressIngestor:
 
         return sid
 
+    def get_or_create_empty_street(self, place_id, region_id=None):
+        name_id = self.get_or_create_street_name("")
+        key = (place_id, name_id)
+        if key in self.streets_cache:
+            return self.streets_cache[key]
+
+        self.cur.execute(
+            "INSERT INTO streets (place_id, region_id, country_id, name_id) VALUES (?, ?, ?, ?);",
+            (place_id, region_id, self.country_id, name_id)
+        )
+        sid = self.cur.lastrowid
+        self.streets_cache[key] = sid
+        return sid
+
     def add_house(self, street_id, house_number, lat, lon):
         try:
             f_lat = float(lat)
@@ -999,29 +1013,51 @@ out center;
             if not clean_name:
                 continue
 
+            osm_id_val = int(parts[0].strip()) if parts[0].strip().isdigit() else 0
+            is_rel_val = (parts[1].strip() == "relation")
+
             if ptype in ("city", "town", "village"):
                 stem = clean_name[:4].lower()
                 if stem not in nodes_stems:
                     nodes_stems[stem] = clean_name
 
-            settlements.append((lat, lon, clean_name, ptype, al))
+            settlements.append((lat, lon, clean_name, ptype, al, osm_id_val, is_rel_val))
 
         # Нормалізація прикметникових назв громад до прямої назви поселення
         normalized = []
-        for lat, lon, clean_name, ptype, al in settlements:
+        for lat, lon, clean_name, ptype, al, osm_id_val, is_rel_val in settlements:
             if ptype not in ("city", "town", "village") and clean_name[:4].lower() in nodes_stems:
                 clean_name = nodes_stems[clean_name[:4].lower()]
-            normalized.append((lat, lon, clean_name, ptype, al))
+            normalized.append((lat, lon, clean_name, ptype, al, osm_id_val, is_rel_val))
         settlements = normalized
+
+        # Очищення дублікатів: якщо є і node, і relation для однієї назви у радіусі < 5 км - лишаємо тільки node
+        nodes = [s for s in settlements if not s[6]]
+        relations = [s for s in settlements if s[6]]
+        final_settlements = list(nodes)
+
+        for rel in relations:
+            rel_name = rel[2]
+            rel_lat, rel_lon = rel[0], rel[1]
+            cos_lat = math.cos(math.radians(rel_lat))
+            has_close_node = any(
+                nd[2] == rel_name and
+                math.hypot((nd[0] - rel_lat) * 111.0, (nd[1] - rel_lon) * 111.0 * cos_lat) < 5.0
+                for nd in nodes
+            )
+            if not has_close_node:
+                final_settlements.append(rel)
+        settlements = final_settlements
 
     def make_resolver(lat, lon, fallback_reg):
         nonlocal resolver_instance
         if resolver_instance is None:
-            resolver_instance = SpatialSettlementIndex(settlements, fallback_reg)
+            # Для SpatialSettlementIndex передаємо перші 5 елементів кортежу (lat, lon, clean_name, ptype, al)
+            resolver_instance = SpatialSettlementIndex([(s[0], s[1], s[2], s[3], s[4]) for s in settlements], fallback_reg)
         return resolver_instance.resolve(lat, lon)
 
     resolver_instance = None
-    return make_resolver
+    return make_resolver, settlements
 
 
 def process_regions_pass(client, country, ingestor, regions_batch, pass_num, max_passes, total_regions, log_fn, stop_event, update_status_fn=None):
@@ -1065,7 +1101,7 @@ def process_regions_pass(client, country, ingestor, regions_batch, pass_num, max
             log_fn(f"  [i] associatedStreet: знайдено {len(assoc_streets):,} зв'язків будинок->вулиця")
 
         # 2. Завантажуємо контури міст для відновлення назви міста замість області
-        resolve_city_fn = fetch_region_settlements(client, area_clause, log_fn, stop_event)
+        resolve_city_fn, region_settlements = fetch_region_settlements(client, area_clause, log_fn, stop_event)
 
         # 3. Основний запит адресних будівель (з ::id та ::type для точного зіставлення)
         q = f"""[out:csv(::id, ::type, ::lat, ::lon, "addr:city", "addr:town", "addr:village", "addr:hamlet", "addr:suburb", "addr:place", "addr:district", "addr:county", "addr:subdistrict", "addr:municipality", "addr:street", "contact:street", "addr:parentstreet", "is_in:street", "addr:housenumber", "addr:housename", "addr:conscriptionnumber", "is_in:city", "is_in:town", "is_in:village", "is_in:municipality"; false; ";")][timeout:300];
@@ -1162,10 +1198,53 @@ out center;
             ingestor.add_house(street_id, housenumber, lat, lon)
             count_in_region += 1
 
+        # ЕТАП 2: Додавання поселень без вулиць і будинків
+        ingestor.cur.execute("""
+            SELECT ap.name, avg(h.lat), avg(h.lon)
+            FROM streets s
+            JOIN admin_places ap ON ap.id = s.place_id
+            LEFT JOIN houses h ON h.street_id = s.id
+            WHERE s.region_id = ?
+            GROUP BY s.place_id;
+        """, (reg_place_id,))
+        known_places = {}
+        for pname, avg_lat, avg_lon in ingestor.cur.fetchall():
+            if pname:
+                known_places.setdefault(pname.strip().lower(), []).append(
+                    (avg_lat / 100_000.0 if avg_lat else None, avg_lon / 100_000.0 if avg_lon else None)
+                )
+
+        added_centroids = 0
+        for s_lat, s_lon, s_name, ptype, al, s_osm_id, is_rel in region_settlements:
+            if stop_event and stop_event.is_set():
+                break
+            s_clean = s_name.strip()
+            if not s_clean:
+                continue
+            s_key = s_clean.lower()
+
+            # Перевірка: чи є село вже в цій області у радіусі 5 км
+            existing = known_places.get(s_key, [])
+            cos_lat = math.cos(math.radians(s_lat))
+            is_already = any(
+                ex_lat is not None and ex_lon is not None and
+                math.hypot((s_lat - ex_lat) * 111.0, (s_lon - ex_lon) * 111.0 * cos_lat) < 5.0
+                for ex_lat, ex_lon in existing
+            )
+            if is_already:
+                continue
+
+            city_place_id = ingestor.get_or_create_place(reg_place_id, s_clean, level=8, osm_id=s_osm_id if s_osm_id > 0 else None)
+            street_id = ingestor.get_or_create_empty_street(city_place_id, reg_place_id)
+            if street_id:
+                ingestor.add_house(street_id, "", s_lat, s_lon)
+                known_places.setdefault(s_key, []).append((s_lat, s_lon))
+                added_centroids += 1
+
         ingestor.flush()
         pass_added += count_in_region
-        if count_in_region > 0:
-            log_fn(f"  + {reg_name}: збережено {count_in_region:,} адрес за {time.time()-t0:.2f}с")
+        if count_in_region > 0 or added_centroids > 0:
+            log_fn(f"  + {reg_name}: збережено {count_in_region:,} адрес, додано {added_centroids:,} безвуличних поселень за {time.time()-t0:.2f}с")
         else:
             log_fn(f"  [i] {reg_name}: адресних точок у OSM не знайдено.")
 
