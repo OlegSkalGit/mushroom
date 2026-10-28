@@ -651,7 +651,7 @@ object ItemEditDialog {
                         listsContainer.addView(row)
                     }
 
-                    // 0. Combined nearest items within 50 meters (up to 15 items)
+                    // 0. Combined nearest items within 200 meters (up to 15 items)
                     class NearbyItem(
                         val icon: String,
                         val title: String,
@@ -659,9 +659,10 @@ object ItemEditDialog {
                         val dist: Float,
                         val onClick: () -> Unit
                     )
+                    val maxNearbyDist = 200.0f
                     val nearbyList = mutableListOf<NearbyItem>()
 
-                    if (info.settlementName.isNotBlank() && info.settlementDistanceMeters != null && info.settlementDistanceMeters <= 50.0f) {
+                    if (info.settlementName.isNotBlank() && info.settlementDistanceMeters != null && info.settlementDistanceMeters <= maxNearbyDist) {
                         val sub = listOf(info.districtName, info.regionName).filter { it.isNotBlank() }.joinToString(", ")
                         nearbyList.add(NearbyItem("🏙️", info.settlementName, sub, info.settlementDistanceMeters) {
                             onItemSelected(
@@ -674,7 +675,7 @@ object ItemEditDialog {
                     }
 
                     for ((st, dist) in info.nearestStreets) {
-                        if (dist <= 50.0f) {
+                        if (dist <= maxNearbyDist) {
                             val title = st.streetName.ifBlank { st.cityName }
                             val sub = listOf(st.cityName, st.regionName).filter { it.isNotBlank() }.joinToString(", ")
                             nearbyList.add(NearbyItem("🛣️", title, sub, dist) {
@@ -689,7 +690,7 @@ object ItemEditDialog {
                     }
 
                     for ((addr, dist) in info.nearestAddresses) {
-                        if (dist <= 50.0f) {
+                        if (dist <= maxNearbyDist) {
                             val streetPart = listOf(addr.streetName.ifBlank { addr.cityName }, addr.houseNumber).filter { it.isNotBlank() }.joinToString(", ")
                             val title = streetPart.ifBlank { addr.cityName }
                             val sub = listOf(addr.cityName, addr.regionName).filter { it.isNotBlank() }.joinToString(", ")
@@ -705,7 +706,7 @@ object ItemEditDialog {
                     }
 
                     for ((poi, dist) in info.nearestPois) {
-                        if (dist <= 50.0f) {
+                        if (dist <= maxNearbyDist) {
                             val title = poi.poiName ?: poi.getFullTitle()
                             val loc = listOf(
                                 listOf(poi.streetName, poi.houseNumber).filter { it.isNotBlank() }.joinToString(", "),
@@ -732,7 +733,7 @@ object ItemEditDialog {
 
                     if (topNearby.isNotEmpty()) {
                         val nearbyHeader = TextView(activity).apply {
-                            text = if (isUk) "🎯 Найближчі (до 50 м):" else "🎯 Nearest (within 50 m):"
+                            text = if (isUk) "🎯 Найближчі (до 200 м):" else "🎯 Nearest (within 200 m):"
                             setTextColor(Color.parseColor("#4CAF50"))
                             textSize = 14f
                             setTypeface(null, Typeface.BOLD)
