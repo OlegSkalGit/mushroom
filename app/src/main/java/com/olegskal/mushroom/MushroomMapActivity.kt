@@ -85,6 +85,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private var rotationVectorSensor: Sensor? = null
     private var accelSensor: Sensor? = null
     private var magSensor: Sensor? = null
+    val hasDirectionSensors: Boolean
+        get() = rotationVectorSensor != null || (accelSensor != null && magSensor != null)
 
     private val rotMatrix = FloatArray(9)
     private val orientAngles = FloatArray(3)
@@ -188,6 +190,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         val initialLoc = LocationUtils.getLastKnownLocationCascade(this)
         if (initialLoc != null) {
             mapView.currentLocation = initialLoc
+            if (!hasDirectionSensors && initialLoc.hasBearing()) {
+                mapView.setCompassHeading(initialLoc.bearing)
+            }
             if (isFollowLocation) {
                 mapView.setCenter(initialLoc.latitude, initialLoc.longitude)
             }
@@ -3565,7 +3570,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
 
         fun getUserHeading(): Float? {
+            val loc = currentLocation
             return compassHeading
+                ?: if (loc?.hasBearing() == true && loc.speed > 0.5f) loc.bearing
+                else if (trajectoryBearing != 0f) trajectoryBearing
+                else null
         }
 
         private var isHeadingTrackingActive = false
@@ -3674,6 +3683,21 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
             currentLocation = metrics.location
             trajectoryBearing = metrics.trajectoryBearing
+
+            // If the device has no hardware direction sensors (compass), fallback to GPS heading
+            if (!hasDirectionSensors) {
+                val gpsHeading = if (metrics.location.hasBearing() && metrics.location.speed > 0.5f) {
+                    metrics.location.bearing
+                } else if (metrics.trajectoryBearing != 0f) {
+                    metrics.trajectoryBearing
+                } else if (metrics.compassHeading != 0f) {
+                    metrics.compassHeading
+                } else null
+
+                if (gpsHeading != null) {
+                    setCompassHeading(gpsHeading)
+                }
+            }
 
             if (isFollowLocation && locChanged) {
                 animateCenterTo(
