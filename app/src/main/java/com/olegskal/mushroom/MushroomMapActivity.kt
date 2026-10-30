@@ -2171,7 +2171,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         var diff = targetAzimuth - currentFilteredAzimuth
         while (diff < -180f) diff += 360f
         while (diff > 180f) diff -= 360f
-        currentFilteredAzimuth = (currentFilteredAzimuth + diff * 0.20f + 360f) % 360f
+        currentFilteredAzimuth = (currentFilteredAzimuth + diff * 0.20f) % 360f
+        if (currentFilteredAzimuth < 0f) currentFilteredAzimuth += 360f
 
         if (isFollowHeading) {
             // Auto-rotation active: update at ~30-60 FPS without 500ms dead pauses
@@ -3563,14 +3564,12 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         private var headingDeviationStartTime = 0L
         private var lastDeviationSign = 0
         private var lastTrackingStepTime = 0L
-        private var lockedTrackingDirection = 0
 
         fun resetHeadingTracking() {
             isHeadingTrackingActive = false
             headingDeviationStartTime = 0L
             lastDeviationSign = 0
             lastTrackingStepTime = 0L
-            lockedTrackingDirection = 0
         }
 
         fun setCompassHeading(az: Float) {
@@ -3580,8 +3579,12 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             compassHeading = az
             if (isFollowHeading) {
                 if (alignAnimator?.isRunning != true) {
-                    val userH = getUserHeading() ?: az
-                    var bDiff = userH - mapBearing
+                    val rawUserH = getUserHeading() ?: az
+                    val userH = (rawUserH % 360f + 360f) % 360f
+                    val curBearing = (mapBearing % 360f + 360f) % 360f
+
+                    // Always calculate the shortest signed path in [-180°, +180°] across 0°/360°
+                    var bDiff = userH - curBearing
                     while (bDiff < -180f) bDiff += 360f
                     while (bDiff > 180f) bDiff -= 360f
 
@@ -3598,7 +3601,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                                 isHeadingTrackingActive = true
                                 headingDeviationStartTime = 0L
                                 lastTrackingStepTime = now
-                                lockedTrackingDirection = sign
                             }
                         } else {
                             headingDeviationStartTime = 0L
@@ -3613,7 +3615,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                             headingDeviationStartTime = 0L
                             lastDeviationSign = 0
                             lastTrackingStepTime = 0L
-                            lockedTrackingDirection = 0
                             updateCompassButtonState(-mapBearing)
                             invalidate()
                         } else {
@@ -3624,23 +3625,17 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                             }
                             lastTrackingStepTime = now
 
-                            // Ensure rotation step stays in the intended direction (opposite to phone turn)
-                            // and never flips through the larger side even if user continues turning past 180 deg
-                            var targetDiff = bDiff
-                            if (lockedTrackingDirection == 1 && targetDiff < -0.3f) {
-                                targetDiff += 360f
-                            } else if (lockedTrackingDirection == -1 && targetDiff > 0.3f) {
-                                targetDiff -= 360f
-                            }
-
-                            // Smooth exponential ease-out step matching N / (2s)
+                            // Smooth exponential ease-out step along the shortest path
                             val stepFraction = (1f - kotlin.math.exp(-2.0f * dt).toFloat()).coerceIn(0.02f, 0.25f)
-                            var step = targetDiff * stepFraction
-                            if (kotlin.math.abs(step) > kotlin.math.abs(targetDiff)) {
-                                step = targetDiff
+                            var step = bDiff * stepFraction
+                            if (kotlin.math.abs(step) > absDiff) {
+                                step = bDiff
                             }
 
-                            mapBearing = (mapBearing + step + 360f) % 360f
+                            // Clean boundary crossing across 0° / 360°
+                            mapBearing = (curBearing + step) % 360f
+                            if (mapBearing < 0f) mapBearing += 360f
+
                             updateCompassButtonState(-mapBearing)
                             invalidate()
                         }
