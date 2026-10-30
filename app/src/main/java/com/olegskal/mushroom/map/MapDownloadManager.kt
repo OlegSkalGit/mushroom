@@ -453,6 +453,28 @@ object MapDownloadManager {
         return countries.firstOrNull { it.contains(lat, lon) }
     }
 
+    @Volatile
+    private var cachedDownloadedCountries: List<MapCountry>? = null
+    private var lastDownloadedCountriesCheckMs: Long = 0L
+
+    fun getDownloadedCountries(forceReload: Boolean = false): List<MapCountry> {
+        val now = System.currentTimeMillis()
+        val cached = cachedDownloadedCountries
+        if (!forceReload && cached != null && (now - lastDownloadedCountriesCheckMs < 5000L)) {
+            return cached
+        }
+        val mapsDirFiles = MushroomStorageManager.mapsDir.listFiles() ?: emptyArray()
+        val existingFiles = mapsDirFiles.filter { it.length() > 1024L }.map { it.name }.toSet()
+        val list = countries.filter { it.mapFileName in existingFiles }
+        cachedDownloadedCountries = list
+        lastDownloadedCountriesCheckMs = now
+        return list
+    }
+
+    fun invalidateDownloadedCountriesCache() {
+        cachedDownloadedCountries = null
+    }
+
     fun detectCurrentCountry(context: Context): MapCountry {
         val loc = com.olegskal.mushroom.util.LocationUtils.getLastKnownLocationCascade(context)
         if (loc != null) {

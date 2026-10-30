@@ -370,6 +370,7 @@ object OsmTileEngine {
             return
         }
         lastReloadTime = now
+        MapDownloadManager.invalidateDownloadedCountriesCache()
         initMapsforge(force = true)
         clearRamCache()
         onTileReadyListener?.invoke()

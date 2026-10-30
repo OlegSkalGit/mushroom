@@ -2423,6 +2423,22 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
         private val poiLabelRect = RectF()
 
+        private val countryCheckPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#4ADE80") // Салатовий (lime-green)
+            style = Paint.Style.STROKE
+            strokeWidth = 2.8f * resources.displayMetrics.density
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val countryCheckShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#E6000000") // Контрастна темна обвідка
+            style = Paint.Style.STROKE
+            strokeWidth = 5.2f * resources.displayMetrics.density
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val countryCheckPath = Path()
+
         fun calculateRulerTotalDistanceMeters(): Float {
             var total = 0f
             for (i in 1 until rulerPoints.size) {
@@ -3728,6 +3744,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
             canvas.restore()
 
+            // 5b. Draw downloaded country checkmark badge on zoom levels 2-3
+            if (zoomLevel < 4.0f) {
+                drawDownloadedCountryBadges(canvas)
+            }
+
             // 6. Draw Double-tap & Drag Visual Pivot Lever
             if (isDoubleTapDrag && hasDoubleTapMoved) {
                 canvas.drawLine(anchorX, anchorY, lastTouchX, lastTouchY, anchorLinePaint)
@@ -4266,6 +4287,28 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             canvas.drawCircle(0f, 0f, 14f, userRingPaint)
 
             canvas.restore()
+        }
+
+        private fun drawDownloadedCountryBadges(canvas: Canvas) {
+            val downloaded = MapDownloadManager.getDownloadedCountries()
+            if (downloaded.isEmpty()) return
+
+            val d = resources.displayMetrics.density
+            val pad = 30f * d
+            for (country in downloaded) {
+                val centerLat = (country.minLat + country.maxLat) / 2.0
+                val centerLon = (country.minLon + country.maxLon) / 2.0
+                val (sx, sy) = latLonToScreen(centerLat, centerLon)
+                if (sx < -pad || sx > width + pad || sy < -pad || sy > height + pad) continue
+
+                countryCheckPath.reset()
+                countryCheckPath.moveTo(sx - 6f * d, sy - 0.5f * d)
+                countryCheckPath.lineTo(sx - 1.5f * d, sy + 4.5f * d)
+                countryCheckPath.lineTo(sx + 6.5f * d, sy - 5.5f * d)
+
+                canvas.drawPath(countryCheckPath, countryCheckShadowPaint)
+                canvas.drawPath(countryCheckPath, countryCheckPaint)
+            }
         }
     }
 }
