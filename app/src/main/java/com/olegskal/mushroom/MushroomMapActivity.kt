@@ -94,6 +94,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private var hasMag = false
     private var currentFilteredAzimuth = 0f
     private var lastCompassUiTime = 0L
+    private var isFirstCompassSample = true
 
     private var currentMetrics: ProcessedLocationMetrics? = null
     var isFollowLocation: Boolean = true
@@ -2049,6 +2050,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             else runOnUiThread { updateLiveStats(); mapView.reloadTracks() }
         }
 
+        isFirstCompassSample = true
         updateCompassButtonState()
 
         // Register hardware orientation sensors for instant, real-time compass
@@ -2167,6 +2169,15 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private fun onCompassAzimuthChanged(targetAzimuth: Float) {
         val now = SystemClock.uptimeMillis()
 
+        // First compass event: initialize immediately without filtering or delay
+        if (isFirstCompassSample || mapView.compassHeading == null) {
+            isFirstCompassSample = false
+            currentFilteredAzimuth = targetAzimuth
+            lastCompassUiTime = now
+            mapView.setCompassHeading(targetAzimuth)
+            return
+        }
+
         // 80/20 EMA filter: smooth, zero-latency, no vector cancellation
         var diff = targetAzimuth - currentFilteredAzimuth
         while (diff < -180f) diff += 360f
@@ -2182,7 +2193,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             }
         } else {
             // Map static: throttle compass arrow to 500ms and 5° deadband to eliminate stationary micro-drift
-            var bDiff = kotlin.math.abs(currentFilteredAzimuth - (mapView.compassHeading ?: -999f))
+            val lastHeading = mapView.compassHeading ?: currentFilteredAzimuth
+            var bDiff = kotlin.math.abs(currentFilteredAzimuth - lastHeading)
             if (bDiff > 180f) bDiff = 360f - bDiff
             if (bDiff >= 5.0f && now - lastCompassUiTime >= 500L) {
                 lastCompassUiTime = now
@@ -3553,11 +3565,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
 
         fun getUserHeading(): Float? {
-            val loc = currentLocation
             return compassHeading
-                ?: if (loc?.hasBearing() == true && loc.speed > 0.5f) loc.bearing
-                else if (trajectoryBearing != 0f) trajectoryBearing
-                else null
         }
 
         private var isHeadingTrackingActive = false
@@ -3573,7 +3581,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
 
         fun setCompassHeading(az: Float) {
-            val prev = compassHeading ?: -999f
+            val isFirst = (compassHeading == null)
+            val prev = compassHeading ?: az
             var diff = kotlin.math.abs(az - prev)
             if (diff > 180f) diff = 360f - diff
             compassHeading = az
@@ -3583,65 +3592,71 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     val userH = (rawUserH % 360f + 360f) % 360f
                     val curBearing = (mapBearing % 360f + 360f) % 360f
 
-                    // Always calculate the shortest signed path in [-180°, +180°] across 0°/360°
-                    var bDiff = userH - curBearing
-                    while (bDiff < -180f) bDiff += 360f
-                    while (bDiff > 180f) bDiff -= 360f
+                    if (isFirst) {
+                        mapBearing = userH
+                        updateCompassButtonState(-mapBearing)
+                        invalidate()
+                    } else {
+                        // Always calculate the shortest signed path in [-180°, +180°] across 0°/360°
+                        var bDiff = userH - curBearing
+                        while (bDiff < -180f) bDiff += 360f
+                        while (bDiff > 180f) bDiff -= 360f
 
-                    val absDiff = kotlin.math.abs(bDiff)
-                    val now = SystemClock.uptimeMillis()
+                        val absDiff = kotlin.math.abs(bDiff)
+                        val now = SystemClock.uptimeMillis()
 
-                    if (!isHeadingTrackingActive) {
-                        if (absDiff >= 10.0f) {
-                            val sign = if (bDiff >= 0f) 1 else -1
-                            if (headingDeviationStartTime == 0L || sign != lastDeviationSign) {
-                                headingDeviationStartTime = now
-                                lastDeviationSign = sign
-                            } else if (now - headingDeviationStartTime >= 1000L) {
-                                isHeadingTrackingActive = true
-                                headingDeviationStartTime = 0L
-                                lastTrackingStepTime = now
-                            }
-                        } else {
-                            headingDeviationStartTime = 0L
-                            lastDeviationSign = 0
-                        }
-                    }
-
-                    if (isHeadingTrackingActive) {
-                        if (absDiff < 0.3f) {
-                            mapBearing = userH
-                            isHeadingTrackingActive = false
-                            headingDeviationStartTime = 0L
-                            lastDeviationSign = 0
-                            lastTrackingStepTime = 0L
-                            updateCompassButtonState(-mapBearing)
-                            invalidate()
-                        } else {
-                            val dt = if (lastTrackingStepTime > 0L) {
-                                ((now - lastTrackingStepTime) / 1000f).coerceIn(0.01f, 0.1f)
+                        if (!isHeadingTrackingActive) {
+                            if (absDiff >= 10.0f) {
+                                val sign = if (bDiff >= 0f) 1 else -1
+                                if (headingDeviationStartTime == 0L || sign != lastDeviationSign) {
+                                    headingDeviationStartTime = now
+                                    lastDeviationSign = sign
+                                } else if (now - headingDeviationStartTime >= 1000L) {
+                                    isHeadingTrackingActive = true
+                                    headingDeviationStartTime = 0L
+                                    lastTrackingStepTime = now
+                                }
                             } else {
-                                0.033f
+                                headingDeviationStartTime = 0L
+                                lastDeviationSign = 0
                             }
-                            lastTrackingStepTime = now
+                        }
 
-                            // Smooth exponential ease-out step along the shortest path
-                            val stepFraction = (1f - kotlin.math.exp(-2.0f * dt).toFloat()).coerceIn(0.02f, 0.25f)
-                            var step = bDiff * stepFraction
-                            if (kotlin.math.abs(step) > absDiff) {
-                                step = bDiff
+                        if (isHeadingTrackingActive) {
+                            if (absDiff < 0.3f) {
+                                mapBearing = userH
+                                isHeadingTrackingActive = false
+                                headingDeviationStartTime = 0L
+                                lastDeviationSign = 0
+                                lastTrackingStepTime = 0L
+                                updateCompassButtonState(-mapBearing)
+                                invalidate()
+                            } else {
+                                val dt = if (lastTrackingStepTime > 0L) {
+                                    ((now - lastTrackingStepTime) / 1000f).coerceIn(0.01f, 0.1f)
+                                } else {
+                                    0.033f
+                                }
+                                lastTrackingStepTime = now
+
+                                // Smooth exponential ease-out step along the shortest path
+                                val stepFraction = (1f - kotlin.math.exp(-2.0f * dt).toFloat()).coerceIn(0.02f, 0.25f)
+                                var step = bDiff * stepFraction
+                                if (kotlin.math.abs(step) > absDiff) {
+                                    step = bDiff
+                                }
+
+                                // Clean boundary crossing across 0° / 360°
+                                mapBearing = (curBearing + step) % 360f
+                                if (mapBearing < 0f) mapBearing += 360f
+
+                                updateCompassButtonState(-mapBearing)
+                                invalidate()
                             }
-
-                            // Clean boundary crossing across 0° / 360°
-                            mapBearing = (curBearing + step) % 360f
-                            if (mapBearing < 0f) mapBearing += 360f
-
-                            updateCompassButtonState(-mapBearing)
-                            invalidate()
                         }
                     }
                 }
-            } else if (diff >= 5.0f) {
+            } else if (isFirst || diff >= 5.0f) {
                 invalidate()
             }
         }
@@ -3656,13 +3671,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
             val locChanged = currentLocation?.latitude != metrics.location.latitude ||
                     currentLocation?.longitude != metrics.location.longitude
-            val headingDiff = kotlin.math.abs((compassHeading ?: -999f) - metrics.compassHeading)
-            val trajectoryDiff = kotlin.math.abs(trajectoryBearing - metrics.trajectoryBearing)
 
             currentLocation = metrics.location
-            if (compassHeading == null && metrics.compassHeading != 0f) {
-                compassHeading = metrics.compassHeading
-            }
             trajectoryBearing = metrics.trajectoryBearing
 
             if (isFollowLocation && locChanged) {
@@ -3674,21 +3684,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     useDecelerate = false
                 )
             }
-            if (isFollowHeading && alignAnimator?.isRunning != true && compassHeading == null) {
-                val userH = getUserHeading() ?: metrics.compassHeading
-                var bDiff = userH - mapBearing
-                while (bDiff < -180f) bDiff += 360f
-                while (bDiff > 180f) bDiff -= 360f
-                if (kotlin.math.abs(bDiff) >= 3.0f) {
-                    animateBearingTo(
-                        userH,
-                        durationMs = panDuration,
-                        saveOnEnd = false,
-                        useDecelerate = false
-                    )
-                }
-            }
-            if (locChanged || headingDiff >= 5.0f || trajectoryDiff >= 5.0f) {
+            if (locChanged) {
                 if (centerAnimator?.isRunning != true && alignAnimator?.isRunning != true) {
                     invalidate()
                 }
