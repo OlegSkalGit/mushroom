@@ -97,6 +97,8 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private var currentFilteredAzimuth = 0f
     private var lastCompassUiTime = 0L
     private var isFirstCompassSample = true
+    private var lastValidCompassAzimuth = 0f
+    private var lastValidCompassTime = 0L
 
     private var currentMetrics: ProcessedLocationMetrics? = null
     var isFollowLocation: Boolean = true
@@ -2177,11 +2179,28 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         // First compass event: initialize immediately without filtering or delay
         if (isFirstCompassSample || mapView.compassHeading == null) {
             isFirstCompassSample = false
+            lastValidCompassTime = now
+            lastValidCompassAzimuth = targetAzimuth
             currentFilteredAzimuth = targetAzimuth
             lastCompassUiTime = now
             mapView.setCompassHeading(targetAzimuth)
             return
         }
+
+        // Cut off impossible angular speed spikes (> 360 deg/sec) relative to last valid point
+        val dt = ((now - lastValidCompassTime) / 1000f).coerceAtLeast(0.001f)
+        var diffFromLast = kotlin.math.abs(targetAzimuth - lastValidCompassAzimuth)
+        if (diffFromLast > 180f) diffFromLast = 360f - diffFromLast
+
+        // Allow micro-jitter <= 5° unconditionally to prevent queue burst false rejects
+        if (diffFromLast > 5.0f && (diffFromLast / dt) > 360f) {
+            // Drop anomaly spike: do NOT update lastValidCompassTime or lastValidCompassAzimuth
+            return
+        }
+
+        // Valid point: update last valid reference
+        lastValidCompassTime = now
+        lastValidCompassAzimuth = targetAzimuth
 
         // 80/20 EMA filter: smooth, zero-latency, no vector cancellation
         var diff = targetAzimuth - currentFilteredAzimuth
