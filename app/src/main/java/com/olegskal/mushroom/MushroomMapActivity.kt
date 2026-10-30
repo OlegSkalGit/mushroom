@@ -94,9 +94,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private var hasMag = false
     private var currentFilteredAzimuth = 0f
     private var lastCompassUiTime = 0L
-    private val compassRingBuffer = FloatArray(10)
-    private var compassRingIndex = 0
-    private var compassRingCount = 0
 
     private var currentMetrics: ProcessedLocationMetrics? = null
     var isFollowLocation: Boolean = true
@@ -2054,9 +2051,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
         updateCompassButtonState()
 
-        compassRingIndex = 0
-        compassRingCount = 0
-
         // Register hardware orientation sensors for instant, real-time compass
         if (rotationVectorSensor != null) {
             sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_UI)
@@ -2173,22 +2167,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     private fun onCompassAzimuthChanged(targetAzimuth: Float) {
         val now = SystemClock.uptimeMillis()
 
-        // Push into circular buffer of 10 samples
-        compassRingBuffer[compassRingIndex] = targetAzimuth
-        compassRingIndex = (compassRingIndex + 1) % 10
-        if (compassRingCount < 10) compassRingCount++
-
-        // Vector average via sin/cos across buffer to cleanly handle 0°/360° wrapping
-        var sumSin = 0.0
-        var sumCos = 0.0
-        for (i in 0 until compassRingCount) {
-            val rad = Math.toRadians(compassRingBuffer[i].toDouble())
-            sumSin += kotlin.math.sin(rad)
-            sumCos += kotlin.math.cos(rad)
-        }
-        var avgDeg = Math.toDegrees(kotlin.math.atan2(sumSin, sumCos)).toFloat()
-        if (avgDeg < 0f) avgDeg += 360f
-        currentFilteredAzimuth = avgDeg
+        // 80/20 EMA filter: smooth, zero-latency, no vector cancellation
+        var diff = targetAzimuth - currentFilteredAzimuth
+        while (diff < -180f) diff += 360f
+        while (diff > 180f) diff -= 360f
+        currentFilteredAzimuth = (currentFilteredAzimuth + diff * 0.20f + 360f) % 360f
 
         if (isFollowHeading) {
             // Auto-rotation active: update at ~30-60 FPS without 500ms dead pauses
@@ -3580,12 +3563,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         private var headingDeviationStartTime = 0L
         private var lastDeviationSign = 0
         private var lastTrackingStepTime = 0L
+        private var lockedTrackingDirection = 0
 
         fun resetHeadingTracking() {
             isHeadingTrackingActive = false
             headingDeviationStartTime = 0L
             lastDeviationSign = 0
             lastTrackingStepTime = 0L
+            lockedTrackingDirection = 0
         }
 
         fun setCompassHeading(az: Float) {
@@ -3613,6 +3598,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                                 isHeadingTrackingActive = true
                                 headingDeviationStartTime = 0L
                                 lastTrackingStepTime = now
+                                lockedTrackingDirection = sign
                             }
                         } else {
                             headingDeviationStartTime = 0L
@@ -3621,12 +3607,13 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                     }
 
                     if (isHeadingTrackingActive) {
-                        if (absDiff < 0.4f) {
+                        if (absDiff < 0.3f) {
                             mapBearing = userH
                             isHeadingTrackingActive = false
                             headingDeviationStartTime = 0L
                             lastDeviationSign = 0
                             lastTrackingStepTime = 0L
+                            lockedTrackingDirection = 0
                             updateCompassButtonState(-mapBearing)
                             invalidate()
                         } else {
@@ -3637,11 +3624,20 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                             }
                             lastTrackingStepTime = now
 
+                            // Ensure rotation step stays in the intended direction (opposite to phone turn)
+                            // and never flips through the larger side even if user continues turning past 180 deg
+                            var targetDiff = bDiff
+                            if (lockedTrackingDirection == 1 && targetDiff < -0.3f) {
+                                targetDiff += 360f
+                            } else if (lockedTrackingDirection == -1 && targetDiff > 0.3f) {
+                                targetDiff -= 360f
+                            }
+
                             // Smooth exponential ease-out step matching N / (2s)
                             val stepFraction = (1f - kotlin.math.exp(-2.0f * dt).toFloat()).coerceIn(0.02f, 0.25f)
-                            var step = bDiff * stepFraction
-                            if (kotlin.math.abs(step) > absDiff) {
-                                step = bDiff
+                            var step = targetDiff * stepFraction
+                            if (kotlin.math.abs(step) > kotlin.math.abs(targetDiff)) {
+                                step = targetDiff
                             }
 
                             mapBearing = (mapBearing + step + 360f) % 360f
