@@ -531,7 +531,7 @@ object InitialSetupDialog {
             ?: MapDownloadManager.getRemoteFileSize(country.poiUrl)
             ?: (if (country.code == "UA") 35_000_000L else 20_000_000L)
 
-        if (!poiFile.exists() || poiFile.length() < 1024L || countryMapNeedsUpdate) {
+        if (!poiFile.exists() || poiFile.length() < 1024L || countryMapNeedsUpdate || MapDownloadManager.isCountryPoiUpdateAvailable(country)) {
             list.add(
                 UpdateItem(
                     "poi_${country.code}",
@@ -1138,7 +1138,16 @@ object InitialSetupDialog {
                 }
             }
             item.id.startsWith("rd5_") -> {
-                // Segment ready
+                val seg = item.id.substringAfter("rd5_")
+                for (country in MapDownloadManager.countries) {
+                    if (country.getRd5Segments().contains(seg)) {
+                        MapDownloadManager.clearCountryUpdateCache(country.code)
+                        val anyRemaining = country.getRd5Segments().any { MapDownloadManager.checkRd5SegmentUpdate(it) }
+                        if (!anyRemaining) {
+                            MapDownloadManager.markCountryRd5UpToDate(country)
+                        }
+                    }
+                }
             }
             item.id.startsWith("addr_poi_") -> {
                 activity.runOnUiThread {

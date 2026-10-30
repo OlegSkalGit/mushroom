@@ -584,14 +584,24 @@ object MapDownloadManager {
         val now = System.currentTimeMillis()
         updateStatusCache["POI_${country.code}"] = Pair(now, false)
         val mapNeeds = updateStatusCache["MAP_${country.code}"]?.second ?: false
-        updateStatusCache[country.code] = Pair(now, mapNeeds)
+        val rd5Needs = updateStatusCache["RD5_${country.code}"]?.second ?: false
+        updateStatusCache[country.code] = Pair(now, mapNeeds || rd5Needs)
     }
 
     fun markCountryMapUpToDate(country: MapCountry) {
         val now = System.currentTimeMillis()
         updateStatusCache["MAP_${country.code}"] = Pair(now, false)
         val poiNeeds = updateStatusCache["POI_${country.code}"]?.second ?: false
-        updateStatusCache[country.code] = Pair(now, poiNeeds)
+        val rd5Needs = updateStatusCache["RD5_${country.code}"]?.second ?: false
+        updateStatusCache[country.code] = Pair(now, poiNeeds || rd5Needs)
+    }
+
+    fun markCountryRd5UpToDate(country: MapCountry) {
+        val now = System.currentTimeMillis()
+        updateStatusCache["RD5_${country.code}"] = Pair(now, false)
+        val mapNeeds = updateStatusCache["MAP_${country.code}"]?.second ?: false
+        val poiNeeds = updateStatusCache["POI_${country.code}"]?.second ?: false
+        updateStatusCache[country.code] = Pair(now, mapNeeds || poiNeeds)
     }
 
     fun markCountryUpToDate(country: MapCountry) {
@@ -600,6 +610,17 @@ object MapDownloadManager {
         updateStatusCache["POI_${country.code}"] = Pair(now, false)
         updateStatusCache["RD5_${country.code}"] = Pair(now, false)
         updateStatusCache[country.code] = Pair(now, false)
+    }
+
+    fun clearCountryUpdateCache(countryCode: String? = null) {
+        if (countryCode != null) {
+            updateStatusCache.remove(countryCode)
+            updateStatusCache.remove("MAP_$countryCode")
+            updateStatusCache.remove("POI_$countryCode")
+            updateStatusCache.remove("RD5_$countryCode")
+        } else {
+            updateStatusCache.clear()
+        }
     }
 
     val brouterIndexCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Long>>() // name -> (dateMs, sizeBytes)
@@ -666,8 +687,8 @@ object MapDownloadManager {
         val baseMod = savedMeta?.first?.takeIf { it > 0L } ?: segFile.lastModified()
         val baseLen = savedMeta?.second?.takeIf { it > 0L } ?: fileLen
 
-        val isSizeChanged = serverSize > 0L && baseLen > 0L && serverSize != baseLen
-        val isNewer = serverMod > 0L && baseMod > 0L && serverMod > (baseMod + 86400_000L)
+        val isSizeChanged = serverSize > 0L && baseLen > 0L && abs(serverSize - baseLen) > 100L * 1024L
+        val isNewer = serverMod > 0L && baseMod > 0L && serverMod > (baseMod + 7L * 86400_000L)
 
         return isSizeChanged || isNewer
     }
