@@ -4,11 +4,33 @@ import android.content.Context
 import android.location.Location
 import android.location.LocationManager
 import android.os.Build
+import android.os.SystemClock
 
 /**
  * Unified utility functions for GPS and Location operations across the app.
  */
 object LocationUtils {
+
+    const val MAX_FRESH_LOCATION_AGE_MS = 60_000L
+    const val MAX_LIVE_FIX_AGE_MS = 20_000L
+
+    fun getLocationAgeMs(location: Location): Long {
+        val elapsedNs = location.elapsedRealtimeNanos
+        if (elapsedNs > 0L) {
+            val ageMs = (SystemClock.elapsedRealtimeNanos() - elapsedNs) / 1_000_000L
+            if (ageMs >= -5_000L) return ageMs.coerceAtLeast(0L)
+        }
+        val nowMs = System.currentTimeMillis()
+        if (location.time > 0L) {
+            val ageMs = nowMs - location.time
+            if (ageMs >= -5_000L) return ageMs.coerceAtLeast(0L)
+        }
+        return Long.MAX_VALUE
+    }
+
+    fun isFreshLocation(location: Location?, maxAgeMs: Long = MAX_FRESH_LOCATION_AGE_MS): Boolean {
+        return location != null && getLocationAgeMs(location) <= maxAgeMs
+    }
 
     /**
      * Checks whether system GPS / location is disabled on the device.
@@ -35,23 +57,30 @@ object LocationUtils {
     }
 
     fun getUserLocation(context: Context): Location? {
-        return com.olegskal.mushroom.service.MushroomTrackingService.currentServiceLocation
-            ?: getLastKnownLocationCascade(context)
+        val serviceLoc = com.olegskal.mushroom.service.MushroomTrackingService.currentServiceLocation
+        if (isFreshLocation(serviceLoc)) return serviceLoc
+        return getLastKnownLocationCascade(context)
     }
 
     /**
-     * Attempts to retrieve the best available last known location across GPS, Network, and Passive providers.
+     * Attempts to retrieve the best available fresh last known location across providers.
      */
-    fun getLastKnownLocationCascade(context: Context): Location? {
+    fun getLastKnownLocationCascade(
+        context: Context,
+        maxAgeMs: Long = MAX_FRESH_LOCATION_AGE_MS
+    ): Location? {
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-        return getLastKnownLocationCascade(lm)
+        return getLastKnownLocationCascade(lm, maxAgeMs)
     }
 
     /**
-     * Attempts to retrieve the best available last known location across Fused, GPS, Network, and Passive providers.
-     * Evaluates freshness and accuracy to avoid returning stale fixes.
+     * Attempts to retrieve the best available fresh last known location across Fused, GPS, Network, and Passive providers.
+     * Returns null if no fix younger than maxAgeMs is available.
      */
-    fun getLastKnownLocationCascade(lm: LocationManager): Location? {
+    fun getLastKnownLocationCascade(
+        lm: LocationManager,
+        maxAgeMs: Long = MAX_FRESH_LOCATION_AGE_MS
+    ): Location? {
         return try {
             val providers = mutableListOf(
                 LocationManager.GPS_PROVIDER,
@@ -62,20 +91,11 @@ object LocationUtils {
                 providers.add(0, LocationManager.FUSED_PROVIDER)
             }
 
-            val list = providers.mapNotNull { p ->
+            val fresh = providers.mapNotNull { p ->
                 try { lm.getLastKnownLocation(p) } catch (_: Exception) { null }
-            }
-            if (list.isEmpty()) return null
+            }.filter { isFreshLocation(it, maxAgeMs) }
 
-            val now = System.currentTimeMillis()
-            // Fresh fixes (< 2 min): pick the most accurate
-            val fresh = list.filter { (now - it.time) < 120_000L }
-            if (fresh.isNotEmpty()) {
-                fresh.minByOrNull { if (it.hasAccuracy()) it.accuracy else 1000f }
-            } else {
-                // Otherwise pick the newest fix
-                list.maxByOrNull { it.time }
-            }
+            fresh.minByOrNull { if (it.hasAccuracy()) it.accuracy else 1000f }
         } catch (e: Exception) {
             null
         }

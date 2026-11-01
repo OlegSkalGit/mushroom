@@ -170,6 +170,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         com.olegskal.mushroom.mushrooms.MushroomClassifierTab.isWarningDismissed = false
         OsmTileEngine.appContext = applicationContext
+        MushroomTrackingService.isAppInForeground = true
         if (!MushroomTrackingService.isRunning) {
             val serviceIntent = Intent(this, MushroomTrackingService::class.java)
             ServiceUtils.startTrackingService(this, serviceIntent)
@@ -186,25 +187,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         dbHelper = DatabaseHelper(this)
         dbHelper.restoreDataFromExternalStorageIfDbEmpty()
 
-        val hasSavedLoc = AppPrefs.hasSavedMapLocation(this)
-        setFollowLocation(if (!hasSavedLoc) true else AppPrefs.getFollowUser(this))
+        setFollowLocation(false)
 
         val rootLayout = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#121212"))
         }
 
-        // Map View
+        // Map View (preserves saved position & zoom; user marker waits for fresh fix)
         mapView = MushroomMapView(this)
-        val initialLoc = LocationUtils.getLastKnownLocationCascade(this)
-        if (initialLoc != null) {
-            mapView.currentLocation = initialLoc
-            if (!hasDirectionSensors && initialLoc.hasBearing()) {
-                mapView.setCompassHeading(initialLoc.bearing)
-            }
-            if (isFollowLocation) {
-                mapView.setCenter(initialLoc.latitude, initialLoc.longitude)
-            }
-        }
         rootLayout.addView(mapView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -2082,10 +2072,15 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
 
         val cachedMetrics = MushroomTrackingService.lastMetrics
-        if (cachedMetrics != null) {
+        if (cachedMetrics != null &&
+            LocationUtils.isFreshLocation(cachedMetrics.location, LocationUtils.MAX_LIVE_FIX_AGE_MS)
+        ) {
             currentMetrics = cachedMetrics
             mapView.updateLocationMetrics(cachedMetrics)
         } else {
+            MushroomTrackingService.clearCachedLocation()
+            currentMetrics = null
+            mapView.clearCurrentLocation()
             MushroomTrackingService.instance?.requestSingleNetworkLocation()
         }
 
@@ -2126,6 +2121,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         if (::mapView.isInitialized && mapView.isRulerMode) {
             toggleRulerMode()
             return
+        }
+        setFollowLocation(false)
+        if (MushroomTrackingService.instance?.isRecording != true) {
+            MushroomTrackingService.clearCachedLocation()
+            currentMetrics = null
+            if (::mapView.isInitialized) {
+                mapView.clearCurrentLocation()
+            }
         }
         moveTaskToBack(true)
     }
@@ -3535,11 +3538,23 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             saveMapState()
         }
 
+        fun clearCurrentLocation() {
+            if (currentLocation != null || gps3PointsBuffer.isNotEmpty() || isGpsHeadingActive) {
+                currentLocation = null
+                gps3PointsBuffer.clear()
+                isGpsHeadingActive = false
+                gpsAverageHeading = null
+                gpsAverageSpeedKmh = 0f
+                invalidate()
+            }
+        }
+
         fun centerOnCurrentLocation() {
-            val loc = currentLocation ?: LocationUtils.getLastKnownLocationCascade(context)
+            val loc = currentLocation
             if (loc != null) {
-                currentLocation = loc
                 animateCenterTo(loc.latitude, loc.longitude, durationMs = 320L, saveOnEnd = true, useDecelerate = true)
+            } else {
+                MushroomTrackingService.instance?.requestSingleNetworkLocation()
             }
         }
 

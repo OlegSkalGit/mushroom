@@ -76,12 +76,26 @@ class MushroomTrackingService : Service(), LocationListener {
         @Volatile
         var lastMetrics: ProcessedLocationMetrics? = null
         @Volatile
+        private var lastDiscardedFixElapsedNs: Long = 0L
+        @Volatile
         var metricsListener: ((ProcessedLocationMetrics) -> Unit)? = null
         @Volatile
         var serviceStateListener: ((Boolean) -> Unit)? = null
 
         val currentServiceLocation: Location?
             get() = instance?.lastLocation ?: lastMetrics?.location
+
+        fun clearCachedLocation() {
+            val prevElapsedNs = maxOf(
+                instance?.lastLocation?.elapsedRealtimeNanos ?: 0L,
+                lastMetrics?.location?.elapsedRealtimeNanos ?: 0L
+            )
+            if (prevElapsedNs > lastDiscardedFixElapsedNs) {
+                lastDiscardedFixElapsedNs = prevElapsedNs
+            }
+            lastMetrics = null
+            instance?.resetCachedLocationState()
+        }
 
         fun ensureServiceAndNotification(context: Context) {
             try {
@@ -168,19 +182,12 @@ class MushroomTrackingService : Service(), LocationListener {
         AppLogger.log("TrackingService", "onCreate", true, "MushroomTrackingService started.")
     }
 
-    private fun fetchInitialLocationCascade() {
-        val now = System.currentTimeMillis()
-        val isCurrentGpsFresh = lastLocation != null &&
-                lastLocation?.provider == LocationManager.GPS_PROVIDER &&
-                (now - (lastLocation?.time ?: 0L)) < 30_000L
-        if (!isCurrentGpsFresh) {
-            val lastKnown = LocationUtils.getLastKnownLocationCascade(locationManager)
-            if (lastKnown != null) {
-                lastLocation = lastKnown
-                publishMetrics(lastKnown, 0f, isStationary = true)
-                hasUpdatedActiveNotification = true
-                updateNotification()
-            }
+    private fun resetCachedLocationState() {
+        lastLocation = null
+        trajectoryFilter = TrajectoryFilter()
+        hasUpdatedActiveNotification = false
+        if (isRunning) {
+            updateNotification()
         }
     }
 
@@ -270,20 +277,38 @@ class MushroomTrackingService : Service(), LocationListener {
 
     fun requestSingleNetworkLocation() {
         try {
-            fetchInitialLocationCascade()
-            val now = System.currentTimeMillis()
-            val hasFreshGps = lastLocation?.provider == LocationManager.GPS_PROVIDER &&
-                    (now - (lastLocation?.time ?: 0L)) < 30_000L
-            if (!hasFreshGps && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            val cur = lastLocation
+            val hasFreshGps = cur?.provider == LocationManager.GPS_PROVIDER &&
+                    LocationUtils.isFreshLocation(cur, LocationUtils.MAX_LIVE_FIX_AGE_MS)
+            if (hasFreshGps) return
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val providers = mutableListOf<String>()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                    locationManager.isProviderEnabled(LocationManager.FUSED_PROVIDER)
+                ) {
+                    providers.add(LocationManager.FUSED_PROVIDER)
+                }
+                if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    providers.add(LocationManager.NETWORK_PROVIDER)
+                }
+                if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    providers.add(LocationManager.GPS_PROVIDER)
+                }
+                for (p in providers) {
+                    try {
+                        locationManager.getCurrentLocation(p, null, mainExecutor) { loc ->
+                            if (loc != null) {
+                                onLocationChanged(loc)
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 val singleListener = object : LocationListener {
                     override fun onLocationChanged(loc: Location) {
                         try { locationManager.removeUpdates(this) } catch (_: Exception) {}
-                        val cur = lastLocation
-                        val curHasFreshGps = cur?.provider == LocationManager.GPS_PROVIDER &&
-                                (System.currentTimeMillis() - cur.time) < 30_000L
-                        if (!curHasFreshGps) {
-                            this@MushroomTrackingService.onLocationChanged(loc)
-                        }
+                        this@MushroomTrackingService.onLocationChanged(loc)
                     }
                     @Deprecated("Deprecated in Java")
                     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -413,13 +438,14 @@ class MushroomTrackingService : Service(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
+        if (!LocationUtils.isFreshLocation(location, LocationUtils.MAX_LIVE_FIX_AGE_MS)) return
+        if (location.elapsedRealtimeNanos > 0L && location.elapsedRealtimeNanos <= lastDiscardedFixElapsedNs) return
 
         val isGps = location.provider == LocationManager.GPS_PROVIDER
         val prev = lastLocation
-        val now = System.currentTimeMillis()
 
         // If incoming fix is non-GPS (Network/Fused), ignore if we already have a fresh GPS fix (< 15s)
-        if (!isGps && prev != null && prev.provider == LocationManager.GPS_PROVIDER && (now - prev.time) < 15_000L) {
+        if (!isGps && prev != null && prev.provider == LocationManager.GPS_PROVIDER && LocationUtils.isFreshLocation(prev, 15_000L)) {
             return
         }
 
@@ -600,6 +626,7 @@ class MushroomTrackingService : Service(), LocationListener {
             stopTrackRecording()
         }
         isRunning = false
+        clearCachedLocation()
         AppPrefs.setUserStopped(this, true)
         releaseWakeLock()
         try {
@@ -634,7 +661,9 @@ class MushroomTrackingService : Service(), LocationListener {
     override fun onProviderEnabled(provider: String) {
         AppLogger.log("TrackingService", "onProviderEnabled", true, "Provider enabled: $provider")
         registerGpsUpdates()
-        fetchInitialLocationCascade()
+        if (isAppInForeground) {
+            requestSingleNetworkLocation()
+        }
     }
 
     override fun onProviderDisabled(provider: String) {

@@ -219,7 +219,7 @@ object AppPrefs {
         }
     }
 
-    fun getFollowUser(context: Context): Boolean = getPrefs(context).getBoolean(KEY_FOLLOW_USER, true)
+    fun getFollowUser(context: Context): Boolean = getPrefs(context).getBoolean(KEY_FOLLOW_USER, false)
     fun setFollowUser(context: Context, follow: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_FOLLOW_USER, follow).apply()
     }
