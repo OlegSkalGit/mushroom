@@ -169,7 +169,11 @@ class MushroomTrackingService : Service(), LocationListener {
     }
 
     private fun fetchInitialLocationCascade() {
-        if (lastLocation == null || lastLocation?.provider != LocationManager.GPS_PROVIDER) {
+        val now = System.currentTimeMillis()
+        val isCurrentGpsFresh = lastLocation != null &&
+                lastLocation?.provider == LocationManager.GPS_PROVIDER &&
+                (now - (lastLocation?.time ?: 0L)) < 30_000L
+        if (!isCurrentGpsFresh) {
             val lastKnown = LocationUtils.getLastKnownLocationCascade(locationManager)
             if (lastKnown != null) {
                 lastLocation = lastKnown
@@ -201,31 +205,52 @@ class MushroomTrackingService : Service(), LocationListener {
             locationManager.removeUpdates(this)
             isGpsRegistered = false
 
-            if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                AppLogger.log("TrackingService", "updateGpsState", false, "GPS provider disabled.")
-                return
-            }
-
             if (isAppInForeground) {
-                // Foreground / Screen active: 1s, 0m
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    GPS_FOREGROUND_INTERVAL_MS,
-                    GPS_FOREGROUND_MIN_DIST,
-                    this
-                )
-                isGpsRegistered = true
-                AppLogger.log("TrackingService", "updateGpsState", true, "GPS set to FOREGROUND (1s, 0m).")
+                // Foreground / Screen active: GPS + Network + Fused for immediate fix (< 1s)
+                if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locationManager.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        GPS_FOREGROUND_INTERVAL_MS,
+                        GPS_FOREGROUND_MIN_DIST,
+                        this
+                    )
+                    isGpsRegistered = true
+                }
+                if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    try {
+                        locationManager.requestLocationUpdates(
+                            LocationManager.NETWORK_PROVIDER,
+                            1000L,
+                            0f,
+                            this
+                        )
+                    } catch (_: Exception) {}
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                    locationManager.isProviderEnabled(LocationManager.FUSED_PROVIDER)
+                ) {
+                    try {
+                        locationManager.requestLocationUpdates(
+                            LocationManager.FUSED_PROVIDER,
+                            1000L,
+                            0f,
+                            this
+                        )
+                    } catch (_: Exception) {}
+                }
+                AppLogger.log("TrackingService", "updateGpsState", true, "Location providers registered for FOREGROUND.")
             } else if (isRecording) {
-                // Background & Recording: 5s, 15m
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    GPS_BACKGROUND_INTERVAL_MS,
-                    GPS_BACKGROUND_MIN_DIST,
-                    this
-                )
-                isGpsRegistered = true
-                AppLogger.log("TrackingService", "updateGpsState", true, "GPS set to BACKGROUND RECORDING (5s, 15m).")
+                // Background & Recording: strictly satellite GPS for precision & battery
+                if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locationManager.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        GPS_BACKGROUND_INTERVAL_MS,
+                        GPS_BACKGROUND_MIN_DIST,
+                        this
+                    )
+                    isGpsRegistered = true
+                    AppLogger.log("TrackingService", "updateGpsState", true, "GPS set to BACKGROUND RECORDING (5s, 15m).")
+                }
             } else {
                 // Background & NOT recording: keep updates removed!
                 AppLogger.log("TrackingService", "updateGpsState", true, "GPS paused in background (not recording).")
@@ -246,28 +271,32 @@ class MushroomTrackingService : Service(), LocationListener {
     fun requestSingleNetworkLocation() {
         try {
             fetchInitialLocationCascade()
-            if (lastLocation == null || lastLocation?.provider != LocationManager.GPS_PROVIDER) {
-                if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                    val singleListener = object : LocationListener {
-                        override fun onLocationChanged(loc: Location) {
-                            try { locationManager.removeUpdates(this) } catch (_: Exception) {}
-                            if (lastLocation == null || lastLocation?.provider != LocationManager.GPS_PROVIDER) {
-                                this@MushroomTrackingService.onLocationChanged(loc)
-                            }
+            val now = System.currentTimeMillis()
+            val hasFreshGps = lastLocation?.provider == LocationManager.GPS_PROVIDER &&
+                    (now - (lastLocation?.time ?: 0L)) < 30_000L
+            if (!hasFreshGps && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                val singleListener = object : LocationListener {
+                    override fun onLocationChanged(loc: Location) {
+                        try { locationManager.removeUpdates(this) } catch (_: Exception) {}
+                        val cur = lastLocation
+                        val curHasFreshGps = cur?.provider == LocationManager.GPS_PROVIDER &&
+                                (System.currentTimeMillis() - cur.time) < 30_000L
+                        if (!curHasFreshGps) {
+                            this@MushroomTrackingService.onLocationChanged(loc)
                         }
-                        @Deprecated("Deprecated in Java")
-                        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-                        override fun onProviderEnabled(provider: String) {}
-                        override fun onProviderDisabled(provider: String) {}
                     }
-                    locationManager.requestLocationUpdates(
-                        LocationManager.NETWORK_PROVIDER,
-                        0L,
-                        0f,
-                        singleListener,
-                        mainLooper
-                    )
+                    @Deprecated("Deprecated in Java")
+                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                    override fun onProviderEnabled(provider: String) {}
+                    override fun onProviderDisabled(provider: String) {}
                 }
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    0L,
+                    0f,
+                    singleListener,
+                    mainLooper
+                )
             }
         } catch (_: Exception) {}
     }
@@ -384,6 +413,16 @@ class MushroomTrackingService : Service(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
+
+        val isGps = location.provider == LocationManager.GPS_PROVIDER
+        val prev = lastLocation
+        val now = System.currentTimeMillis()
+
+        // If incoming fix is non-GPS (Network/Fused), ignore if we already have a fresh GPS fix (< 15s)
+        if (!isGps && prev != null && prev.provider == LocationManager.GPS_PROVIDER && (now - prev.time) < 15_000L) {
+            return
+        }
+
         lastLocation = location
 
         if ((!hasUpdatedActiveNotification || isNotificationDismissed) && !isRecording) {
@@ -403,6 +442,8 @@ class MushroomTrackingService : Service(), LocationListener {
 
     private fun processTrackRecordingPoint(location: Location) {
         val track = activeTrack ?: return
+        // Do not record coarse network points into track
+        if (location.provider != LocationManager.GPS_PROVIDER && (!location.hasAccuracy() || location.accuracy > 20f)) return
         if (location.hasAccuracy() && location.accuracy > 35f) return
 
         val prev = lastRecordedPoint
