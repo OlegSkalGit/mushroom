@@ -122,7 +122,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             if (::mapView.isInitialized) {
                 mapView.cancelCenterAnimation()
             }
-            if (isFollowHeading) {
+            if (isFollowHeading && (!::mapView.isInitialized || mapView.currentLocation != null)) {
                 setFollowHeading(false)
             }
         }
@@ -138,10 +138,16 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         updateCompassButtonState()
     }
 
+    private fun isMapRotatedFromNorth(): Boolean {
+        if (!::mapView.isInitialized) return false
+        val normB = (mapView.mapBearing % 360f + 360f) % 360f
+        return normB > 0.5f && normB < 359.5f
+    }
+
     fun updateCompassButtonState(angle: Float = if (::mapView.isInitialized) -mapView.mapBearing else 0f) {
         if (!::compassButton.isInitialized || !::mapView.isInitialized) return
-        val isNotNorth = abs(mapView.mapBearing % 360f) > 0.5f
-        val isShifted = !isFollowLocation
+        val isNotNorth = isMapRotatedFromNorth()
+        val isShifted = mapView.currentLocation != null && !isFollowLocation
         val isDisplaced = isShifted || (isNotNorth && !isFollowHeading)
 
         val mode = when {
@@ -158,10 +164,35 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         isTileRedrawPending = false
         mapView.invalidate()
     }
+    private var lastLocationRefreshAttemptMs = 0L
     private val periodicRefreshRunnable = object : Runnable {
         override fun run() {
+            checkLocationAvailability()
             updateLiveStats()
             uiHandler.postDelayed(this, 1000L)
+        }
+    }
+
+    private fun checkLocationAvailability() {
+        if (!::mapView.isInitialized) return
+        val loc = mapView.currentLocation ?: return
+        if (LocationUtils.isLocationDisabled(this)) {
+            MushroomTrackingService.clearCachedLocation()
+            currentMetrics = null
+            mapView.clearCurrentLocation()
+            return
+        }
+        val ageMs = LocationUtils.getLocationAgeMs(loc)
+        if (ageMs > LocationUtils.MAX_FRESH_LOCATION_AGE_MS) {
+            MushroomTrackingService.clearCachedLocation()
+            currentMetrics = null
+            mapView.clearCurrentLocation()
+        } else if (ageMs > LocationUtils.MAX_LIVE_FIX_AGE_MS) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastLocationRefreshAttemptMs >= LocationUtils.MAX_LIVE_FIX_AGE_MS) {
+                lastLocationRefreshAttemptMs = now
+                MushroomTrackingService.instance?.requestSingleNetworkLocation()
+            }
         }
     }
 
@@ -651,8 +682,9 @@ class MushroomMapActivity : Activity(), SensorEventListener {
 
     private fun handleCompassClick() {
         val isUk = AppPrefs.isUk(this)
-        val isNotNorth = abs(mapView.mapBearing % 360f) > 0.5f
-        val isShifted = !isFollowLocation
+        val hasLoc = mapView.currentLocation != null
+        val isNotNorth = isMapRotatedFromNorth()
+        val isShifted = hasLoc && !isFollowLocation
         val isDisplacedOrRotated = isShifted || isNotNorth || isFollowHeading
 
         if (isDisplacedOrRotated) {
@@ -661,7 +693,11 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             setFollowLocation(true)
             mapView.centerOnCurrentLocation()
             updateCompassButtonState(0f)
-            val msg = if (isUk) "Карту вирівняно на північ та відцентровано" else "Map aligned to North & centered"
+            val msg = if (hasLoc) {
+                if (isUk) "Карту вирівняно на північ та відцентровано" else "Map aligned to North & centered"
+            } else {
+                if (isUk) "Карту вирівняно на північ" else "Map aligned to North"
+            }
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         } else {
             setFollowHeading(true)
@@ -2123,6 +2159,7 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             return
         }
         setFollowLocation(false)
+        setFollowHeading(false)
         if (MushroomTrackingService.instance?.isRecording != true) {
             MushroomTrackingService.clearCachedLocation()
             currentMetrics = null
@@ -2183,18 +2220,16 @@ class MushroomMapActivity : Activity(), SensorEventListener {
     }
 
     private fun getMagneticDeclination(): Float {
-        val loc = if (::mapView.isInitialized) mapView.currentLocation else null
-        return if (loc != null) {
-            try {
-                val geoField = android.hardware.GeomagneticField(
-                    loc.latitude.toFloat(),
-                    loc.longitude.toFloat(),
-                    loc.altitude.toFloat(),
-                    System.currentTimeMillis()
-                )
-                geoField.declination
-            } catch (_: Exception) { 0f }
-        } else 0f
+        if (!::mapView.isInitialized) return 0f
+        val loc = mapView.currentLocation
+        val lat = (loc?.latitude ?: mapView.mapCenterLat).toFloat()
+        val lon = (loc?.longitude ?: mapView.mapCenterLon).toFloat()
+        val alt = (loc?.altitude ?: 0.0).toFloat()
+        return try {
+            android.hardware.GeomagneticField(lat, lon, alt, System.currentTimeMillis()).declination
+        } catch (_: Exception) {
+            0f
+        }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -3071,7 +3106,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                                 val dy = event.y - lastTouchY
                                 if (abs(dx) > 0.5f || abs(dy) > 0.5f) {
                                     setFollowLocation(false)
-                                    setFollowHeading(false)
                                     panMap(dx, dy)
                                     lastTouchX = event.x
                                     lastTouchY = event.y
@@ -3324,7 +3358,6 @@ class MushroomMapActivity : Activity(), SensorEventListener {
                             val dy = event.y - lastTouchY
                             if (abs(dx) > 0.5f || abs(dy) > 0.5f) {
                                 setFollowLocation(false)
-                                setFollowHeading(false)
                                 panMap(dx, dy)
                                 lastTouchX = event.x
                                 lastTouchY = event.y
@@ -3539,12 +3572,14 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
 
         fun clearCurrentLocation() {
-            if (currentLocation != null || gps3PointsBuffer.isNotEmpty() || isGpsHeadingActive) {
+            if (currentLocation != null || gps3PointsBuffer.isNotEmpty() || isGpsHeadingActive || trajectoryBearing != 0f) {
                 currentLocation = null
+                trajectoryBearing = 0f
                 gps3PointsBuffer.clear()
                 isGpsHeadingActive = false
                 gpsAverageHeading = null
                 gpsAverageSpeedKmh = 0f
+                updateCompassButtonState()
                 invalidate()
             }
         }
@@ -3738,13 +3773,12 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             var diff = kotlin.math.abs(az - prev)
             if (diff > 180f) diff = 360f - diff
             compassHeading = az
-            if (isFollowHeading) {
-                if (alignAnimator?.isRunning != true) {
-                    val rawUserH = getUserHeading() ?: az
-                    val userH = (rawUserH % 360f + 360f) % 360f
-                    processHeadingTracking(userH, isFirst)
-                }
-            } else if (isFirst || diff >= 0.3f) {
+            if (isFollowHeading && alignAnimator?.isRunning != true) {
+                val rawUserH = getUserHeading() ?: az
+                val userH = (rawUserH % 360f + 360f) % 360f
+                processHeadingTracking(userH, isFirst)
+            }
+            if (isFirst || diff >= 0.3f) {
                 invalidate()
             }
         }
@@ -3757,11 +3791,19 @@ class MushroomMapActivity : Activity(), SensorEventListener {
             lastGpsLocationTime = now
             val panDuration = elapsed.coerceIn(850L, 1300L)
 
+            val wasNull = (currentLocation == null)
             val locChanged = currentLocation?.latitude != metrics.location.latitude ||
                     currentLocation?.longitude != metrics.location.longitude
 
             currentLocation = metrics.location
             trajectoryBearing = metrics.trajectoryBearing
+            if (wasNull) {
+                if (!isFollowLocation && isFollowHeading) {
+                    setFollowHeading(false)
+                } else {
+                    updateCompassButtonState()
+                }
+            }
 
             // GPS vs Compass switching with 3-point sliding buffer
             val loc = metrics.location
@@ -4385,21 +4427,25 @@ class MushroomMapActivity : Activity(), SensorEventListener {
         }
 
         private fun drawUserLocation(canvas: Canvas, cx: Float, cy: Float, baseZoom: Int, scale: Float) {
-            val loc = currentLocation ?: return
-            val targetLat = loc.latitude
-            val targetLon = loc.longitude
+            val loc = currentLocation
+            val sx: Float
+            val sy: Float
+            if (loc != null) {
+                val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
+                val wp = OsmTileEngine.latLonToWorldPixel(loc.latitude, loc.longitude, baseZoom)
+                sx = (wp.first - centerWorld.first + cx).toFloat()
+                sy = (wp.second - centerWorld.second + cy).toFloat()
 
-            val centerWorld = OsmTileEngine.latLonToWorldPixel(mapCenterLat, mapCenterLon, baseZoom)
-            val wp = OsmTileEngine.latLonToWorldPixel(targetLat, targetLon, baseZoom)
-            val sx = (wp.first - centerWorld.first + cx).toFloat()
-            val sy = (wp.second - centerWorld.second + cy).toFloat()
-
-            // Accuracy circle (scales with geographic terrain)
-            if (loc.hasAccuracy()) {
-                val metersPerPx = (156543.03392 * cos(Math.toRadians(loc.latitude))) / (1 shl baseZoom)
-                val accPx = (loc.accuracy / metersPerPx).toFloat()
-                canvas.drawCircle(sx, sy, accPx, accuracyPaint)
-                canvas.drawCircle(sx, sy, accPx, accuracyStrokePaint)
+                // Accuracy circle (scales with geographic terrain)
+                if (loc.hasAccuracy()) {
+                    val metersPerPx = (156543.03392 * cos(Math.toRadians(loc.latitude))) / (1 shl baseZoom)
+                    val accPx = (loc.accuracy / metersPerPx).toFloat()
+                    canvas.drawCircle(sx, sy, accPx, accuracyPaint)
+                    canvas.drawCircle(sx, sy, accPx, accuracyStrokePaint)
+                }
+            } else {
+                sx = cx
+                sy = cy
             }
 
             canvas.save()

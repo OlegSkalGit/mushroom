@@ -67,7 +67,7 @@ set "ANDROID_SDK_ROOT=!FOUND_SDK!"
 
 :: Auto-accept Android SDK licenses
 if not exist "!FOUND_SDK!\licenses" md "!FOUND_SDK!\licenses"
-powershell -Command "Set-Content -Path '!FOUND_SDK!\licenses\android-sdk-license' -Value '89330172541f4551b1178f38e95c3ee68e7d6999', '24333f8a63718c1552590efe79888997432559c9', 'd56f5187479451eabf01fb78af6dfcb131a6481e'" >nul 2>&1
+powershell -Command "Set-Content -Path '!FOUND_SDK!\licenses\android-sdk-license' -Value '89330172541f4551b1178f38e95c3ee68e7d6999', 'd56f5187479451eabf01fb78af6dfcb131a6481e', '24333f8a63b6825ea9c5514f83c2829b004d1fee'" >nul 2>&1
 powershell -Command "Set-Content -Path '!FOUND_SDK!\licenses\android-sdk-preview-license' -Value '84831b9409646a918e30573bab4c9c91346d8abd'" >nul 2>&1
 powershell -Command "Set-Content -Path '!FOUND_SDK!\licenses\intel-android-sysimage-license' -Value 'd9588965420b39818571765178210000a30e6649'" >nul 2>&1
 
@@ -94,8 +94,10 @@ if not exist "!FOUND_SDK!\platforms\android-34" (
     )
 
     if exist "!SDKMANAGER!" (
+        echo [3/4] Accepting Android SDK licenses...
+        powershell -Command "1..30 | ForEach-Object { 'y' } | & '!SDKMANAGER!' --sdk_root='!FOUND_SDK!' --licenses" >nul 2>&1
         echo [3/4] Downloading Android Platform 34 and Build-Tools 34.0.0...
-        (for /L %%i in (1,1,20) do @echo y) | "!SDKMANAGER!" --sdk_root="!FOUND_SDK!" "platforms;android-34" "build-tools;34.0.0" "platform-tools" >nul 2>&1
+        call "!SDKMANAGER!" --sdk_root="!FOUND_SDK!" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
     )
 )
 

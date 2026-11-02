@@ -56,6 +56,17 @@ object LocationUtils {
         }
     }
 
+    fun isLocationDisabled(context: Context): Boolean {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return true
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !lm.isLocationEnabled) return true
+            !lm.isProviderEnabled(LocationManager.GPS_PROVIDER) &&
+                !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun getUserLocation(context: Context): Location? {
         val serviceLoc = com.olegskal.mushroom.service.MushroomTrackingService.currentServiceLocation
         if (isFreshLocation(serviceLoc)) return serviceLoc
